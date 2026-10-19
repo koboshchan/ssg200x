@@ -4,10 +4,11 @@ const Markets=dynamic(()=>import("./finance-client").then(m=>m.Markets));
 const Blackjack=dynamic(()=>import("./blackjack-client"));
 const Roulette=dynamic(()=>import("./roulette-client"));
 import {SignInButton,UserButton,useUser} from "@clerk/nextjs";
+import LiveProvider,{useLive,useLiveEvent,ConnectionBadge} from "./live-provider";
 import MaintenanceGate from "./maintenance-gate";
 import HistoryProgress from "./history-progress";
-import {useState,useEffect,useRef,useContext} from "react";
-import {mergeRoom,settledNotices,LiveContext} from "@/lib/room-sync";
+import {useState,useEffect,useRef} from "react";
+import {mergeRoom,mergeMarket,settledNotices,type MarketSnapshot} from "@/lib/room-sync";
 import type {PublicRoom} from "@/lib/public";
 import type {Action} from "@/lib/types";
 const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:n%100===0?0:2}).format(n/100);
@@ -22,7 +23,7 @@ export default function RoomClient({configured}:{configured:boolean}){
 }
 function Authenticated(){
  const {isLoaded,isSignedIn}=useUser();
- return <Shell account={isSignedIn?<UserButton/>:undefined}>{!isLoaded?<p className="loading" role="status">Opening the room…</p>:isSignedIn?<MaintenanceGate><Game/></MaintenanceGate>:<Landing/>}</Shell>;
+ return <Shell account={isSignedIn?<UserButton/>:undefined}>{!isLoaded?<p className="loading" role="status">Opening the room…</p>:isSignedIn?<LiveProvider><MaintenanceGate><Game/></MaintenanceGate></LiveProvider>:<Landing/>}</Shell>;
 }
 function Shell({children,account}:{children:React.ReactNode;account?:React.ReactNode}){
  return <><header className="mast"><a className="wordmark" href="/" aria-label="ssg200x home">ssg200x</a><div className="header-right"><span className="private-label">Private table</span>{account}</div></header>{children}<footer><span>ssg200x</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span></footer></>;
@@ -76,23 +77,23 @@ function LimitsControls({room,busy,post}:{room:PublicRoom;busy:boolean;post:(pat
   {ask&&valid?<><span className="adjust-note" role="status">Set max trade {money(t*100)} and max leverage {l}x? Existing positions are not closed.</span><button className="primary" disabled={busy} onClick={async()=>{await post("/api/admin",{type:"limits",maxTrade:t,maxLeverage:l,requestId:crypto.randomUUID(),requestAt:Date.now()});setTrade("");setLev("");setAsk(false);}}>Confirm</button><button disabled={busy} onClick={()=>setAsk(false)}>Cancel</button></>:<button disabled={busy||!valid} onClick={()=>setAsk(true)}>Save limits</button>}</div></div></>;
 }
 function Game(){
- const [room,setRoom]=useState<PublicRoom|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState(false),[raise,setRaise]=useState("10"),[buyIn,setBuyIn]=useState("200"),[tab,setTab]=useState<"table"|"standings"|"access"|"markets"|"roulette"|"blackjack">("table"),[clock,setClock]=useState(Date.now());
+ const [room,setRoom]=useState<PublicRoom|null>(null),[error,setError]=useState(""),[busyState,setBusy]=useState(false),[raise,setRaise]=useState("10"),[buyIn,setBuyIn]=useState("200"),[tab,setTab]=useState<"table"|"standings"|"access"|"markets"|"roulette"|"blackjack">("table"),[clock,setClock]=useState(Date.now());
  const [marketNotice,setMarketNotice]=useState("");
  const seenActivity=useRef<Set<string>|null>(null);
  useEffect(()=>{if(!room)return;const settled=settledNotices(room.activity||[]);if(!seenActivity.current){seenActivity.current=new Set(settled.map(s=>s.id));return;}const fresh=settled.filter(s=>!seenActivity.current!.has(s.id));for(const s of settled)seenActivity.current.add(s.id);if(fresh.length)setMarketNotice(fresh.reverse().map(s=>s.text).join(". "));},[room?.activity]);
- const busyRef=useRef(false);
- const live=useContext(LiveContext);
+ const {connection}=useLive();
+ const busyRef=useRef(false),busy=busyState||connection!=="connected";
  useEffect(()=>{
   const controller=new AbortController();
   fetch("/api/room",{cache:"no-store",signal:controller.signal}).then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error);setRoom(current=>mergeRoom(current,data as PublicRoom));}).catch(e=>{if(!controller.signal.aborted)setError(e instanceof Error?e.message:"Connection lost.");});
   return()=>controller.abort();
  },[]);
- const liveRoom=live?.room;
- useEffect(()=>{if(liveRoom){setRoom(current=>mergeRoom(current,liveRoom));setError("");}},[liveRoom]);
+ useLiveEvent("room:state",(payload:PublicRoom)=>{if(payload&&typeof payload.version==="number"){setRoom(current=>mergeRoom(current,payload));setError("");}});
+ useLiveEvent("market:update",(payload:MarketSnapshot)=>{setRoom(current=>mergeMarket(current,payload));});
  useEffect(()=>{const t=setInterval(()=>setClock(Date.now()),1000);return()=>clearInterval(t);},[]);
  useEffect(()=>{if(room?.legal)setRaise(String(room.legal.minTo/100));},[room?.handNumber,room?.street,room?.legal?.minTo]);
  async function post(path:string,body:object){
-  if(busyRef.current)return;busyRef.current=true;setBusy(true);setError("");
+  if(busyRef.current)return;if(connection!=="connected"){setError("Disconnected. Wait for the connection to return.");return;}busyRef.current=true;setBusy(true);setError("");
   try{const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,requestAt:Date.now()})});const data=await response.json();if(!response.ok)throw new Error(data.error);setRoom(current=>mergeRoom(current,data));}
   catch(e){setError(e instanceof Error?e.message:"Could not complete action.");}
   finally{busyRef.current=false;setBusy(false);}
@@ -108,7 +109,8 @@ function Game(){
  const canReady=room.street==="waiting"&&mySeat&&!mySeat.ready;
  const canCashOut=mySeat&&!mySeat.ready&&!(mySeat.inHand&&room.street!=="waiting"&&room.street!=="showdown");
  return <main className="game-main">{me.admin?<HistoryProgress/>:null}<section className="game-top"><div><h1>{"Good to see you, "+me.name+"."}</h1><p>No-limit hold’em · Six seats · $1 / $2 / $5</p></div><div className="wallet"><span>Wallet</span><strong>{money(me.wallet)}</strong><small>+ {money(mySeat?.stack||0)} at the table</small></div></section>
- <div className="tabs" role="tablist" aria-label="Room views" onKeyDown={tabKeys}>{tabList.map(t=><button key={t} id={"tab-"+t} role="tab" aria-selected={tab===t} aria-controls="panel" tabIndex={tab===t?0:-1} onClick={()=>setTab(t as typeof tab)}>{t==="table"?"Table":t==="standings"?"Standings":t==="markets"?"Markets":t==="roulette"?"Roulette":t==="blackjack"?"Blackjack":"Guest list"}</button>)}<span className="connection"><span className="status-dot"/> {live&&!live.connected?"RECONNECTING":"LIVE ROOM"}</span></div>
+ <div className="tabs" role="tablist" aria-label="Room views" onKeyDown={tabKeys}>{tabList.map(t=><button key={t} id={"tab-"+t} role="tab" aria-selected={tab===t} aria-controls="panel" tabIndex={tab===t?0:-1} onClick={()=>setTab(t as typeof tab)}>{t==="table"?"Table":t==="standings"?"Standings":t==="markets"?"Markets":t==="roulette"?"Roulette":t==="blackjack"?"Blackjack":"Guest list"}</button>)}<span className="connection"><span className="status-dot"/> LIVE ROOM</span></div>
+ <ConnectionBadge/>
  {marketNotice?<div className="winner-note" role="status" aria-live="polite">{marketNotice}<button aria-label="Dismiss market notice" onClick={()=>setMarketNotice("")}>×</button></div>:null}
  {error?<div className="error" role="alert">{error}<button aria-label="Dismiss error" onClick={()=>setError("")}>×</button></div>:null}
  <div role="tabpanel" id="panel" aria-labelledby={"tab-"+tab}>
