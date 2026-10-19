@@ -1,80 +1,182 @@
 # ssg200x
 
-A private, web-only play-money room. Google sign-in through Clerk, invitation-only sign-up, and one shared $1,000 starting bankroll. No deposits, withdrawals, real-money trades, or cash prizes.
+[![Docker image](https://github.com/koboshchan/ssg200x/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/koboshchan/ssg200x/actions/workflows/docker-publish.yml)
 
-## What’s included
+A private, web-only room for poker, blackjack, roulette and crypto paper trading. Each player starts with $1,000 in shared play money. Google sign-in and invitations are managed through Clerk.
 
-Six-seat multiplayer no-limit hold’em. Players choose a seat and buy in with $100–$1,000 from their wallet. A hand starts only when every seated player has pressed Ready, with at least two players. Ready is one-way; a five-minute server deadline from the first Ready resets all readiness if everyone is not ready in time. Each hand requires fresh readiness. Heads-up is $1/$2; three or more players add a live $5 UTG straddle. Server-shuffled cards, side pots, split pots, short all-ins, turn timeouts, and atomic cashouts are handled server-side. Players can return their stack to their wallet while not ready and outside an active hand, including after showdown settles. A single authenticated, WebSocket-only Socket.IO connection pushes private room snapshots, market prices and positions, game state, balances, maintenance and administrator history progress. Each player receives only their own hole cards and portfolio; administrators receive their authorized account controls. HTTP is used for initial loading, chart selection and actions, never periodic live-data polling. Reconnects use fresh Clerk tokens and force a new private snapshot. Connected seats are kept alive server-side without client polling.
+No deposits, withdrawals or cash prizes.
 
-European single-zero roulette supports straight, red/black, odd/even, low/high, dozen, and column bets. Everyone shares a 60-second round with betting open for 55 seconds and locked for the last five. Each spin is generated with Node’s cryptographic RNG. Bets clear after settlement; Last bet repeats the prior round only while betting is open and sufficient funds are available. Gross returns include the stake: 36× straight, 3× dozen/column, 2× outside. $1 minimum per bet, $1,000 maximum total stake, up to 20 bets per spin.
+## Features
 
-The selected twenty crypto symbols’ spot paper trading uses Coinbase’s public USD spot prices. TradingView Lightweight Charts renders cached Coinbase USD candles, without a third-party price iframe. Fractional holdings and open positions count toward net-worth standings.
+- **Poker** at `/poker`: six-seat no-limit hold’em, $1/$2 blinds and a live $5 UTG straddle with three or more players. Everyone seated must press Ready before a hand starts; readiness resets after five minutes if someone is missing. Cash out when unready and outside an unsettled hand.
+- **Blackjack** at `/blackjack`: three shared six-seat tables, six-deck shoes, hit/stand/double/split, dealer stands on soft 17, natural blackjack pays 3:2.
+- **Roulette** at `/roulette`: one shared European single-zero wheel. Sixty-second rounds have 55 seconds of betting and five seconds locked. Bets clear after each spin; Last bet repeats the previous round when funds permit.
+- **Markets** at `/markets`: fractional crypto spot holdings and isolated long/short perpetuals at 1–200× leverage. Persisted TP/SL, server-side liquidation and private closed-position history. Settings beside the avatar let each user enter triggers as prices or dollar profit/loss amounts.
+- **Standings** at `/standings`: net worth includes cash, chips, holdings and open-position equity. Administrator cash adjustments do not inflate profit standings.
+- **Administration** at `/players`: account balances, portfolios, risk limits, maintenance margin and liquidation overrides, with durable audit records.
+- **Live updates** over one authenticated WebSocket connection: games, prices, P/L, balances, maintenance and history progress. HTTP handles initial reads and actions, not periodic live-data polling. Cards and portfolios are scoped to the signed-in player.
 
-Isolated simulated perpetuals offer 1×–200× leverage, long or short. Choose margin, open at the current server reference, and close at market. No fees, slippage, funding, or exchange order book simulation. Global maintenance margin defaults to 0%. Administrators can cap spot order value and perpetual margin/notional per position with a global trade limit (default $1,000,000) and cap new-position leverage (default 200×). Lowering a limit does not resize existing positions. The initial margin ratio must exceed maintenance margin.
+Cards and roulette use OS cryptographic randomness. Financial writes use Mongo compare-and-swap and request receipts to prevent double spending and duplicate actions.
 
-An administrator can add or remove cash, edit any open position’s liquidation threshold, and change global maintenance margin. Every change records the administrator, operation, target, previous value, new value, and timestamp in MongoDB’s audit collection. Cash adjustments do not inflate profit standings.
+## Stack
+
+Node.js 24, TypeScript, Next.js App Router, React, Socket.IO, MongoDB 8, Clerk, Zod, pokersolver and TradingView Lightweight Charts. Docker uses separate dependency, build and non-root runtime stages.
+
+## Prerequisites
+
+For containers, install Docker Engine or Docker Desktop and a recent Compose v2 with support for `!reset` overrides. For development outside Docker, use Node.js 24 and a reachable MongoDB instance.
+
+Create a Clerk application before starting the app.
 
 ## Clerk setup
 
-Create a Clerk application with Google as its only sign-in/sign-up method. Disable passwords, email-code sign-in, and other social providers. The backend checks for a verified primary email, a linked Google account, and password-disabled accounts, not merely a client-side Google button.
+1. Enable **Google only** for sign-in/sign-up. Disable passwords, email codes and other providers.
+2. Set sign-up mode to **Restricted** and send invitations from the Clerk dashboard. There is no in-app approval queue or invitation endpoint.
+3. Copy the publishable and secret keys into your local environment file. Use development keys locally and production keys for a lasting deployment.
+4. After the administrator signs in, set their Clerk **Public metadata** to:
 
-Copy .env.example to .env.local and supply your development Clerk keys for local work. Never commit that file. The publishable key is embedded at build time, so changing it requires a rebuild.
+   ```json
+   {"role":"admin"}
+   ```
 
-For local development set APP_ORIGIN=http://localhost:43891 and APP_PORT=43891. In the Clerk dashboard, add that origin where appropriate for your instance and configure the production domain before publishing a production deployment.
+The server checks the current Clerk user and verified Google identity. Administrator access comes from server-read public metadata, never a role supplied by the browser. `ADMIN_EMAILS` is not used.
 
-After the host signs in once, open that user in Clerk’s dashboard and set Public metadata to:
+> [!IMPORTANT]
+> `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is embedded in the client build. Rebuild when changing Clerk instances. Never put `CLERK_SECRET_KEY` into a build argument, image layer or Git commit.
 
-```json
-{"role":"admin"}
-```
+## Quick start with Docker Compose
 
-Admin authorization reads currentUser().publicMetadata on the server. ADMIN_EMAILS is not used. No role can be supplied in an API request. Session-token customization is optional because this app does not trust cached client claims; if another frontend needs the metadata, the Clerk session token customization is:
-
-```json
-{"publicMetadata":"{{user.public_metadata}}"}
-```
-
-For production, set Clerk sign-up mode to Restricted (invitation-only), leaving Google as the only provider. Manage invitations directly in the Clerk dashboard. The app has no invitation form or invitation endpoint. Clerk Restricted mode is the only account-access gate; authenticated accounts can play immediately. There is no second in-app approval step. Use a production Clerk instance for a lasting public deployment. Development instances display Clerk’s development notice.
-
-## Running
-
-With Docker and Compose installed:
+Clone the private repository, then create your environment file:
 
 ```sh
+git clone https://github.com/koboshchan/ssg200x.git
+cd ssg200x
 cp .env.example .env.local
-# Fill in the keys and exact origin.
+# Edit .env.local with your Clerk keys and exact browser origin.
+docker compose --env-file .env.local up -d --build
+```
+
+Open [http://localhost:43891](http://localhost:43891), or the port configured in `APP_PORT`.
+
+The app binds to loopback. Mongo has no published port, no authentication, and belongs only to an internal Compose network. The app connects through `mongodb://mongo:27017`. Database files persist in the gitignored `./data/mongo` bind mount. Restrict Docker-host access and back up that directory using a consistent Mongo backup or while Mongo is stopped.
+
+```sh
+docker compose --env-file .env.local logs -f app
+docker compose --env-file .env.local down
+```
+
+Stopping containers does not remove the database bind mount.
+
+> [!NOTE]
+> First boot imports candle history for all configured markets. Non-admins see maintenance until bootstrap finishes; admins can enter the app and watch progress. Leave disk space for the database and archives. Imports pause below the two-GiB free-space guard and resume rather than count the pause as completion.
+
+## Configuration
+
+| Variable | Purpose |
+| --- | --- |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Required Clerk publishable key. Used at build time and runtime; must match the secret key's instance. |
+| `CLERK_SECRET_KEY` | Required server-only Clerk secret. Runtime environment only. |
+| `APP_ORIGIN` | Exact browser origin, such as `http://localhost:43891`. Used by CSRF and WebSocket origin checks. No trailing path. |
+| `APP_PORT` | Host port for Compose; defaults to `43891`. |
+| `MONGODB_URI` | Mongo connection URI. Compose supplies `mongodb://mongo:27017`; native development needs a host-reachable URI. |
+| `MONGODB_DB` | Database name; defaults to `pokerroom`. The base Compose file sets this explicitly. |
+| `PORT` / `HOSTNAME` | Native server listener; defaults to `3000` / `0.0.0.0`. Compose sets these inside the container. |
+| `DEV_ALLOWED_ORIGINS` | Comma-separated development hostnames for Next HMR, without a scheme. Configure when using a development tunnel. |
+| `CANDLE_BACKFILL_DISABLED` | Set to `1` to skip historical imports in a disposable development/test environment. |
+| `CANDLE_STORAGE_PATH` | Filesystem path used for the history worker's free-space check; defaults to the process working directory. |
+| `IMAGE_TAG` | GHCR override image tag; defaults to `latest`. |
+
+Next loads `.env.local` for native development. Compose receives it through `--env-file`; the file is excluded from Git and Docker build context.
+
+The base Compose file forwards the required app variables. Optional native-development variables must also be added to the app service environment when you want them inside a container. `compose.dev.yaml` already forwards `CANDLE_BACKFILL_DISABLED`.
+
+## GHCR images
+
+The publishing workflow builds `ghcr.io/koboshchan/ssg200x` on pushes to `main`, version tags matching `v*`, or manual dispatch. It uses `GITHUB_TOKEN` with package-write permission, pinned Docker actions and GitHub Actions build cache.
+
+Set the repository Actions secret `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` to the production publishable key before running the workflow. The Clerk secret key is supplied only when running the image.
+
+Tags include `latest` on main, `sha-<full-commit>`, and version/major-minor tags for semantic version releases. Publishing an image does not deploy it.
+
+For private-package access, authenticate Docker with a GitHub credential permitted to read the package, then run the existing Compose stack with the image override:
+
+```sh
+docker login ghcr.io
+docker compose --env-file .env.local -f compose.yaml -f compose.ghcr.yaml pull
+docker compose --env-file .env.local -f compose.yaml -f compose.ghcr.yaml up -d --no-build
+```
+
+Set `IMAGE_TAG` to a specific version or commit tag to pin a release. Use the same production Clerk instance as the image's embedded publishable key. For a different instance, build locally with your own key.
+
+## Development
+
+Install dependencies once:
+
+```sh
+npm ci
+cp .env.example .env.local
+```
+
+For a native dev server, set these values in `.env.local`, alongside Clerk keys:
+
+```dotenv
+APP_ORIGIN=http://localhost:43891
+PORT=43891
+HOSTNAME=127.0.0.1
+MONGODB_URI=mongodb://127.0.0.1:27017
+MONGODB_DB=ssg200x_dev
+```
+
+Then run:
+
+```sh
+PORT=43891 HOSTNAME=127.0.0.1 npm run dev
+```
+
+The supplied Compose Mongo is deliberately not host-accessible. Use your own development Mongo for the native server, or run the dev server inside Compose after installing dependencies:
+
+```sh
 docker compose --env-file .env.local -f compose.yaml -f compose.dev.yaml up -d
 ```
 
-The local development web server is bound only to 127.0.0.1 and APP_PORT. No public deployment or tunnel is needed. MongoDB has no published port and joins only an internal Compose network. The application reaches it by the service hostname mongo. The ./data/mongo bind mount contains wallets, room state, and audit history and is gitignored. Back it up and restrict access to the Docker host.
+The override mounts the checkout at `/work` and runs the custom Node server in development mode. Install Linux-compatible dependencies when running this container on another host platform. For a production-style native run, build first, then use `PORT=43891 HOSTNAME=127.0.0.1 npm start`. The custom server reads its listener variables before Next loads `.env.local`, so export `PORT` and `HOSTNAME` in the shell.
 
-For local development, point MONGODB_URI at your own Mongo instance, set MONGODB_DB, and run npm run dev. Standard production builds use npm run build and npm start. The prebuilt Dockerfile and compose.qa.yaml exist for local verification using an already-built standalone Next output; the regular compose file performs its own clean dependency/build stage.
+A reverse proxy or tunnel must forward WebSocket upgrades. Set `APP_ORIGIN` to its exact public origin and, for Next development HMR, set `DEV_ALLOWED_ORIGINS` to its hostname. Development-tunnel HMR configuration does not change production authorization.
 
-## Verification
+## Tests
 
 ```sh
 npm test
 npm run typecheck
 npm run build
-MONGODB_URI=mongodb://your-test-mongo:27017 MONGODB_DB=fakebucks_test_store npm run test:integration
+MONGODB_URI=mongodb://127.0.0.1:27017 \
+  MONGODB_DB=fakebucks_test_local npm run test:integration
 ```
 
-Integration tests refuse a database without the fakebucks_test_ prefix, create synthetic users, test concurrent updates and authorization rules, and drop only that explicitly named test database afterward.
+Integration tests refuse database names without the historical `fakebucks_test_` prefix. They create synthetic users, exercise persistence/concurrency/privacy and remove their isolated test databases. Never point them at the application database.
 
-The production implementation has no test authentication bypass. Never add one to simplify screenshots.
+The app has no test authentication bypass.
 
-## Simulation limits
+## Market data and settlement
 
-The server requests one batched Coinbase USD exchange-rate response per second when no perpetual is open, or up to five per second while a perpetual is open. A Mongo-backed lease caps aggregate requests across application processes. Orders and browsers only read the cache; requests never cause extra Coinbase fetches. Market orders execute immediately and do not remain open. Coinbase HTTP 429 responses back off rather than exceeding the budget. Orders fail closed if a quote is unavailable or more than ten seconds old. Liquidations use the shared cached prices and are checked only when the worker updates the cache. Outages and price gaps can therefore skip an intragap liquidation; this is not a real exchange or a continuous matching engine.
+The allowlist is BTC, ETH, BNB, XRP, SOL, ZEC, HYPE, DOGE, LINK, ADA, NEAR, XLM, BCH, LTC, UNI, AVAX, SUI, HBAR, TAO and SHIB. Change `lib/market-config.ts` to update trading, charts and import jobs together. Unavailable products are not silently replaced.
 
-Long liquidation is entry × (1 − 1/leverage) / (1 − maintenance). Short liquidation is entry × (1 + 1/leverage) / (1 + maintenance). An administrator’s explicit threshold overrides that formula for the selected position. Maintenance changes update existing formula-based positions. Setting a threshold across the current price can immediately liquidate the position. Liquidation consumes the entire isolated margin and never the rest of the wallet.
+One server-side batched Coinbase USD rates request runs about once per second while idle, or up to five times per second with open perpetuals. Browsers and order requests read the cache. Missing quotes or quotes older than ten seconds block fills. Liquidation and persisted TP/SL run on price ticks even with no connected clients and resume after restart.
 
-Quotes and charts can differ. Unrealized standings use the last available quote and can be stale during an outage. No historical price replay or financial accuracy guarantee is provided.
+Historical candles use the last twelve complete monthly Binance USDT one-minute archives, plus Coinbase USD pages for the current month. The worker aggregates other intervals locally, persists progress and continues with Coinbase updates. Archive USDT references are not USD executions. Missing products are marked unavailable; automatic maintenance ends only when bootstrap work is complete or explicitly unavailable. Manual maintenance is independent.
 
-All bankroll writes use optimistic compare-and-swap against one Mongo room document, which also keeps poker chips and financial holdings atomic with cash. Request IDs with short expiry prevent duplicate financial actions; Mongo-backed counters rate-limit requests. Private cards, decks, internal user IDs, other users’ portfolio details, and admin-only emails are never sent in ordinary player snapshots.
+Perpetuals simulate isolated margin with no fees, slippage, funding or order book. A price gap may fill a trigger beyond its target; liquidation takes priority and consumes the isolated margin, not the remaining wallet. Charts and marks can differ. This is a small-group simulation, not an exchange.
 
-This small-group design is intended for a small group, not an unbounded public casino. Administrator audit events first enter the same atomic room update, then are idempotently copied to the audit collection. Pending events remain durable and retry on subsequent updates after an audit-write outage. Administrators with direct database access can change the data; the audit is not a tamperproof external ledger.
+## Troubleshooting
 
-Three multiplayer blackjack tables share the bankroll. Each has six selectable seats, a ten-second betting countdown, thirty-second turns, hit, stand, double and one split. Six-deck shoes use unbiased Fisher–Yates with OS cryptographic entropy. The dealer stands on soft 17, naturals pay 3:2, split aces receive one card, and split hands do not receive natural payouts. Dealer hole cards and the remaining shoe never enter client snapshots.
+**Sign-in or actions fail:** check that both Clerk keys belong to the same instance, Google is enabled, the account is invited, and `APP_ORIGIN` exactly matches the browser origin.
 
-Historical candles are persistently cached in Mongo. At first boot, the last twelve complete monthly Binance USDT 1-minute archives and Coinbase USD 1-minute pages for the current month are queued for all twenty symbols. They are aggregated locally into 1m, 5m, 15m, 1h, 6h and 1d candles. USDT archive references are identified as such; they are not USD trades. Coinbase USD supplies current-month history, live prices and incremental updates afterward. Any Coinbase historical request has at most 300 buckets. A shared historical request budget reserves live-polling capacity and stays below ten combined requests per second. Completed history resumes without restarting, missing products are marked unavailable, and later jobs top up the cache. During backfill, signed-in non-administrators see an Under maintenance page and cannot access game or trading APIs. Administrators bypass it, see overall and per-symbol monthly/daily progress, source and an observed-throughput ETA, and can toggle an independently audited manual maintenance switch. Automatic maintenance lifts when every monthly archive and current-month Coinbase job finishes or is explicitly marked unavailable. Manual maintenance remains enabled until switched off. Administrators can inspect per-symbol progress and ETA; unavailable capacity pauses imports with an explicit status. At least 2 GiB free space is required before historical downloads. A low-space pause is not a completed backfill.
+**WebSocket stays offline:** check proxy upgrade forwarding and the origin. Check `DEV_ALLOWED_ORIGINS` separately for development HMR issues.
+
+**Players see maintenance:** sign in as an admin to inspect backfill progress, storage status and the manual maintenance switch.
+
+**Changed publishable key has no effect:** rebuild the local image, or use a GHCR build made for that Clerk instance.
+
+## References
+
+[Clerk dashboard](https://dashboard.clerk.com/) · [Docker Compose](https://docs.docker.com/compose/) · [Container publishing workflow](.github/workflows/docker-publish.yml)
