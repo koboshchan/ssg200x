@@ -112,7 +112,7 @@ test("archive space guard blocks low or unknown free capacity before download",(
  assert.match(assessBackfillSpace(1).reason!,/blocked/);
 });
 
-test("background year plan includes all 20 symbols and six granularities, deterministic deduped pages",()=>{
+test("background 360-day plan includes all 20 symbols and six granularities, deterministic deduped pages",()=>{
  const now=Date.UTC(2026,9,19,13),plan=historyPlan(now);
  assert.equal(new Set(plan.map(j=>j.symbol)).size,20);
  assert.equal(new Set(plan.map(j=>j.granularity)).size,6);
@@ -120,5 +120,7 @@ test("background year plan includes all 20 symbols and six granularities, determ
  assert.deepEqual(plan,historyPlan(now));
  const btc=plan.filter(j=>j.symbol==="BTC"&&j.granularity==="1m");
  assert.ok(btc.length>=1728&&btc.length<=1730);
+ const expected=coinbasePages(now-360*86400000,now-1,60000);
+ assert.deepEqual(btc.map(j=>({from:j.from,to:j.to})),expected);
  assert.ok(plan.every(j=>j.background&&j.status==="pending"));
 });
