@@ -42,7 +42,7 @@ test("short all-in does not reopen betting for previous caller",()=>{
 test("all-in automatically runs board and conserves stacks",()=>{const r=setup();act(r,r.seats[r.turn!]!.userId,{type:"raise",to:20_000},1100);act(r,r.seats[r.turn!]!.userId,{type:"call"},1200);assert.equal(r.street,"showdown");assert.equal(r.board.length,5);assertRoom(r);});
 test("shuffle uses one copy of each card",()=>{for(let i=0;i<30;i++){const d=shuffled();assert.equal(d.length,52);assert.equal(new Set(d).size,52);}});
 test("strict action schema rejects client identities, floats, negative bets and forged decks",()=>{
- const base={requestId:"b66d4984-f360-4673-8ef9-cd448a9cad93",handNumber:1,turnDeadline:1000};
+ const base={requestId:"b66d4984-f360-4673-8ef9-cd448a9cad93",handNumber:1,turnDeadline:1000,requestAt:1000};
  assert.ok(actionSchema.safeParse({...base,type:"call"}).success);
  for(const input of [{...base,type:"call",userId:"victim"},{...base,type:"raise",to:1.3},{...base,type:"join",seat:0,buyIn:-100},{...base,type:"fold",deck:["As"]}])assert.equal(actionSchema.safeParse(input).success,false);
 });

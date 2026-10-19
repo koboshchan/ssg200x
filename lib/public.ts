@@ -1,10 +1,11 @@
+import {assetsMarket,portfolio,equity,pnl,liqPrice,value} from "./finance";
 import { legal, pot, seatOf, active } from "./poker";
 import type { Room, Identity } from "./types";
 export function publicRoom(r:Room,who:Identity) {
- const me=r.members.find(m=>m.id===who.id)!;
+ const me=portfolio(r.members.find(m=>m.id===who.id)!);
  const mySeat=seatOf(r,who.id);
  return {
-  version:r.version,serverNow:Date.now(),me:{publicId:me.publicId,name:me.name,approved:me.approved,wallet:me.wallet,admin:who.admin,seat:mySeat},
+  version:r.version,serverNow:Date.now(),quotes:r.quotes||{},holdings:me.holdings!.map(h=>({...h,value:r.quotes?.[h.symbol]?value(h.units,r.quotes[h.symbol]!.micro):h.cost})),positions:me.positions!.map(p=>({...p,liquidation:liqPrice(p),pnl:r.quotes?.[p.symbol]?pnl(p,r.quotes[p.symbol]!.micro):0,equity:r.quotes?.[p.symbol]?equity(p,r.quotes[p.symbol]!.micro):p.margin})),spins:me.spins!,activity:me.activity||[],me:{publicId:me.publicId,name:me.name,approved:me.approved,wallet:me.wallet,admin:who.admin,seat:mySeat},
   handNumber:r.handNumber,street:r.street,board:r.board,button:r.button,pot:pot(r),currentBet:r.currentBet,minRaise:r.minRaise,
   turn:r.turn,deadline:r.deadline,nextDeal:r.nextDeal,payouts:r.payouts,log:r.log,
   legal:mySeat>=0?legal(r,mySeat):null,
@@ -17,7 +18,7 @@ export function publicRoom(r:Room,who:Identity) {
   }),
   leaderboard:r.members.filter(m=>m.approved).map(m=>{
    const s=r.seats.find(s=>s?.userId===m.id);
-   const netWorth=m.wallet+(s?s.stack+(active(r)?s.committed:0):0);
+   const netWorth=m.wallet+assetsMarket(r,m)+(s?s.stack+(active(r)?s.committed:0):0);
    return {publicId:m.publicId,name:m.name,netWorth,pnl:netWorth-100_000};
   }).sort((a,b)=>b.netWorth-a.netWorth||a.name.localeCompare(b.name)),
   pending:who.admin?r.members.filter(m=>!m.approved).map(m=>({publicId:m.publicId,name:m.name,email:m.email})):[],

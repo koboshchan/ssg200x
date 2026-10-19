@@ -1,5 +1,6 @@
 import { randomInt, createHash } from "node:crypto";
 import solver from "pokersolver";
+import {assetsBook} from "./finance";
 import { ensure } from "./errors";
 import type { Room, Seat, Identity, Member, Action, Payout } from "./types";
 export const SMALL = 100, BIG = 200, STRADDLE = 500;
@@ -199,7 +200,7 @@ export function tick(r: Room, now: number) {
  }
  return changed;
 }
-export function totalChips(r: Room) { return r.members.reduce((n,m)=>n+m.wallet,0) + r.seats.reduce((n,s)=>n+(s?s.stack+s.committed:0),0); }
+export function totalChips(r: Room) { return r.members.reduce((n,m)=>n+m.wallet+assetsBook(m),r.house||0) + r.seats.reduce((n,s)=>n+(s?s.stack+s.committed:0),0); }
 export function assertRoom(r: Room) {
  const values = [...r.members.map(m=>m.wallet), ...r.seats.flatMap(s=>s?[s.stack,s.bet,s.committed]:[])];
  ensure(values.every(n=>Number.isSafeInteger(n) && n>=0), "Invalid chip ledger.",500);

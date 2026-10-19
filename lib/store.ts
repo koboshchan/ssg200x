@@ -27,9 +27,10 @@ export async function visit(who: Identity) {
   const i=seatOf(r,who.id); if(i>=0)r.seats[i]!.seen=Date.now();
  })).room;
 }
-export async function move(who:Identity, action:Action, requestId:string, handNumber:number, turnDeadline:number|null) {
+export async function move(who:Identity, action:Action, requestId:string, handNumber:number, turnDeadline:number|null,requestAt:number) {
  return (await mutate(r=>{
   register(r,who);
+  ensure(Date.now()-requestAt>=-10_000&&Date.now()-requestAt<=120_000,"Request expired. Try again.",409);
   const repeated=r.receipts.find(receipt=>receipt.id===requestId);
   if(repeated) {ensure(repeated.userId===who.id,"Invalid request.",409);return;}
   const now=Date.now();
@@ -37,7 +38,7 @@ export async function move(who:Identity, action:Action, requestId:string, handNu
   // Actions refer to a specific hand, never become an accidental bet in the next.
   if(["fold","check","call","raise"].includes(action.type))ensure(r.handNumber===handNumber&&r.deadline===turnDeadline,"The turn has changed. Refresh first.",409);
   applyAction(r,who,action,now);
-  r.receipts=[{id:requestId,userId:who.id},...r.receipts].slice(0,300);
+  r.receipts=[{id:requestId,userId:who.id,at:now},...r.receipts.filter(x=>x.at&&now-x.at<300_000)];
  })).room;
 }
 export async function approve(who:Identity, target:string, approved:boolean) {
