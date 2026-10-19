@@ -126,13 +126,14 @@ async function seed() {
   boot.seeded=false;
  }
  const plan=bootstrapPlan(boot.anchor);
- const jobIds=plan.map(j=>j._id);
+ const jobIds=plan.filter(j=>j.source!=="coinbase").map(j=>j._id);
+ const coverageTotal=plan.length-jobIds.length;
  if(boot.seeded){
-  if(!boot.jobIds||boot.total!==jobIds.length)await state.updateOne({_id:boot._id},{$set:{jobIds,total:jobIds.length}});
+  if(!boot.jobIds||boot.total!==jobIds.length)await state.updateOne({_id:boot._id},{$set:{jobIds,total:jobIds.length,coverageTotal,currentMonthComplete:false}});
   return;
  }
  await jobs.bulkWrite(plan.map(job=>({updateOne:{filter:{_id:job._id},update:{$setOnInsert:job},upsert:true}})),{ordered:false});
- await state.updateOne({_id:boot._id},{$set:{seeded:true,version:2,jobIds,total:jobIds.length}});
+ await state.updateOne({_id:boot._id},{$set:{seeded:true,version:2,jobIds,total:jobIds.length,coverageTotal,currentMonthComplete:coverageTotal===0}});
 }
 async function boundedDownload(url: string, cap: number) {
  const response=await fetch(url,{signal:AbortSignal.timeout(30_000),cache:"no-store"});
@@ -193,7 +194,22 @@ export async function backfillStep() {
    const anchor=await (await db()).collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
    const allowedIds=bootstrapPlan(anchor!.anchor).map(j=>j._id);
    job=await jobs.findOneAndUpdate({_id:{$in:allowedIds},status:"pending",nextAt:{$lte:now},$or:[{leaseUntil:{$exists:false}},{leaseUntil:{$lte:now}}]},{$set:{owner,leaseUntil:now+300_000},$inc:{attempts:1}},{sort:{source:1,period:1,symbol:1},returnDocument:"after"});
-   if(!job)return {status:"complete"};
+   if(!job){
+    const pending=await jobs.countDocuments({_id:{$in:allowedIds},status:"pending"});
+    if(pending)return {status:"pending"};
+    const database=await db();
+    const boot=await database.collection<{_id:string;currentMonthComplete?:boolean}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
+    if(!boot?.currentMonthComplete){
+     // Final full-month aggregation removes any page-order dependence in higher buckets.
+     const pages=currentMonthPlan(anchor!.anchor);
+     for(const symbol of SYMBOLS){
+      const supported=await jobs.countDocuments({_id:{$in:pages.filter(j=>j.symbol===symbol).map(j=>j._id)},status:"done"});
+      if(supported){const monthJobs=pages.filter(j=>j.symbol===symbol);await aggregateCurrentMonth({...monthJobs[0],from:Math.min(...monthJobs.map(j=>j.from)),to:anchor!.anchor});}
+     }
+     await database.collection("candle_history_state").updateOne({_id:"archive-12-month-v1"} as never,{$set:{currentMonthComplete:true}});
+    }
+    return {status:"complete"};
+   }
    if(job.source==="coinbase"){
     const update=await candleEnsure(job.symbol,"1m",job.from,job.to-1,{from:job.from,to:job.to});
     if(update.status==="cached"||update.status==="unavailable"){
@@ -350,7 +366,7 @@ export async function historyBackfillStep(){
 }
 async function historyProgress(){
  const database=await db(),space=await backfillSpace(),{jobs}=await collections();
- const state=await database.collection<{_id:string;anchor:number;startedAt?:number;seeded?:boolean;version?:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
+ const state=await database.collection<{_id:string;anchor:number;startedAt?:number;seeded?:boolean;version?:number;currentMonthComplete?:boolean}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
  const planned=state?bootstrapPlan(state.anchor):[];
  const ids=planned.map(j=>j._id);
  const records=ids.length?await jobs.find({_id:{$in:ids}}).toArray():[];
@@ -366,7 +382,7 @@ async function historyProgress(){
   return {symbol,done,total,percent:total?Math.round(100*done/total):0,unavailable:rows.some(j=>j.status==="missing"),monthsDone:finished(months),monthsTotal:planned.filter(j=>j.symbol===symbol&&j.kind==="monthly").length,daysDone,daysTotal:dayKeys.length,currentSource:finished(months)<12?"Binance USDT reference archives":"Coinbase USD current-month/incremental",etaSeconds:space.blocked||!done||!elapsed?null:Math.ceil((total-done)*elapsed/done)};
  });
  const done=symbols.reduce((n,s)=>n+s.done,0),total=planned.length;
- return {source:"Binance USDT prior 12 months; Coinbase USD current month and live/incremental",window:state?{from:archivePlan(state.anchor)[0].from,to:state.anchor,completeMonths:12}:null,status:space.blocked?"blocked":!state?.seeded||state.version!==2?"initializing":done<total?"running":total?"complete":"initializing",...space,symbols,overall:{done,total,percent:total?Math.round(100*done/total):0,etaSeconds:space.blocked||!done||!state?.startedAt?null:Math.ceil((total-done)*Math.max(0,Date.now()-state.startedAt)/1000/done)},etaKind:"Observed completed-job throughput since initialization; missing archives explicitly unavailable"};
+ return {source:"Binance USDT prior 12 months; Coinbase USD current month and live/incremental",window:state?{from:archivePlan(state.anchor)[0].from,to:state.anchor,completeMonths:12}:null,status:space.blocked?"blocked":!state?.seeded||state.version!==2?"initializing":done<total||!state.currentMonthComplete?"running":total?"complete":"initializing",...space,symbols,overall:{done,total,percent:total?Math.round(100*done/total):0,etaSeconds:space.blocked||!done||!state?.startedAt?null:Math.ceil((total-done)*Math.max(0,Date.now()-state.startedAt)/1000/done)},etaKind:"Observed completed-job throughput since initialization; missing archives explicitly unavailable"};
 }
 
 let maintenanceCache:{at:number;active:boolean}|undefined;
@@ -374,9 +390,9 @@ let maintenanceCache:{at:number;active:boolean}|undefined;
 export async function historyMaintenanceActive(){
  const now=Date.now();if(maintenanceCache&&now-maintenanceCache.at<1000)return maintenanceCache.active;
  try{
-  const database=await db(),state=await database.collection<{_id:string;anchor:number;seeded?:boolean;version?:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
+  const database=await db(),state=await database.collection<{_id:string;anchor:number;seeded?:boolean;version?:number;currentMonthComplete?:boolean}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
   let active=true;
-  if(state?.seeded&&state.version===2){
+  if(state?.seeded&&state.version===2&&state.currentMonthComplete){
    const ids=bootstrapPlan(state.anchor).map(j=>j._id);
    const completed=await database.collection<{_id:string;status:string}>("candle_backfill").countDocuments({_id:{$in:ids},status:{$in:["done","missing"]}});
    active=completed!==ids.length;

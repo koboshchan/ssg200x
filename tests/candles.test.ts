@@ -100,6 +100,11 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
   assert.equal(actual[0].volume,2);assert.equal(actual[0].source,"coinbase");assert.equal(actual[0].quoteCurrency,"USD");
  }
  await database.collection<{_id:string;nextAt:number}>("workers").updateOne({_id:"coinbase-history-budget"},{$set:{nextAt:0}});
+ // Future retry/lease pending jobs must not trigger the incremental phase.
+ await database.collection<{_id:string;status:string;nextAt:number}>("candle_backfill").updateOne({_id:page._id},{$set:{status:"pending",nextAt:Date.now()+60000}});
+ await database.collection<{_id:string;nextAt:number}>("workers").updateOne({_id:"candle-backfill"},{$set:{nextAt:0}});
+ assert.equal((await historyBackfillStep()).status,"pending");
+ assert.equal(await database.collection("candle_incremental_state").countDocuments(),0);
  // After archive completion refresh authoritative latest two finalized USD buckets.
  await database.collection("candle_backfill").updateMany({status:"pending"},{$set:{status:"done"}});
  await database.collection<{_id:string;nextAt:number}>("workers").updateOne({_id:"candle-backfill"},{$set:{nextAt:0}});
@@ -141,7 +146,7 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  assert.equal((await historyBackfillStep()).status,"blocked");
  const freshState=await database.collection<{_id:string;anchor:number;startedAt:number;seeded:boolean;jobIds:string[];total:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
  assert.ok(freshState?.seeded&&freshState.startedAt>0);
- assert.deepEqual(freshState.jobIds,[...archivePlan(freshState.anchor),...currentMonthPlan(freshState.anchor)].map(j=>j._id));
+ assert.deepEqual(freshState.jobIds,archivePlan(freshState.anchor).map(j=>j._id));
  assert.equal(freshState.total,freshState.jobIds.length);
  // Backfill older already-seeded state for the plain-JS WebSocket guard.
  await database.collection("candle_history_state").updateMany({},{$unset:{jobIds:"",total:""},$set:{version:1}});
@@ -155,6 +160,8 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  const firstJob=archivePlan(freshState.anchor)[0];
  await database.collection<{_id:string;status:string}>("candle_backfill").updateOne({_id:firstJob._id},{$set:{status:"missing"}});
  capacity.mock.mockImplementation(async()=>({bavail:10*1024**3,bsize:1}) as Awaited<ReturnType<typeof fsPromises.statfs>>);
+ await database.collection<{_id:string;nextAt:number}>("workers").updateOne({_id:"candle-backfill"},{$set:{nextAt:0}});
+ await backfillStep();
  await new Promise(resolve=>setTimeout(resolve,1010));
  assert.equal(await historyMaintenanceActive(),false);
  const complete=(await backfillProgress()).history;
