@@ -3,6 +3,7 @@ import {NextResponse} from "next/server";
 import {ZodError,type ZodType} from "zod";
 import {AppError,ensure} from "./errors";
 import {rateLimit} from "./store";
+import {verifiedGoogleEmail} from "./google-identity";
 import {siteMaintenance} from "./site-maintenance";
 import type {Identity} from "./types";
 export const configured=()=>Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.startsWith("pk_")&&process.env.CLERK_SECRET_KEY);
@@ -15,9 +16,8 @@ export async function endpoint(request:Request,handler:(who:Identity)=>Promise<u
    ensure(request.headers.get("content-type")?.split(";")[0]==="application/json","Use application/json.",415);
   }
   const user=await currentUser();
-  ensure(user&&!user.passwordEnabled&&user.externalAccounts.some(a=>a.provider==="google"),"A Google-only account is required.",403);
-  const email=user.emailAddresses.find(e=>e.id===user.primaryEmailAddressId&&e.verification?.status==="verified")?.emailAddress.toLowerCase();
-  ensure(email,"A verified Google email is required.",403);
+  const email=verifiedGoogleEmail(user);
+  ensure(user&&email,"A verified Google-only account is required.",403);
   const who:Identity={id:userId,name:user.firstName||user.username||"Player",email,admin:user.publicMetadata.role==="admin"};
   await rateLimit(userId);
   if(!who.admin&&new URL(request.url).pathname!=="/api/maintenance")ensure(!(await siteMaintenance(false)).blocked,"Under maintenance",503);
