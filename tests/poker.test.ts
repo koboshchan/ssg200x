@@ -129,6 +129,8 @@ test("readiness window protects idle unready blockers for the full five minutes"
  const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
  applyAction(r,user(0),{type:"ready"},2000);applyAction(r,user(1),{type:"ready"},3000);
  const expiry=r.readyDeadline!;
+ tick(r,93001);
+ assert.equal(r.seats.filter(Boolean).length,3);assert.equal(r.street,"waiting");assert.equal(r.handNumber,0);assert.equal(r.readyDeadline,expiry);
  tick(r,expiry-1);
  assert.equal(r.seats.filter(Boolean).length,3);assert.equal(r.handNumber,0);
  assert.equal(r.seats[2]!.ready,false);assert.equal(r.readyDeadline,expiry);
@@ -145,3 +147,13 @@ test("readiness window still cleans revoked seats rather than locking them until
 });
 
 test("legacy false access flag does not block poker and registering migrates it",()=>{const r=freshRoom(),who=user(0,false),m=register(r,who,1000);m.approved=false;applyAction(r,who,{type:"join",seat:0,buyIn:10000},1000);assert.equal(r.seats[0]?.userId,who.id);register(r,who,1000);assert.equal(m.approved,true);assert.equal(m.wallet,90000);assertRoom(r);});
+
+test("last unready player cashing out starts the remaining two ready players",()=>{
+ const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
+ applyAction(r,user(0),{type:"ready"},2000);applyAction(r,user(1),{type:"ready"},3000);
+ assert.equal(r.street,"waiting");assert.equal(r.handNumber,0);
+ applyAction(r,user(2),{type:"leave"},4000);
+ assert.equal(r.seats[2],null);assert.equal(r.members[2].wallet,100000);
+ assert.equal(r.seats.filter(Boolean).length,2);assert.equal(r.street,"preflop");assert.equal(r.handNumber,1);assert.equal(r.readyDeadline,null);
+ assert.ok(r.seats.slice(0,2).every(s=>s?.inHand));assertRoom(r);
+});
