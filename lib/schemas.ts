@@ -4,6 +4,7 @@ export const actionSchema=z.discriminatedUnion("type",[
  z.object({...base,type:z.literal("join"),seat:z.number().int().min(0).max(5),buyIn:z.number().int().min(10_000).max(100_000)}).strict(),
  z.object({...base,type:z.literal("leave")}).strict(),
  z.object({...base,type:z.literal("resume")}).strict(),
+ z.object({...base,type:z.literal("ready")}).strict(),
  z.object({...base,type:z.literal("fold")}).strict(),
  z.object({...base,type:z.literal("check")}).strict(),
  z.object({...base,type:z.literal("call")}).strict(),

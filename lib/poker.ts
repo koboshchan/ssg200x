@@ -6,9 +6,10 @@ import { ensure } from "./errors";
 import type { Room, Seat, Identity, Member, Action, Payout } from "./types";
 export const SMALL = 100, BIG = 200, STRADDLE = 500;
 export const TURN_MS = 30_000, BREAK_MS = 8_000, IDLE_MS = 90_000;
+export const READY_MS = 300_000;
 const MAX_MEMBERS = 100;
 export function freshRoom(): Room {
- return { _id: "main", version: 0, members: [], seats: Array(6).fill(null), button: -1, street: "waiting", handNumber: 0, board: [], deck: [], currentBet: 0, minRaise: BIG, pending: [], turn: null, deadline: null, nextDeal: null, payouts: [], log: [], receipts: [] };
+ return { _id: "main", version: 0, members: [], seats: Array(6).fill(null), button: -1, street: "waiting", handNumber: 0, board: [], deck: [], currentBet: 0, minRaise: BIG, pending: [], turn: null, deadline: null, nextDeal: null, readyDeadline: null, payouts: [], log: [], receipts: [] };
 }
 export function addLog(r: Room, text: string) { r.log = [text, ...r.log].slice(0,60); }
 export function register(r: Room, who: Identity, now = Date.now()): Member {
@@ -47,6 +48,7 @@ function revealStreet(r: Room) {
 }
 export function cashOut(r: Room, i: number) {
  const s = r.seats[i]; if (!s) return;
+ ensure(!(active(r) && s.inHand) && !s.ready, "You can only leave while unready and out of a hand.", 409);
  const m = r.members.find(m => m.id === s.userId)!;
  m.wallet += s.stack; r.seats[i] = null;
 }
@@ -59,7 +61,8 @@ function end(r: Room, payouts: Payout[], now: number) {
  }
  r.street = "showdown"; r.pending = []; setTurn(r, null, now); r.nextDeal = now + BREAK_MS;
  // Contributions are already in awarded stacks. Clearing prevents double counting.
- for (const s of r.seats) if (s) { s.committed = 0; s.bet = 0; }
+ r.readyDeadline = null;
+ for (const s of r.seats) if (s) { s.committed = 0; s.bet = 0; s.ready = false; }
 }
 export function showdown(r: Room, now: number) {
  const alive = r.seats.flatMap((s,i) => s && contenders(s) ? [i] : []);
@@ -106,9 +109,11 @@ function advance(r: Room, after: number, now: number) {
 }
 export function startHand(r: Room, now: number, rng?: (max: number) => number) {
  ensure(!active(r), "Hand already running.", 409);
- const eligible = (s: Seat) => !s.sitOut && !s.leaveAfter && s.stack > 0;
+ const eligible = (s: Seat) => s.ready === true && !s.sitOut && !s.leaveAfter && s.stack > 0;
+ if (r.seats.some(s => s && !eligible(s))) return;
  if (r.seats.filter(s => s && eligible(s)).length < 2) { r.street = "waiting"; r.nextDeal = null; return; }
  r.button = next(r, r.button, eligible);
+ r.readyDeadline = null;
  r.handNumber++; r.street = "preflop"; r.deck = shuffled(rng); r.board = []; r.payouts = []; r.nextDeal = null;
  for (const s of r.seats) if (s) { s.inHand = eligible(s); s.folded = !s.inHand; s.bet = 0; s.committed = 0; s.hole = []; s.actedAt = null; }
  for (let n=0;n<2;n++) for (const i of ordered(r, r.button, s => s.inHand)) r.seats[i]!.hole.push(draw(r));
@@ -166,18 +171,23 @@ export function applyAction(r: Room, who: Identity, action: Action, now: number)
   ensure(Number.isInteger(action.seat) && action.seat >= 0 && action.seat < 6 && !r.seats[action.seat], "That seat is taken.", 409);
   ensure(Number.isSafeInteger(action.buyIn) && action.buyIn >= 10_000 && action.buyIn <= 100_000 && member.wallet >= action.buyIn, "Buy in with $100–$1,000 from your wallet.");
   member.wallet -= action.buyIn;
-  r.seats[action.seat] = { userId: who.id, stack: action.buyIn, hole: [], bet: 0, committed: 0, folded: true, inHand: false, actedAt: null, sitOut: false, leaveAfter: false, seen: now };
+  r.seats[action.seat] = { userId: who.id, stack: action.buyIn, hole: [], bet: 0, committed: 0, folded: true, inHand: false, actedAt: null, sitOut: false, leaveAfter: false, seen: now, ready: false };
   addLog(r,member.name + " takes seat " + (action.seat+1));
-  if (!active(r) && r.street !== "showdown") startHand(r,now);
  } else if (action.type === "leave") {
   ensure(i >= 0, "You are not seated.");
   const s = r.seats[i]!;
-  if (active(r) && s.inHand) { s.leaveAfter = true; s.sitOut = true; addLog(r,member.name + " will leave after this hand"); }
-  else { cashOut(r,i); if (!active(r) && r.street !== "showdown") startHand(r,now); }
- } else if (action.type === "resume") {
+  ensure(!s.ready && !(active(r) && s.inHand), "You can only leave while unready and out of a hand.", 409);
+  cashOut(r,i);
+  if (!r.seats.some(s=>s?.ready)) r.readyDeadline = null;
+  if (r.street === "waiting") startHand(r,now);
+ } else if (action.type === "ready" || action.type === "resume") {
   ensure(i >= 0, "Choose a seat first.");
-  r.seats[i]!.sitOut = false; r.seats[i]!.leaveAfter = false;
-  if (!active(r) && r.street !== "showdown") startHand(r,now);
+  ensure(r.street === "waiting", "Wait for the hand to finish.", 409);
+  const s = r.seats[i]!;
+  ensure(s.stack > 0 && !s.leaveAfter, "Choose a funded seat first.", 409);
+  s.ready = true; s.sitOut = false;
+  r.readyDeadline ??= now + READY_MS;
+  startHand(r,now);
  } else { act(r,who.id,action,now); }
  i = seatOf(r,who.id); if (i >= 0) r.seats[i]!.seen = now;
 }
@@ -190,15 +200,27 @@ export function tick(r: Room, now: number) {
   changed = true;
  }
  if (!active(r)) {
+  // Missing fields are legacy unready state, never an implicit consent to deal.
+  if (r.readyDeadline == null && r.seats.some(s=>s?.ready)) {
+   r.readyDeadline = now + READY_MS; changed = true;
+  }
+  if (r.readyDeadline != null && now >= r.readyDeadline) {
+   for (const s of r.seats) if (s) { s.ready = false; s.seen = now; }
+   r.readyDeadline = null; changed = true;
+  }
   for (let i=0;i<r.seats.length;i++) {
    const s = r.seats[i];
-   if (s && (s.leaveAfter || s.stack === 0 || now - s.seen > IDLE_MS)) { cashOut(r,i); changed = true; }
+   if (s && !s.ready && (s.leaveAfter || s.stack === 0 || now - s.seen > IDLE_MS)) {
+    cashOut(r,i); changed = true;
+   }
   }
   if (r.street === "showdown" && now >= (r.nextDeal ?? Infinity)) {
-   for (const s of r.seats) if (s) { s.hole = []; s.inHand = false; }
-   startHand(r,now); changed = true;
-  } else if (r.street === "waiting" && r.seats.filter(s=>s && !s.sitOut && s.stack > 0).length >= 2) { startHand(r,now); changed = true; }
+   for (const s of r.seats) if (s) { s.hole = []; s.inHand = false; s.ready = false; }
+   r.street = "waiting"; r.nextDeal = null; r.readyDeadline = null; changed = true;
+  }
+  if (r.street === "waiting") { const before = r.handNumber; startHand(r,now); if (before !== r.handNumber) changed = true; }
  }
+
  return changed;
 }
 export function totalChips(r: Room) { return r.members.reduce((n,m)=>n+m.wallet+assetsBook(m),r.house||0) + blackjackTablesAssets(r) + r.seats.reduce((n,s)=>n+(s?s.stack+s.committed:0),0); }

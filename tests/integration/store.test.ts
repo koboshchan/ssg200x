@@ -2,9 +2,9 @@ import {SYMBOLS} from "../../lib/market-shared";
 import {test,after,before} from "node:test";
 import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
-import {mutate,visit,move,approve,rateLimit} from "../../lib/store";
+import {mutate,visit,move,approve,rateLimit,tickRoom} from "../../lib/store";
 import {db,closeDatabase,readRoom} from "../../lib/db";
-import {assertRoom,register} from "../../lib/poker";
+import {assertRoom,register,READY_MS} from "../../lib/poker";
 import {spin,spot,openPosition,closePosition} from "../../lib/finance";
 import type {Identity} from "../../lib/types";
 if(!process.env.MONGODB_DB?.startsWith("fakebucks_test_"))throw new Error("Refusing non-test database");
@@ -27,6 +27,40 @@ test("seat race has exactly one winner and no loser wallet debit",async()=>{
  const results=await Promise.allSettled([2,3].map(i=>move(player(i),{type:"join",seat:1,buyIn:20_000},randomUUID(),0,null,Date.now())));
  assert.equal(results.filter(x=>x.status==="fulfilled").length,1);const r=await readRoom();assertRoom(r);assert.equal(r.seats.filter(Boolean).length,2);
  const loser=[2,3].find(i=>!r.seats.some(s=>s?.userId===player(i).id))!;assert.equal(r.members.find(m=>m.id===player(loser).id)!.wallet,100_000);
+});
+test("parallel duplicate leave credits bankroll once and readiness-leave race is serializable",async()=>{
+ let r=await readRoom();const who=player(1),id=randomUUID();
+ await Promise.all(Array.from({length:8},()=>move(who,{type:"leave"},id,r.handNumber,null,Date.now())));
+ r=await readRoom();assert.equal(r.members.find(m=>m.id===who.id)!.wallet,100000);assert.equal(r.seats[0],null);
+ await move(who,{type:"join",seat:0,buyIn:20000},randomUUID(),r.handNumber,null,Date.now());
+ const result=await Promise.allSettled([
+ move(who,{type:"ready"},randomUUID(),r.handNumber,null,Date.now()),
+ move(who,{type:"leave"},randomUUID(),r.handNumber,null,Date.now())]);
+ assert.equal(result.filter(x=>x.status==="fulfilled").length,1);
+ r=await readRoom();assertRoom(r);
+ if(!r.seats[0])await move(who,{type:"join",seat:0,buyIn:20000},randomUUID(),r.handNumber,null,Date.now());
+ // Reset readiness using the actual worker and a deterministic server clock.
+ const original=Date.now,now=original();
+ try{
+ await mutate(r=>{r.seats[0]!.ready=true;r.readyDeadline=now+READY_MS;for(const s of r.seats)if(s&&s.userId!==who.id)s.seen=now+READY_MS;});
+ Date.now=()=>now+READY_MS-1;await tickRoom();
+ assert.equal((await readRoom()).seats[0]!.ready,true);
+ Date.now=()=>now+READY_MS;await tickRoom();
+ r=await readRoom();assert.equal(r.seats[0]!.ready,false);assert.equal(r.readyDeadline,null);
+ assert.equal(r.members.find(m=>m.id===who.id)!.wallet,80000);assertRoom(r);
+ }finally{Date.now=original;}
+});
+test("parallel duplicate ready starts exactly one hand and locks leaving",async()=>{
+ let r=await readRoom();const first=player(1),other=r.seats.find(s=>s&&s.userId!==first.id)!;
+ const who=[player(2),player(3)].find(p=>p.id===other.userId)!;
+ const id=randomUUID();
+ await Promise.all(Array.from({length:8},()=>move(first,{type:"ready"},id,r.handNumber,null,Date.now())));
+ r=await readRoom();assert.equal(r.street,"waiting");
+ await assert.rejects(move(first,{type:"leave"},randomUUID(),r.handNumber,null,Date.now()));
+ const id2=randomUUID();
+ await Promise.all(Array.from({length:8},()=>move(who,{type:"ready"},id2,r.handNumber,null,Date.now())));
+ const next=await readRoom();assert.equal(next.handNumber,r.handNumber+1);assert.equal(next.street,"preflop");
+ assert.equal(next.readyDeadline,null);assertRoom(next);
 });
 test("stale hand, stale turn and expired request fail without mutations",async()=>{
  const r=await readRoom(),id=r.seats[r.turn!]!.userId,who=id===player(1).id?player(1):[player(2),player(3)].find(p=>p.id===id)!;
