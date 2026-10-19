@@ -30,7 +30,7 @@ async function maintenanceBlocked(){
  const r=await database.collection("rooms").findOne({_id:"main"},{projection:{siteMaintenance:1}});
  if(r?.siteMaintenance)return true;
  const state=await database.collection("candle_history_state").findOne({_id:"archive-12-month-v1"});
- if(!state?.seeded||state.version!==2||!Number.isInteger(state.total)||state.total<=0||!Array.isArray(state.jobIds)||state.jobIds.length!==state.total)return true;
+ if(!state?.seeded||state.version!==2||state.currentMonthComplete!==true||!Number.isInteger(state.total)||state.total<=0||!Array.isArray(state.jobIds)||state.jobIds.length!==state.total)return true;
  const finished=await database.collection("candle_backfill").countDocuments({_id:{$in:state.jobIds||[]},status:{$in:["done","missing"]}});
  return finished<state.total;
 }
