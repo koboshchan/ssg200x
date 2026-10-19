@@ -13,3 +13,8 @@ test("rejects password accounts, other providers, unverified or unrelated primar
  assert.equal(verifiedGoogleEmail({...user,externalAccounts:[{provider:"google",emailAddress:"other@example.test"}]}),undefined);
  assert.equal(verifiedGoogleEmail(null),undefined);
 });
+
+test("trusted server-side admin metadata bypasses Google-only restrictions",()=>{
+ assert.equal(verifiedGoogleEmail({...base,passwordEnabled:true,externalAccounts:[],publicMetadata:{role:"admin"}}),"player@example.test");
+ assert.equal(verifiedGoogleEmail({...base,passwordEnabled:true,externalAccounts:[],publicMetadata:{role:"player"}}),undefined);
+});
