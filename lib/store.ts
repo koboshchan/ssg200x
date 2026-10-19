@@ -1,3 +1,4 @@
+import {rouletteTick,ROULETTE_MS,type RouletteState} from "./roulette";
 import {blackjackTablesTick} from "./blackjack";
 import {flushAudit,compactAudit} from "./audit";
 import { randomUUID } from "node:crypto";
@@ -47,6 +48,8 @@ export async function move(who:Identity, action:Action, requestId:string, handNu
 }
 export async function tickRoom() {
  const r=await readRoom(), now=Date.now();
+ const wheel=(r as Room & {roulette?:RouletteState}).roulette;
+ if(!wheel||now>=wheel.started+ROULETTE_MS)await mutate(r=>rouletteTick(r,Date.now()));
  if(Object.values(r.blackjackTables?.tables||{}).some(t=>t&&t.deadline!==null&&now>=t.deadline))await mutate(r=>blackjackTablesTick(r,Date.now()));
  if((!active(r)&&r.seats.some(s=>s?.ready)&&(r.readyDeadline==null||now>=r.readyDeadline)) || (r.deadline!==null && now>=r.deadline) || (r.nextDeal!==null && now>=r.nextDeal) || (!active(r)&&r.seats.some(s=>s&&!s.ready&&(s.leaveAfter||s.stack===0||(r.readyDeadline==null&&now-s.seen>90_000)))))await mutate(r=>tick(r,Date.now()));
 }
