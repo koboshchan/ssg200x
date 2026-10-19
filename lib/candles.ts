@@ -197,7 +197,7 @@ export function parseCoinbaseCandles(body:unknown,symbol:string,granularity:Gran
  * Mongo's global 334ms lease caps all history workers below 3 req/s, leaving live's 5 req/s untouched.
  * Caller should retry pending results later rather than hold a request open.
  */
-export async function candleEnsure(symbol:string,granularity:string,from:number,to:number) {
+export async function candleEnsure(symbol:string,granularity:string,from:number,to:number,window?:{from:number;to:number}) {
  validateSymbol(symbol);validateGranularity(granularity);
  const now=Date.now(),width=GRANULARITIES[granularity];
  if(!Number.isSafeInteger(from)||!Number.isSafeInteger(to)||from<0||from>to||to>now+width||to-from>366*DAY)throw new Error("Invalid candle range (maximum 366 days)");
@@ -219,7 +219,7 @@ export async function candleEnsure(symbol:string,granularity:string,from:number,
  if(space.blocked)return {status:"blocked",symbol,granularity,remainingPages:missing.length,...space};
  const lease=await workers.updateOne({_id:"coinbase-history-budget",nextAt:{$lte:now}},{$set:{nextAt:now+334}});
  if(!lease.matchedCount)return {status:"pending",symbol,granularity,remainingPages:missing.length,retryAfterMs:334};
- const start=page.from,end=Math.min(page.to,Math.floor(now/width)*width);
+ const start=Math.max(page.from,window?.from??page.from),end=Math.min(page.to,window?.to??page.to,Math.floor(now/width)*width);
  if(end<=start)return {status:"cached",symbol,granularity,remainingPages:0};
  await coverage.updateOne({_id:id},{$set:{startedAt:now}});
  try{
@@ -261,7 +261,7 @@ export async function backfillProgress() {
   return {symbol,done,pending,rows,total:done+pending,unavailable:unavailable.some(p=>p._id===symbol),percent:done+pending?Math.round(100*done/(done+pending)):0,etaSeconds:pending?Math.ceil(pending*Math.max(500,done?duration/done:500)/1000):0};
  });
  const done=symbols.reduce((n,s)=>n+s.done,0),pending=symbols.reduce((n,s)=>n+s.pending,0);
- return {mode:"background-year",enabled:true,archiveEnabled:process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED==="1",archive:await archiveProgress(),source:"Coinbase USD historical candles and live snapshots; optional Binance USDT archive",symbols,overall:{done,pending,total:done+pending,rows:symbols.reduce((n,s)=>n+s.rows,0),percent:done+pending?Math.round(100*done/(done+pending)):0,etaSeconds:symbols.reduce((n,s)=>n+s.etaSeconds,0)},history:await historyProgress(),etaScope:"One-year queued history pages plus incremental top-ups"};
+ return {mode:"background-360-days",enabled:true,archiveEnabled:process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED==="1",archive:await archiveProgress(),source:"Coinbase USD historical candles and live snapshots; optional Binance USDT archive",symbols,overall:{done,pending,total:done+pending,rows:symbols.reduce((n,s)=>n+s.rows,0),percent:done+pending?Math.round(100*done/(done+pending)):0,etaSeconds:symbols.reduce((n,s)=>n+s.etaSeconds,0)},history:await historyProgress(),etaScope:"360-day queued history pages plus incremental top-ups"};
 }
 
 /** Point CANDLE_STORAGE_PATH at the Mongo volume's host mount when Mongo is remote.
@@ -290,7 +290,7 @@ export function historyPlan(now=Date.now()):Coverage[] {
  const result:Coverage[]=[];
  for(const symbol of SYMBOLS)for(const granularity of Object.keys(GRANULARITIES) as Granularity[]){
   const width=GRANULARITIES[granularity];
-  for(const page of coinbasePages(now-365*DAY,Math.floor(now/width)*width-1,width))result.push({_id:`${symbol}:${granularity}:${page.from}`,symbol,granularity,...page,status:"pending",expiresAt:0,background:true});
+  for(const page of coinbasePages(now-360*DAY,Math.floor(now/width)*width-1,width))result.push({_id:`${symbol}:${granularity}:${page.from}`,symbol,granularity,...page,status:"pending",expiresAt:0,background:true});
  }
  return result;
 }
@@ -302,16 +302,25 @@ export async function historyBackfillStep() {
  try{
   const database=await db(),workers=database.collection<{_id:string;nextAt:number}>("workers"),coverage=database.collection<Coverage>("candle_coverage"),now=Date.now();
   await coverage.createIndex({background:1,status:1,nextAttempt:1,from:-1});
-  const marker=await workers.findOne({_id:"coinbase-year-plan"});
-  if(!marker||marker.nextAt<=now){
-   await workers.updateOne({_id:"coinbase-year-plan"},{$setOnInsert:{nextAt:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
-   const lease=await workers.updateOne({_id:"coinbase-year-plan",nextAt:{$lte:now}},{$set:{nextAt:now+3600_000}});
-   if(lease.matchedCount){
-    const plan=historyPlan(now);
-    for(let i=0;i<plan.length;i+=500)await coverage.bulkWrite(plan.slice(i,i+500).map(job=>({updateOne:{filter:{_id:job._id},update:{$setOnInsert:{symbol:job.symbol,granularity:job.granularity,from:job.from,to:job.to,status:job.status,expiresAt:job.expiresAt},$set:{background:true}},upsert:true}})),{ordered:false});
-    // Refresh only the newest unfinished fixed pages, not old immutable history.
-    await coverage.updateMany({background:true,status:"done",expiresAt:{$lte:now}},{$set:{status:"pending"}});
+  const state=database.collection<{_id:string;anchor:number;seeded?:boolean;initialComplete?:boolean;topupAt?:number}>("candle_history_state");
+  await state.updateOne({_id:"360-day-v1"},{$setOnInsert:{anchor:Math.floor(now/60_000)*60_000}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
+  const boot=(await state.findOne({_id:"360-day-v1"}))!;
+  if(!boot.seeded){
+   // Remove prior rolling-year background flags, never delete cached price data.
+   await coverage.updateMany({background:true},{$set:{background:false}});
+   const plan=historyPlan(boot.anchor);
+   for(let i=0;i<plan.length;i+=500)await coverage.bulkWrite(plan.slice(i,i+500).map(job=>({updateOne:{filter:{_id:job._id},update:{$setOnInsert:{symbol:job.symbol,granularity:job.granularity,from:job.from,to:job.to,status:job.status,expiresAt:job.expiresAt},$set:{background:true}},upsert:true}})),{ordered:false});
+   await state.updateOne({_id:boot._id},{$set:{seeded:true}});
+  }
+  if(boot.initialComplete&&(!boot.topupAt||boot.topupAt<=now)){
+   // Only add the gap since initial completion / last top-up, not a moving full window.
+   for(const symbol of SYMBOLS)for(const granularity of Object.keys(GRANULARITIES) as Granularity[]){
+    const width=GRANULARITIES[granularity];
+    for(const page of coinbasePages(Math.max(boot.anchor,(boot.topupAt||boot.anchor)-3600_000),Math.floor(now/width)*width-1,width)){
+     await coverage.updateOne({_id:`${symbol}:${granularity}:${page.from}`},{$setOnInsert:{symbol,granularity,...page,expiresAt:0},$set:{background:true,status:"pending"}},{upsert:true});
+    }
    }
+   await state.updateOne({_id:boot._id},{$set:{topupAt:now+3600_000}});
   }
   const space=await backfillSpace();if(space.blocked)return {status:"blocked",...space};
   const unavailable=await database.collection<{_id:string;unavailableUntil:number}>("candle_products").find({unavailableUntil:{$gt:now}}).toArray();
@@ -319,8 +328,8 @@ export async function historyBackfillStep() {
   // Previously unavailable products are checked again after their 24h marker expires.
   await coverage.updateMany({background:true,status:"unavailable",symbol:{$nin:unavailable.map(p=>p._id)}},{$set:{status:"pending"}});
   const job=await coverage.findOne({background:true,status:"pending",$or:[{nextAttempt:{$exists:false}},{nextAttempt:{$lte:now}}]},{sort:{from:-1,symbol:1,granularity:1}});
-  if(!job)return {status:"complete"};
-  const result=await candleEnsure(job.symbol,job.granularity,job.from,Math.min(job.to-1,Math.floor(now/GRANULARITIES[job.granularity])*GRANULARITIES[job.granularity]-1));
+  if(!job){await state.updateOne({_id:boot._id},{$set:{initialComplete:true}});return {status:"complete"};}
+  const result=await candleEnsure(job.symbol,job.granularity,job.from,Math.min(job.to-1,Math.floor(now/GRANULARITIES[job.granularity])*GRANULARITIES[job.granularity]-1),boot.initialComplete?undefined:{from:boot.anchor-360*DAY,to:boot.anchor});
   if(result.status==="retry")await coverage.updateOne({_id:job._id},{$set:{nextAttempt:now+30_000}});
   return {...result,job:job._id};
  }catch(error){return {status:"retry",error:error instanceof Error?error.message:"History worker failed"};}
@@ -328,6 +337,7 @@ export async function historyBackfillStep() {
 }
 async function historyProgress(){
  const database=await db(),space=await backfillSpace();
+ const window=await database.collection("candle_history_state").findOne({_id:"360-day-v1"} as never);
  const stats=await database.collection<Coverage>("candle_coverage").aggregate<{_id:{symbol:string;status:string};count:number}>([{$match:{background:true}},{$group:{_id:{symbol:"$symbol",status:"$status"},count:{$sum:1}}}]).toArray();
  const symbols=SYMBOLS.map(symbol=>{
   const count=(status:string)=>stats.find(s=>s._id.symbol===symbol&&s._id.status===status)?.count||0;
@@ -335,5 +345,5 @@ async function historyProgress(){
   return {symbol,done,pending,unavailable,total:done+pending+unavailable,percent:done+pending+unavailable?Math.round(100*(done+unavailable)/(done+pending+unavailable)):0,etaSeconds:space.blocked?null:Math.ceil(pending/2.99)};
  });
  const done=symbols.reduce((n,s)=>n+s.done,0),pending=symbols.reduce((n,s)=>n+s.pending,0),unavailable=symbols.reduce((n,s)=>n+s.unavailable,0),total=done+pending+unavailable;
- return {status:space.blocked?"blocked":pending?"running":total?"complete":"not-started",...space,symbols,overall:{done,pending,unavailable,total,percent:total?Math.round(100*(done+unavailable)/total):0,etaSeconds:space.blocked?null:Math.ceil(pending/2.99)},etaKind:"Rate-budget lower bound; network latency and throttling may extend it"};
+ return {window:window?{from:window.anchor-360*DAY,to:window.anchor,days:360,initialComplete:!!window.initialComplete}:null,status:space.blocked?"blocked":pending?"running":total?"complete":"not-started",...space,symbols,overall:{done,pending,unavailable,total,percent:total?Math.round(100*(done+unavailable)/total):0,etaSeconds:space.blocked?null:Math.ceil(pending/2.99)},etaKind:"Rate-budget lower bound; network latency and throttling may extend it"};
 }

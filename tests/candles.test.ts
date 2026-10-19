@@ -119,6 +119,6 @@ test("background year plan includes all 20 symbols and six granularities, determ
  assert.equal(new Set(plan.map(j=>j._id)).size,plan.length);
  assert.deepEqual(plan,historyPlan(now));
  const btc=plan.filter(j=>j.symbol==="BTC"&&j.granularity==="1m");
- assert.ok(btc.length>=1752&&btc.length<=1754);
+ assert.ok(btc.length>=1728&&btc.length<=1730);
  assert.ok(plan.every(j=>j.background&&j.status==="pending"));
 });
