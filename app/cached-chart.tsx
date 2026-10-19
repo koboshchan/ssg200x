@@ -15,7 +15,7 @@ export default function CachedChart({symbol,quote}:{symbol:Symbol;quote?:LiveQuo
  async function start(){
  const {createChart,CandlestickSeries,ColorType}=await import("lightweight-charts");if(closed||!node.current)return;
  const dark=matchMedia("(prefers-color-scheme: dark)").matches;
- chart=createChart(node.current,{autoSize:true,layout:{background:{type:ColorType.Solid,color:dark?"#1c1c1e":"#fff"},textColor:dark?"#eee":"#333",attributionLogo:true},grid:{vertLines:{color:dark?"#303033":"#f0f0f0"},horzLines:{color:dark?"#303033":"#f0f0f0"}},rightPriceScale:{scaleMargins:{top:0.06,bottom:0.06}},timeScale:{timeVisible:true}});
+ chart=createChart(node.current,{autoSize:true,layout:{background:{type:ColorType.Solid,color:dark?"#1c1c1e":"#fff"},textColor:dark?"#eee":"#333",attributionLogo:true},grid:{vertLines:{color:dark?"#303033":"#f0f0f0"},horzLines:{color:dark?"#303033":"#f0f0f0"}},timeScale:{timeVisible:true}});
  const series=chart.addSeries(CandlestickSeries);
  const live=new Map<number,Row>();let lastAt=-1;
  const point=(c:Row)=>({...c,time:Math.floor(c.time/1000) as import("lightweight-charts").UTCTimestamp});

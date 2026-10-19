@@ -29,10 +29,6 @@ test("chart keeps native resize observation and wraps controls on narrow viewpor
  assert.match(chart,/chart\?\.remove\(\)/,"remove also disconnects the chart's ResizeObserver");
 });
 
-test("price scale keeps small top margin so no empty band appears above candles",()=>{
- assert.match(chart,/rightPriceScale:\{scaleMargins:\{top:0\.06,bottom:0\.06\}\}/);
-});
-
 test("global table margin does not leak into the chart library's internal table",()=>{
  assert.equal(declarations(".cached-chart .chart-shell table")["margin"],"0");
 });
