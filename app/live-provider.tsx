@@ -9,7 +9,7 @@ export type Connection="connecting"|"connected"|"disconnected";
    room:state PublicRoom, market:update MarketSnapshot, maintenance:state MaintenanceStatus, history:state HistoryStatus (admins).
    Non-admin blocked by maintenance: middleware rejects with Error("maintenance") (or emits maintenance:state {blocked:true} then disconnects).
    Server disconnects at token expiry; client reconnects with a fresh token. */
-type Live={connection:Connection;maintenance?:MaintenanceStatus;history?:HistoryStatus;historyVersion:number;lastMessageAt:number;subscribe:(event:string,handler:(payload:any)=>void)=>()=>void;emit:(event:string,payload?:unknown)=>void};
+type Live={connection:Connection;maintenance?:MaintenanceStatus;history?:HistoryStatus;lastMessageAt:number;subscribe:(event:string,handler:(payload:any)=>void)=>()=>void;emit:(event:string,payload?:unknown)=>void};
 const Context=createContext<Live|null>(null);
 export function useLive(){const v=useContext(Context);if(!v)throw new Error("LiveProvider missing");return v;}
 export function useLiveEvent(event:string,handler:(payload:any)=>void){const live=useLive(),ref=useRef(handler);ref.current=handler;useEffect(()=>live.subscribe(event,p=>ref.current(p)),[live,event]);}
