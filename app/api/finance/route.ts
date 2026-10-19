@@ -3,7 +3,7 @@ import {z} from "zod";
 import {endpoint,parse} from "@/lib/api";
 import {mutate,rateLimit} from "@/lib/store";
 import {publicRoom} from "@/lib/public";
-import {spin,spot,openPosition,closePosition,SYMBOLS} from "@/lib/finance";
+import {spot,openPosition,closePosition,SYMBOLS} from "@/lib/finance";
 import {ensure} from "@/lib/errors";
 const base={requestId:z.string().uuid(),requestAt:z.number().int()};
 const money=z.number().int().min(100).max(100_000_000),symbol=z.enum(SYMBOLS);
@@ -20,7 +20,7 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
  const {room}=await mutate(r=>{
  ensure(Date.now()-input.requestAt>=-10_000&&Date.now()-input.requestAt<=120_000,"Request expired. Try again.",409);
  const receipt=r.receipts.find(x=>x.id===input.requestId);if(receipt){ensure(receipt.userId===who.id,"Invalid request.",409);return;}
- if(input.type==="spin")spin(r,who,input.bets,n,id);
+ if(input.type==="spin")ensure(false,"Instant spins are disabled. Use the shared roulette table.",410);
  else if(input.type==="spot")spot(r,who,input.symbol,input.side,input.amount);
  else if(input.type==="open")openPosition(r,who,input.symbol,input.side,input.margin,input.leverage,id);
  else closePosition(r,who,input.positionId);
