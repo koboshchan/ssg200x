@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { zipSync, strToU8 } from "fflate";
-import { aggregateCandles, archivePlan, GRANULARITIES, parseArchive, parseKline, retryDelay, coinbasePages, parseCoinbaseCandles } from "../lib/candles";
+import { aggregateCandles, archivePlan, GRANULARITIES, parseArchive, parseKline, retryDelay, coinbasePages, parseCoinbaseCandles, assessBackfillSpace } from "../lib/candles";
 const time=Date.UTC(2026,0,1);
 const line=(at:number,o=10,h=15,l=8,c=12,v=2)=>[at,o,h,l,c,v,at+59999,0,1,0,0,0].join(",");
 test("parses milliseconds and post-2025 microseconds identically",()=>{
@@ -103,4 +103,11 @@ test("Coinbase rows decode OHLCV seconds and never synthesize empty buckets",()=
  assert.throws(()=>parseCoinbaseCandles([[time/1000,20,15,10,12,2]],"BTC","1m",time,time+60000));
  assert.throws(()=>parseCoinbaseCandles(Array(301).fill(row),"BTC","1m",time,time+60000));
  assert.equal(GRANULARITIES["6h"],21600000);
+});
+
+test("archive space guard blocks low or unknown free capacity before download",()=>{
+ assert.equal(assessBackfillSpace(1024**3).blocked,true);
+ assert.equal(assessBackfillSpace(NaN).blocked,true);
+ assert.equal(assessBackfillSpace(2*1024**3).blocked,false);
+ assert.match(assessBackfillSpace(1).reason!,/blocked/);
 });

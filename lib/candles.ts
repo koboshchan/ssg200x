@@ -1,3 +1,4 @@
+import { statfs } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { unzipSync } from "fflate";
 import type { AnyBulkWriteOperation } from "mongodb";
@@ -128,6 +129,7 @@ async function boundedDownload(url: string, cap: number) {
  return Buffer.concat(chunks,total);
 }
 async function importJob(job:Job) {
+ const space=await backfillSpace();if(space.blocked)throw new Error(space.reason!);
  const {candles,jobs}=await collections();
  const pair=`${job.symbol}USDT`;
  const url=`https://data.binance.vision/data/spot/${job.kind}/klines/${pair}/1m/${pair}-1m-${job.period}.zip`;
@@ -149,10 +151,12 @@ async function importJob(job:Job) {
 }
 /** Call every few seconds. Globally leased, one archive at a time, restart-safe. */
 export async function backfillStep() {
- if(active || process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED!=="1" || process.env.CANDLE_BACKFILL_DISABLED==="1")return {status:"idle"};
+ if(active || process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED==="0" || process.env.CANDLE_BACKFILL_DISABLED==="1")return {status:"idle"};
  active=true;
  let job:Job|null=null;
  try {
+  const space=await backfillSpace();
+  if(space.blocked)return {status:"blocked",...space};
   await seed();
   const {jobs,workers}=await collections();const now=Date.now();
   await workers.updateOne({_id:"candle-backfill"},{$setOnInsert:{nextAt:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
@@ -255,5 +259,27 @@ export async function backfillProgress() {
   return {symbol,done,pending,rows,total:done+pending,unavailable:unavailable.some(p=>p._id===symbol),percent:done+pending?Math.round(100*done/(done+pending)):100,etaSeconds:pending?Math.ceil(pending*Math.max(500,done?duration/done:500)/1000):0};
  });
  const done=symbols.reduce((n,s)=>n+s.done,0),pending=symbols.reduce((n,s)=>n+s.pending,0);
- return {mode:"on-demand",enabled:true,archiveEnabled:process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED==="1",source:"Coinbase USD historical candles and live snapshots; optional Binance USDT archive",symbols,overall:{done,pending,total:done+pending,rows:symbols.reduce((n,s)=>n+s.rows,0),percent:done+pending?Math.round(100*done/(done+pending)):100,etaSeconds:symbols.reduce((n,s)=>n+s.etaSeconds,0)},etaScope:"Queued chart pages only, not full-history completion"};
+ return {mode:"on-demand",enabled:true,archiveEnabled:process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED!=="0",archive:await archiveProgress(),source:"Coinbase USD historical candles and live snapshots; optional Binance USDT archive",symbols,overall:{done,pending,total:done+pending,rows:symbols.reduce((n,s)=>n+s.rows,0),percent:done+pending?Math.round(100*done/(done+pending)):100,etaSeconds:symbols.reduce((n,s)=>n+s.etaSeconds,0)},etaScope:"Queued chart pages only, not full-history completion"};
+}
+
+/** Point CANDLE_STORAGE_PATH at the Mongo volume's host mount when Mongo is remote.
+ * Unknown capacity fails closed. Each step and every import rechecks actual available bytes.
+ */
+export function assessBackfillSpace(freeBytes:number,requiredBytes=2*1024**3) {
+ const blocked=!Number.isFinite(freeBytes)||freeBytes<requiredBytes;
+ return {freeBytes,requiredBytes,blocked,reason:blocked?`Historical backfill blocked: ${freeBytes} available bytes; ${requiredBytes} required`:null};
+}
+export async function backfillSpace() {
+ const path=process.env.CANDLE_STORAGE_PATH||process.cwd();
+ try{const fs=await statfs(path);return {path,...assessBackfillSpace(fs.bavail*fs.bsize)};}
+ catch{return {path,...assessBackfillSpace(0),reason:"Historical backfill blocked: storage capacity could not be checked"};}
+}
+async function archiveProgress() {
+ const space=await backfillSpace();
+ const {jobs}=await collections();
+ const counts=await jobs.aggregate<{_id:string;count:number}>([{$group:{_id:"$status",count:{$sum:1}}}]).toArray();
+ const count=(status:string)=>counts.find(c=>c._id===status)?.count||0;
+ const pending=count("pending"),done=count("done"),missing=count("missing");
+ const enabled=process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED!=="0"&&process.env.CANDLE_BACKFILL_DISABLED!=="1";
+ return {enabled,status:!enabled?"disabled":space.blocked?"blocked":pending?"pending":done+missing?"complete":"not-started",...space,pending,done,missing,total:pending+done+missing,etaSeconds:null,etaReason:"Archive throughput has not been measured",symbols:await jobs.aggregate([{$group:{_id:{symbol:"$symbol",status:"$status"},count:{$sum:1}}}]).toArray()};
 }
