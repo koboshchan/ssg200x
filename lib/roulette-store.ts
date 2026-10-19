@@ -1,8 +1,15 @@
 import {mutate} from './store';
 import {register} from './poker';
 import {ensure} from './errors';
-import {rouletteAction,type RouletteAction} from './roulette';
+import {rouletteAction,rouletteTick,ROULETTE_MS,type RouletteAction} from './roulette';
 import type {Identity} from './types';
+import {readRoom} from './db';
+import type {RouletteState} from './roulette';
+export async function tickRoulette(){
+ const r=await readRoom(),b=(r as typeof r&{roulette?:RouletteState}).roulette;
+ if(!b||Date.now()>=b.started+ROULETTE_MS)await mutate(r=>rouletteTick(r,Date.now()));
+}
+
 export async function rouletteMove(who:Identity,action:RouletteAction,round:number,requestId:string,requestAt:number){
  return (await mutate(r=>{
   register(r,who);const now=Date.now();ensure(now-requestAt>=-10_000&&now-requestAt<=120_000,'Request expired.',409);
