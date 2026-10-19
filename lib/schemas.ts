@@ -1,5 +1,5 @@
 import {z} from "zod";
-const base={requestId:z.string().uuid(),handNumber:z.number().int().min(0)};
+const base={requestId:z.string().uuid(),handNumber:z.number().int().min(0),turnDeadline:z.number().int().nullable()};
 export const actionSchema=z.discriminatedUnion("type",[
  z.object({...base,type:z.literal("join"),seat:z.number().int().min(0).max(5),buyIn:z.number().int().min(10_000).max(100_000)}).strict(),
  z.object({...base,type:z.literal("leave")}).strict(),

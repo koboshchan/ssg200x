@@ -27,7 +27,7 @@ export async function visit(who: Identity) {
   const i=seatOf(r,who.id); if(i>=0)r.seats[i]!.seen=Date.now();
  })).room;
 }
-export async function move(who:Identity, action:Action, requestId:string, handNumber:number) {
+export async function move(who:Identity, action:Action, requestId:string, handNumber:number, turnDeadline:number|null) {
  return (await mutate(r=>{
   register(r,who);
   const repeated=r.receipts.find(receipt=>receipt.id===requestId);
@@ -35,7 +35,7 @@ export async function move(who:Identity, action:Action, requestId:string, handNu
   const now=Date.now();
   tick(r,now);
   // Actions refer to a specific hand, never become an accidental bet in the next.
-  if(["fold","check","call","raise"].includes(action.type))ensure(r.handNumber===handNumber,"The hand has changed. Refresh first.",409);
+  if(["fold","check","call","raise"].includes(action.type))ensure(r.handNumber===handNumber&&r.deadline===turnDeadline,"The turn has changed. Refresh first.",409);
   applyAction(r,who,action,now);
   r.receipts=[{id:requestId,userId:who.id},...r.receipts].slice(0,300);
  })).room;

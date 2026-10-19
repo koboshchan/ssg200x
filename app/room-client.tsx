@@ -42,7 +42,7 @@ function Game(){
   catch(e){setError(e instanceof Error?e.message:"Could not complete action.");try{await load();}catch{}}
   finally{busyRef.current=false;setBusy(false);}
  }
- function action(input:Action){if(room)post("/api/action",{...input,requestId:crypto.randomUUID(),handNumber:room.handNumber});}
+ function action(input:Action){if(room)post("/api/action",{...input,requestId:crypto.randomUUID(),handNumber:room.handNumber,turnDeadline:room.deadline});}
  if(!room)return <main className="waiting"><p className="eyebrow">WELCOME TO THE ROOM</p><h1>Shuffling things up.</h1><p role="status">{error||"Connecting to your table…"}</p></main>;
  const me=room.me;const mySeat=room.seats[me.seat];const choices=room.legal;
  const offset=room.serverNow-Date.now(),remaining=room.deadline?Math.max(0,Math.ceil((room.deadline-clock-offset)/1000)):0;
