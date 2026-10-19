@@ -5,6 +5,7 @@ import {Server} from "socket.io";
 import {createClerkClient,verifyToken} from "@clerk/backend";
 import {MongoClient} from "mongodb";
 import {randomBytes} from "node:crypto";
+import {emitRoomState} from "./runtime/room-state.mjs";
 import {verifiedSocketIdentity} from "./runtime/socket-identity.mjs";
 // Assigned before Next prepares its route workers. Never accept an externally set secret.
 process.env.INTERNAL_LIVE_SECRET=randomBytes(32).toString("hex");
@@ -45,10 +46,7 @@ async function pushState(socket,force=false){
    const fingerprint=JSON.stringify(data[key]);
    if(force||socket.data[key]!==fingerprint){socket.emit(event,data[key]);socket.data[key]=fingerprint;}
   }
-  if(data.room&&(force||socket.data.version!==data.room.version)){
-   socket.emit("room:state",data.room);socket.data.version=data.room.version;
-  }
-  if(data.maintenance.blocked)socket.data.version=undefined;
+  emitRoomState(socket,data,force);
   socket.data.initialized=true;
  }catch{socket.emit("live:error",{error:"Live state unavailable. Retrying."});}
  finally{socket.data.busy=false;}

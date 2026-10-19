@@ -49,3 +49,19 @@ test("live status cache coalesces concurrent sockets and retries a failed refres
  const retry=liveStatusCache(async()=>{if(++failures===1)throw new Error("temporary");return "ok";});
  await assert.rejects(retry());assert.equal(await retry(),"ok");assert.equal(failures,2);
 });
+
+// @ts-expect-error Shared custom-server JavaScript runtime.
+import {emitRoomState} from "../runtime/room-state.mjs";
+test("room:state initial connection and reconnect always get their own private snapshot",()=>{
+ const r=freshRoom(),alice={id:"private-a",name:"Alice",email:"a@test.com",admin:false},bob={id:"private-b",name:"Bob",email:"b@test.com",admin:false};
+ register(r,alice);register(r,bob);
+ r.members[1].holdings=[{symbol:"BTC",units:42,cost:123}];
+ const events:[string,ReturnType<typeof publicRoom>][]=[];
+ const socket={data:{version:r.version as number|undefined},emit:(event:string,payload:ReturnType<typeof publicRoom>)=>events.push([event,payload])};
+ const data={maintenance:{blocked:false},room:publicRoom(r,alice)};
+ emitRoomState(socket,data,true);assert.equal(events.length,1);assert.equal(events[0][0],"room:state");assert.deepEqual(events[0][1].holdings,[]);
+ emitRoomState(socket,data);assert.equal(events.length,1);
+ emitRoomState(socket,{...data,room:publicRoom(r,bob)},true);assert.equal(events.length,2);assert.equal(events[1][1].holdings[0].units,42);
+ emitRoomState(socket,{...data,maintenance:{blocked:true}},true);assert.equal(events.length,2);assert.equal(socket.data.version,undefined);
+ emitRoomState(socket,data);assert.equal(events.length,3);
+});
