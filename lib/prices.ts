@@ -25,7 +25,7 @@ export function startPriceWorker(){
  const owner=randomUUID();
  let running=false,leaseUntil=0,nextRest=0,stopped=false;
  let feed:ExchangeFeed;
- const makeFeed=()=>new ExchangeFeed({socket:()=>new WebSocket("wss://ws-feed.exchange.coinbase.com"),apply:async ticks=>{if(stopped||Date.now()>=leaseUntil)throw new Error("Price lease expired");await persistExchangeTicks(ticks);},log:message=>console.warn(message)});
+ const makeFeed=()=>new ExchangeFeed({socket:()=>{if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Price lease unavailable");return new WebSocket("wss://ws-feed.exchange.coinbase.com");},apply:async ticks=>{if(stopped||Date.now()>=leaseUntil)throw new Error("Price lease expired");await persistExchangeTicks(ticks);},log:message=>console.warn(message)});
  feed=makeFeed();
  async function step(){
   if(running||stopped)return;running=true;
@@ -40,10 +40,13 @@ export function startPriceWorker(){
    feed.step();feed.retryPending();
    const stale=feed.staleSymbols();
    if(!stale.length||now<nextRest)return;
-   const room=await readRoom();nextRest=now+pollingInterval(room);
+   const room=await readRoom(),interval=pollingInterval(room);nextRest=now+interval;
+   const budget=(await db()).collection<{_id:string;nextAt:number}>("workers");
+   await budget.updateOne({_id:"coinbase-history-budget"},{$setOnInsert:{nextAt:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
+   if(!(await budget.updateOne({_id:"coinbase-history-budget",nextAt:{$lte:now}},{$set:{nextAt:now+Math.max(334,interval)}})).matchedCount)return;
    const response=await fetch("https://api.coinbase.com/v2/exchange-rates?currency=USD",{cache:"no-store",signal:AbortSignal.timeout(3000)});
    if(!response.ok){
-    if(response.status===429)nextRest=Date.now()+Math.max(1000,Math.min(60000,Number(response.headers.get("retry-after"))*1000||5000));
+    if(response.status===429){nextRest=Date.now()+Math.max(1000,Math.min(60000,Number(response.headers.get("retry-after"))*1000||5000));await budget.updateOne({_id:"coinbase-history-budget"},{$max:{nextAt:nextRest}});}
     return;
    }
    const quotes=decodeRates(await response.json(),Date.now());
@@ -61,7 +64,7 @@ export function startPriceWorker(){
   }catch{if(Date.now()>=leaseUntil){feed.stop();feed=makeFeed();leaseUntil=0;}}
   finally{running=false;}
  }
- const timer=setInterval(()=>{void step();},100);timer.unref();
+ const timer=setInterval(()=>{if(leaseUntil&&Date.now()>=leaseUntil-1000){feed.stop();feed=makeFeed();leaseUntil=0;}void step();},100);timer.unref();
  const worker:Worker={ready:Promise.resolve(),owner,get feed(){return feed;},timer,stop(){
   stopped=true;clearInterval(timer);feed.stop();delete globalWorker.exchangePriceWorker;
   void db().then(d=>d.collection<{_id:string;owner:string;until:number}>("workers").updateOne({_id:"coinbase-feed",owner},{$set:{until:0}})).catch(()=>{});
