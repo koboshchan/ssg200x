@@ -2,7 +2,7 @@ import test, { mock } from "node:test";
 import fsPromises from "node:fs/promises";
 import assert from "node:assert/strict";
 import { zipSync, strToU8 } from "fflate";
-import { aggregateCandles, archivePlan, GRANULARITIES, parseArchive, parseKline, retryDelay, coinbasePages, parseCoinbaseCandles, assessBackfillSpace, historyPlan } from "../lib/candles";
+import { aggregateCandles, archivePlan, GRANULARITIES, parseArchive, parseKline, retryDelay, coinbasePages, parseCoinbaseCandles, assessBackfillSpace, currentMonthPlan, historyPlan } from "../lib/candles";
 const time=Date.UTC(2026,0,1);
 const line=(at:number,o=10,h=15,l=8,c=12,v=2)=>[at,o,h,l,c,v,at+59999,0,1,0,0,0].join(",");
 test("parses milliseconds and post-2025 microseconds identically",()=>{
@@ -86,6 +86,20 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  globalThis.fetch=(async()=>new Response("missing",{status:404})) as typeof fetch;
  await backfillStep();
  assert.equal((await database.collection<{_id:string;status?:string}>("candle_backfill").findOne({_id:missing._id}))?.status,"missing");
+ // Complete archive jobs, then exercise a real current-month worker page twice.
+ await database.collection("candle_backfill").updateMany({},{$set:{status:"done"}});
+ const bootstrap=await database.collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
+ const page=currentMonthPlan(bootstrap!.anchor).find(j=>j.symbol==="BTC")!;
+ globalThis.fetch=(async()=>new Response(JSON.stringify([[page.from/1000,8,15,10,12,2]]))) as typeof fetch;
+ for(let replay=0;replay<2;replay++){
+  await database.collection<{_id:string;status:string;nextAt:number}>("candle_backfill").updateOne({_id:page._id},{$set:{status:"pending",nextAt:0}});
+  await database.collection<{_id:string;nextAt:number}>("workers").updateMany({_id:{$in:["candle-backfill","coinbase-history-budget"]}},{$set:{nextAt:0}});
+  await backfillStep();
+  assert.equal((await database.collection<{_id:string;status:string}>("candle_backfill").findOne({_id:page._id}))!.status,"done");
+  const actual=await candleRead("BTC","5m",Math.floor(page.from/300000)*300000,page.to);
+  assert.equal(actual[0].volume,2);assert.equal(actual[0].source,"coinbase");assert.equal(actual[0].quoteCurrency,"USD");
+ }
+ await database.collection<{_id:string;nextAt:number}>("workers").updateOne({_id:"coinbase-history-budget"},{$set:{nextAt:0}});
  // After archive completion refresh authoritative latest two finalized USD buckets.
  await database.collection("candle_backfill").updateMany({status:"pending"},{$set:{status:"done"}});
  await database.collection<{_id:string;nextAt:number}>("workers").updateOne({_id:"candle-backfill"},{$set:{nextAt:0}});
@@ -105,7 +119,7 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  const state=await database.collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
  assert.ok(state);
  const queued=await database.collection("candle_backfill").countDocuments();
- assert.equal(queued,archivePlan(state.anchor).length);
+ assert.equal(queued,archivePlan(state.anchor).length+currentMonthPlan(state.anchor).length);
  assert.equal((await historyBackfillStep()).status,"blocked");
  assert.equal((await database.collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"}))!.anchor,state.anchor);
  assert.equal(await database.collection("candle_backfill").countDocuments(),queued);
@@ -127,10 +141,10 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  assert.equal((await historyBackfillStep()).status,"blocked");
  const freshState=await database.collection<{_id:string;anchor:number;startedAt:number;seeded:boolean;jobIds:string[];total:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
  assert.ok(freshState?.seeded&&freshState.startedAt>0);
- assert.deepEqual(freshState.jobIds,archivePlan(freshState.anchor).map(j=>j._id));
+ assert.deepEqual(freshState.jobIds,[...archivePlan(freshState.anchor),...currentMonthPlan(freshState.anchor)].map(j=>j._id));
  assert.equal(freshState.total,freshState.jobIds.length);
  // Backfill older already-seeded state for the plain-JS WebSocket guard.
- await database.collection("candle_history_state").updateMany({},{$unset:{jobIds:"",total:""}});
+ await database.collection("candle_history_state").updateMany({},{$unset:{jobIds:"",total:""},$set:{version:1}});
  assert.equal((await historyBackfillStep()).status,"blocked");
  const migrated=await database.collection<{_id:string;jobIds:string[];total:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
  assert.deepEqual(migrated!.jobIds,freshState.jobIds);
@@ -203,7 +217,7 @@ test("archive retains 12 full months plus completed current days across years an
   const date=new Date(now),month=Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),1);
   const expectedStart=Date.UTC(date.getUTCFullYear(),date.getUTCMonth()-12,1),expectedEnd=Math.floor(now/day)*day;
   assert.equal(plan.filter(j=>j.kind==="monthly").length,12);
-  assert.equal(plan.filter(j=>j.kind==="daily").length,(expectedEnd-month)/day);
+  assert.equal(plan.filter(j=>j.kind==="daily").length,0);
   const days=new Set<number>();
   for(const j of plan){
    const start=Date.parse(j.period+(j.kind==="monthly"?"-01":"")+"T00:00:00Z");
@@ -213,7 +227,23 @@ test("archive retains 12 full months plus completed current days across years an
    if(j.kind==="monthly")assert.ok(end<=month);else assert.ok(start>=month);
    for(let t=start;t<end;t+=day){assert.ok(!days.has(t));days.add(t);}
   }
-  assert.equal(days.size,(expectedEnd-expectedStart)/day);
-  assert.equal(Math.min(...days),expectedStart);assert.equal(Math.max(...days)+day,expectedEnd);
+  assert.equal(days.size,(month-expectedStart)/day);
+  assert.equal(Math.min(...days),expectedStart);assert.equal(Math.max(...days)+day,month);
+ }
+});
+
+test("Coinbase current month pages are bounded and contiguous with no Binance daily archives",()=>{
+ for(const now of [Date.UTC(2024,2,1),Date.UTC(2024,1,29,23,59),Date.UTC(2026,9,19,13,5)]){
+  const pages=currentMonthPlan(now).filter(j=>j.symbol==="BTC").sort((a,b)=>a.from-b.from);
+  const d=new Date(now),start=Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),1),end=Math.floor(now/60000)*60000;
+  assert.ok(archivePlan(now).every(j=>j.kind==="monthly"));
+  assert.equal(archivePlan(now).length,20*12);
+  if(!pages.length){assert.equal(start,end);continue;}
+  assert.equal(pages[0].from,start);assert.equal(pages.at(-1)!.to,end);
+  for(let i=0;i<pages.length;i++){
+   const p=pages[i];assert.ok(p.to-p.from<=300*60000);assert.equal(p.source,"coinbase");
+   assert.equal(coinbasePages(p.from,p.to-1,60000).length,1);
+   if(i)assert.equal(pages[i-1].to,p.from);
+  }
  }
 });
