@@ -7,7 +7,7 @@ import {SignInButton,UserButton,useUser,useAuth} from "@clerk/nextjs";
 import MaintenanceGate from "./maintenance-gate";
 import HistoryProgress from "./history-progress";
 import {useState,useEffect,useCallback,useRef} from "react";
-import {mergeRoom,mergeMarket,coalescedRead,type MarketSnapshot} from "@/lib/room-sync";
+import {mergeRoom,mergeMarket,trailingRead,settledNotices,type MarketSnapshot} from "@/lib/room-sync";
 import type {PublicRoom} from "@/lib/public";
 import type {Action} from "@/lib/types";
 const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:n%100===0?0:2}).format(n/100);
@@ -79,10 +79,10 @@ function Game(){
  const [room,setRoom]=useState<PublicRoom|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState(false),[raise,setRaise]=useState("10"),[buyIn,setBuyIn]=useState("200"),[tab,setTab]=useState<"table"|"standings"|"access"|"markets"|"roulette"|"blackjack">("table"),[clock,setClock]=useState(Date.now());
  const [marketNotice,setMarketNotice]=useState("");
  const seenActivity=useRef<Set<string>|null>(null);
- useEffect(()=>{if(!room)return;const activity=room.activity||[];if(!seenActivity.current){seenActivity.current=new Set(activity);return;}const fresh=activity.filter(entry=>!seenActivity.current!.has(entry));for(const entry of activity)seenActivity.current.add(entry);if(fresh.length)setMarketNotice(fresh.reverse().join(". "));},[room?.activity]);
+ useEffect(()=>{if(!room)return;const settled=settledNotices(room.activity||[]);if(!seenActivity.current){seenActivity.current=new Set(settled.map(s=>s.id));return;}const fresh=settled.filter(s=>!seenActivity.current!.has(s.id));for(const s of settled)seenActivity.current.add(s.id);if(fresh.length)setMarketNotice(fresh.reverse().map(s=>s.text).join(". "));},[room?.activity]);
  const busyRef=useRef(false);
- const read=useRef<ReturnType<typeof coalescedRead<PublicRoom>>|null>(null);
- if(!read.current)read.current=coalescedRead(async()=>{const response=await fetch("/api/room",{cache:"no-store"});const data=await response.json();if(!response.ok)throw new Error(data.error);return data as PublicRoom;});
+ const read=useRef<ReturnType<typeof trailingRead<PublicRoom>>|null>(null);
+ if(!read.current)read.current=trailingRead(async()=>{const response=await fetch("/api/room",{cache:"no-store"});const data=await response.json();if(!response.ok)throw new Error(data.error);return data as PublicRoom;});
  const load=useCallback(async(_signal?:AbortSignal)=>{const data=await read.current!();setRoom(current=>mergeRoom(current,data));},[]);
  useEffect(()=>{
   const controller=new AbortController();let timer:ReturnType<typeof setTimeout>;
@@ -93,16 +93,16 @@ function Game(){
  const {getToken}=useAuth();
  const tokenRef=useRef(getToken);tokenRef.current=getToken;
  useEffect(()=>{
-  let closed=false;let socket:import("socket.io-client").Socket|undefined;
+  let closed=false;let trailing:ReturnType<typeof setTimeout>|undefined;let socket:import("socket.io-client").Socket|undefined;
   import("socket.io-client").then(({io})=>{
    if(closed)return;
    socket=io({path:"/socket.io",transports:["websocket","polling"],auth:(cb)=>{tokenRef.current().then(token=>cb({token}),()=>cb({}));}});
    let lastRead=0;
-   const refresh=()=>{if(!busyRef.current&&Date.now()-lastRead>=1000){lastRead=Date.now();load().catch(()=>{});}};
+   const refresh=()=>{if(busyRef.current)return;const wait=1000-(Date.now()-lastRead);if(wait<=0){lastRead=Date.now();load().catch(()=>{});}else if(!trailing)trailing=setTimeout(()=>{trailing=undefined;refresh();},wait);};
    socket.on("market:update",(payload:MarketSnapshot)=>{setRoom(current=>mergeMarket(current,payload));});
    socket.on("room:update",refresh);socket.on("connect",()=>{lastRead=0;refresh();});
   }).catch(()=>{});
-  return()=>{closed=true;socket?.disconnect();};
+  return()=>{closed=true;clearTimeout(trailing);socket?.disconnect();};
  },[load]);
  useEffect(()=>{const t=setInterval(()=>setClock(Date.now()),1000);return()=>clearInterval(t);},[]);
  useEffect(()=>{if(room?.legal)setRaise(String(room.legal.minTo/100));},[room?.handNumber,room?.street,room?.legal?.minTo]);
