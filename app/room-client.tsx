@@ -3,11 +3,11 @@ import dynamic from "next/dynamic";
 const Markets=dynamic(()=>import("./finance-client").then(m=>m.Markets));
 const Blackjack=dynamic(()=>import("./blackjack-client"));
 const Roulette=dynamic(()=>import("./roulette-client"));
-import {SignInButton,UserButton,useUser,useAuth} from "@clerk/nextjs";
+import {SignInButton,UserButton,useUser} from "@clerk/nextjs";
 import MaintenanceGate from "./maintenance-gate";
 import HistoryProgress from "./history-progress";
-import {useState,useEffect,useCallback,useRef} from "react";
-import {mergeRoom,mergeMarket,trailingRead,settledNotices,type MarketSnapshot} from "@/lib/room-sync";
+import {useState,useEffect,useRef,useContext} from "react";
+import {mergeRoom,mergeMarket,settledNotices,LiveContext,type MarketSnapshot} from "@/lib/room-sync";
 import type {PublicRoom} from "@/lib/public";
 import type {Action} from "@/lib/types";
 const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:n%100===0?0:2}).format(n/100);
@@ -81,36 +81,25 @@ function Game(){
  const seenActivity=useRef<Set<string>|null>(null);
  useEffect(()=>{if(!room)return;const settled=settledNotices(room.activity||[]);if(!seenActivity.current){seenActivity.current=new Set(settled.map(s=>s.id));return;}const fresh=settled.filter(s=>!seenActivity.current!.has(s.id));for(const s of settled)seenActivity.current.add(s.id);if(fresh.length)setMarketNotice(fresh.reverse().map(s=>s.text).join(". "));},[room?.activity]);
  const busyRef=useRef(false);
- const read=useRef<ReturnType<typeof trailingRead<PublicRoom>>|null>(null);
- if(!read.current)read.current=trailingRead(async()=>{const response=await fetch("/api/room",{cache:"no-store"});const data=await response.json();if(!response.ok)throw new Error(data.error);return data as PublicRoom;});
- const load=useCallback(async(_signal?:AbortSignal)=>{const data=await read.current!();setRoom(current=>mergeRoom(current,data));},[]);
+ const bus=useContext(LiveContext);
  useEffect(()=>{
-  const controller=new AbortController();let timer:ReturnType<typeof setTimeout>;
-  async function refresh(){try{if(!document.hidden&&!busyRef.current)await load(controller.signal);}catch(e){if(!controller.signal.aborted)setError(e instanceof Error?e.message:"Connection lost.");}finally{if(!controller.signal.aborted)timer=setTimeout(refresh,2000);}}
-  refresh();return()=>{controller.abort();clearTimeout(timer);};
- },[load]);
-
- const {getToken}=useAuth();
- const tokenRef=useRef(getToken);tokenRef.current=getToken;
+  const controller=new AbortController();
+  fetch("/api/room",{cache:"no-store",signal:controller.signal}).then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error);setRoom(current=>mergeRoom(current,data as PublicRoom));}).catch(e=>{if(!controller.signal.aborted)setError(e instanceof Error?e.message:"Connection lost.");});
+  return()=>controller.abort();
+ },[]);
  useEffect(()=>{
-  let closed=false;let trailing:ReturnType<typeof setTimeout>|undefined;let socket:import("socket.io-client").Socket|undefined;
-  import("socket.io-client").then(({io})=>{
-   if(closed)return;
-   socket=io({path:"/socket.io",transports:["websocket","polling"],auth:(cb)=>{tokenRef.current().then(token=>cb({token}),()=>cb({}));}});
-   let lastRead=0;
-   const refresh=()=>{if(busyRef.current)return;const wait=1000-(Date.now()-lastRead);if(wait<=0){lastRead=Date.now();load().catch(()=>{});}else if(!trailing)trailing=setTimeout(()=>{trailing=undefined;refresh();},wait);};
-   socket.on("market:update",(payload:MarketSnapshot)=>{setRoom(current=>mergeMarket(current,payload));});
-   socket.on("room:update",refresh);socket.on("connect",()=>{lastRead=0;refresh();});
-  }).catch(()=>{});
-  return()=>{closed=true;clearTimeout(trailing);socket?.disconnect();};
- },[load]);
+  if(!bus)return;
+  const offState=bus.subscribe("room:state",(payload:PublicRoom)=>{if(payload&&typeof payload.version==="number"){setRoom(current=>mergeRoom(current,payload));setError("");}});
+  const offMarket=bus.subscribe("market:update",(payload:MarketSnapshot)=>{setRoom(current=>mergeMarket(current,payload));});
+  return()=>{offState();offMarket();};
+ },[bus]);
  useEffect(()=>{const t=setInterval(()=>setClock(Date.now()),1000);return()=>clearInterval(t);},[]);
  useEffect(()=>{if(room?.legal)setRaise(String(room.legal.minTo/100));},[room?.handNumber,room?.street,room?.legal?.minTo]);
  async function post(path:string,body:object){
   if(busyRef.current)return;busyRef.current=true;setBusy(true);setError("");
   try{const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,requestAt:Date.now()})});const data=await response.json();if(!response.ok)throw new Error(data.error);setRoom(current=>mergeRoom(current,data));}
-  catch(e){setError(e instanceof Error?e.message:"Could not complete action.");try{await load();}catch{}}
-  finally{busyRef.current=false;setBusy(false);void load().catch(()=>{});}
+  catch(e){setError(e instanceof Error?e.message:"Could not complete action.");}
+  finally{busyRef.current=false;setBusy(false);}
  }
  function action(input:Action){if(room)post("/api/action",{...input,requestId:crypto.randomUUID(),handNumber:room.handNumber,turnDeadline:room.deadline});}
  if(!room)return <main className="waiting"><p className="eyebrow">WELCOME TO THE ROOM</p><h1>Shuffling things up.</h1><p role="status">{error||"Connecting to your table…"}</p></main>;
