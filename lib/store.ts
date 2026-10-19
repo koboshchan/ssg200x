@@ -1,3 +1,4 @@
+import {audit,flushAudit,compactAudit} from "./audit";
 import { randomUUID } from "node:crypto";
 import { db, rooms, readRoom } from "./db";
 import { AppError, ensure } from "./errors";
@@ -7,11 +8,12 @@ export async function mutate<T>(fn: (r: Room)=>T | Promise<T>) {
  // Fresh server-owned copies on each CAS retry. No speculative state leaves here.
  for(let attempt=0;attempt<12;attempt++) {
   const previous=await readRoom(), next=structuredClone(previous);
+  await compactAudit(next);
   const result=await fn(next);
   assertRoom(next);
   const {_id,...fields}=next; fields.version=previous.version+1;
   if((await(await rooms()).updateOne({_id,version:previous.version},{$set:fields})).matchedCount) {
-   next.version=fields.version; return {room:next,result};
+   next.version=fields.version; await flushAudit(next).catch(()=>{}); return {room:next,result};
   }
  }
  throw new AppError("The room is busy. Try again.",409);
@@ -48,6 +50,7 @@ export async function approve(who:Identity, target:string, approved:boolean) {
   const m=r.members.find(m=>m.publicId===target);
   ensure(m,"Account not found.",404);
   ensure(m.id!==who.id,"You cannot remove your own access.");
+  audit(r,who,"approval",m.id,m.approved,approved);
   m.approved=approved;
   if(!approved) {
    const i=seatOf(r,m.id);

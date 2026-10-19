@@ -1,3 +1,5 @@
+import {audit} from "./audit";
+import {liqPrice,liquidate} from "./finance";
 import {register,addLog} from "./poker";
 import {ensure} from "./errors";
 import type {Identity,Room} from "./types";
@@ -7,7 +9,21 @@ export function adjustBalance(r:Room,who:Identity,target:string,delta:number){
  const m=r.members.find(x=>x.publicId===target);ensure(m,"Account not found.",404);
  ensure(Number.isSafeInteger(delta)&&delta!==0&&Math.abs(delta)<=100_000_000,"Adjustment must be nonzero and at most $1,000,000.");
  ensure(m.wallet+delta>=0&&m.wallet+delta<=1_000_000_000,"Resulting cash balance must be between $0 and $10,000,000.");
+ const old=m.wallet;
  m.wallet+=delta;r.issuance=(r.issuance||0)+delta;m.adjustments=(m.adjustments||0)+delta;
- r.audit=[{admin:who.id,target:m.id,delta,at:Date.now()},...(r.audit||[])].slice(0,1000);
+ audit(r,who,"balance",m.id,old,m.wallet);
  addLog(r,"Host adjusted "+m.name+"'s cash by "+(delta/100).toFixed(2));
+}
+export function setMaintenance(r:Room,who:Identity,percent:number){
+ ensure(who.admin,"Administrator access required.",403);ensure(Number.isFinite(percent)&&percent>=0&&percent<=20,"Maintenance margin must be 0–20%.");
+ audit(r,who,"maintenance-margin","global",100*(r.maintenance||0),percent);
+ r.maintenance=percent/100;
+ for(const m of r.members)for(const p of m.positions||[])p.maintenance=r.maintenance;
+ liquidate(r);
+}
+export function setLiquidation(r:Room,who:Identity,target:string,id:string,price:number){
+ ensure(who.admin,"Administrator access required.",403);const m=r.members.find(m=>m.publicId===target),p=m?.positions?.find(p=>p.id===id);
+ ensure(m&&p,"Position not found.",404);ensure(Number.isFinite(price)&&price>0&&price<=10_000_000,"Enter a valid USD liquidation price.");
+ const micro=Math.round(price*1e6);ensure(micro>0&&Number.isSafeInteger(micro),"Invalid price.");
+ audit(r,who,"liquidation-price",m.id+"/"+id,liqPrice(p)/1e6,price);p.liquidationOverride=micro;liquidate(r);
 }

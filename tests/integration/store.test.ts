@@ -47,3 +47,4 @@ test("Mongo-backed rate counter enforces limit across parallel callers",async()=
 test("host revocation schedules occupied seat cashout, cannot reset own access",async()=>{
  const r=await readRoom(),m=r.members.find(m=>m.id==="user_1")!;await approve(admin,m.publicId,false);const next=await readRoom();assert.equal(next.members.find(x=>x.id===m.id)!.approved,false);assert.equal(next.seats[0]!.leaveAfter,true);await assert.rejects(approve(admin,r.members.find(x=>x.id===admin.id)!.publicId,false));assertRoom(next);
 });
+test("every admin change has durable old/new audit collection record",async()=>{const r=await readRoom();const m=r.members.find(m=>m.id==="user_1")!;const entry=await(await db()).collection("audit").findOne({what:"approval",target:m.id,new:false});assert.ok(entry);assert.equal(entry.who,admin.id);assert.equal(entry.old,true);assert.ok(entry.at);});

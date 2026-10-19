@@ -3,7 +3,8 @@ export type Member = { id: string; publicId: string; name: string; email: string
 export type Seat = { userId: string; stack: number; hole: string[]; bet: number; committed: number; folded: boolean; inHand: boolean; actedAt: number | null; sitOut: boolean; leaveAfter: boolean; seen: number };
 export type Street = "waiting" | "preflop" | "flop" | "turn" | "river" | "showdown";
 export type Payout = { seat: number; amount: number; description: string };
-export type Room = { _id: string; version: number; house?:number; issuance?:number; audit?:{admin:string;target:string;delta:number;at:number}[]; quotes?:Partial<Record<Symbol,Quote>>; members: Member[]; seats: (Seat | null)[]; button: number; street: Street; handNumber: number; board: string[]; deck: string[]; currentBet: number; minRaise: number; pending: number[]; turn: number | null; deadline: number | null; nextDeal: number | null; payouts: Payout[]; log: string[]; receipts: { id: string; userId: string; at?:number }[]; };
+export type Room = { _id: string; version: number; house?:number; issuance?:number; maintenance?:number; auditPending?:AuditEvent[]; quotes?:Partial<Record<Symbol,Quote>>; members: Member[]; seats: (Seat | null)[]; button: number; street: Street; handNumber: number; board: string[]; deck: string[]; currentBet: number; minRaise: number; pending: number[]; turn: number | null; deadline: number | null; nextDeal: number | null; payouts: Payout[]; log: string[]; receipts: { id: string; userId: string; at?:number }[]; };
+export type AuditEvent={_id:string;who:string;what:string;target:string;old:unknown;new:unknown;at:number};
 export type Identity = { id: string; name: string; email: string; admin: boolean };
 export type Action =
  | { type: "join"; seat: number; buyIn: number }
