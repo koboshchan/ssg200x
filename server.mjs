@@ -41,6 +41,7 @@ async function pushState(socket,force=false){
   const data=await response.json();
   if(!socket.connected||socket.data.expires<=Date.now())return;
   for(const [key,event] of [["maintenance","maintenance:state"],["history","history:state"]]){
+   if(key==="history"&&!socket.data.identity.admin)continue;
    const fingerprint=JSON.stringify(data[key]);
    if(force||socket.data[key]!==fingerprint){socket.emit(event,data[key]);socket.data[key]=fingerprint;}
   }

@@ -1,0 +1,40 @@
+import {test} from "node:test";
+import assert from "node:assert/strict";
+import {internalLiveAuthorized} from "../lib/internal-live";
+import {POST} from "../app/api/internal-live/route";
+import {freshRoom,register} from "../lib/poker";
+import {publicRoom} from "../lib/public";
+import {verifiedGoogleEmail} from "../lib/google-identity";
+// @ts-expect-error Shared custom-server JavaScript runtime.
+import {verifiedSocketIdentity} from "../runtime/socket-identity.mjs";
+test("internal snapshots reject missing, wrong, and unequal length secrets before reading identity",async()=>{
+ const previous=process.env.INTERNAL_LIVE_SECRET;process.env.INTERNAL_LIVE_SECRET="secret-for-test";
+ try{
+  for(const secret of [undefined,"wrong","x".repeat(15)]){
+   const request=new Request("http://localhost/api/internal-live",{method:"POST",headers:secret?{"x-internal-live-secret":secret}:{},body:'{"admin":true,"id":"victim"}'});
+   assert.equal(internalLiveAuthorized(request),false);
+   assert.equal((await POST(request)).status,401);
+  }
+  assert.equal(internalLiveAuthorized(new Request("http://localhost",{headers:{"x-internal-live-secret":"secret-for-test"}})),true);
+ }finally{if(previous===undefined)delete process.env.INTERNAL_LIVE_SECRET;else process.env.INTERNAL_LIVE_SECRET=previous;}
+});
+test("socket identity matches verified Google rules including admin exception",()=>{
+ const base={passwordEnabled:false,publicMetadata:{role:""},externalAccounts:[{provider:"oauth_google",emailAddress:"Alice@test.com"}],primaryEmailAddressId:"e",emailAddresses:[{id:"e",emailAddress:"alice@test.com",verification:{status:"verified"}}]};
+ for(const user of [base,{...base,passwordEnabled:true},{...base,externalAccounts:[]},{...base,emailAddresses:[{...base.emailAddresses[0],verification:{status:"unverified"}}]},{...base,externalAccounts:[{provider:"google",emailAddress:"other@test.com"}]},{...base,passwordEnabled:true,publicMetadata:{role:"admin"},externalAccounts:[]}]){
+  assert.equal(verifiedSocketIdentity(user,"alice")?.email,verifiedGoogleEmail(user));
+ }
+});
+test("full room fanout projection hides opponents cards and private portfolios",()=>{
+ const r=freshRoom(),alice={id:"alice-id",name:"Alice",email:"alice@test.com",admin:false},bob={id:"bob-id",name:"Bob",email:"bob@test.com",admin:false};
+ register(r,alice);register(r,bob);
+ r.members[1].holdings=[{symbol:"BTC",units:987654,cost:123456}];
+ r.seats[0]={userId:alice.id,stack:1000,hole:["As","Ah"],bet:0,committed:0,folded:false,inHand:true,actedAt:null,sitOut:false,leaveAfter:false,seen:Date.now()};
+ r.seats[1]={...r.seats[0],userId:bob.id,hole:["Ks","Kh"]};
+ r.street="preflop";
+ const a=publicRoom(r,alice),b=publicRoom(r,bob);
+ assert.deepEqual(a.seats[0]?.hole,["As","Ah"]);assert.deepEqual(a.seats[1]?.hole,["?","?"]);
+ assert.deepEqual(b.seats[1]?.hole,["Ks","Kh"]);assert.deepEqual(b.seats[0]?.hole,["?","?"]);
+ assert.deepEqual(a.holdings,[]);assert.equal(b.holdings[0].units,987654);
+ assert.deepEqual(a.adminUsers,[]);assert.deepEqual(a.members,[]);assert.deepEqual(a.adminPositions,[]);
+ for(const secret of ["alice-id","bob-id","alice@test.com","bob@test.com","Ks","Kh","987654"])assert.equal(JSON.stringify(a).includes(secret),false);
+});
