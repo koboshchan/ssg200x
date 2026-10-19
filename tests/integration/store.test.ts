@@ -42,9 +42,10 @@ test("parallel duplicate leave credits bankroll once and readiness-leave race is
  // Reset readiness using the actual worker and a deterministic server clock.
  const original=Date.now,now=original();
  try{
- await mutate(r=>{r.seats[0]!.ready=true;r.readyDeadline=now+READY_MS;for(const s of r.seats)if(s&&s.userId!==who.id)s.seen=now+READY_MS;});
+ await mutate(r=>{r.seats[0]!.ready=true;r.readyDeadline=now+READY_MS;});
  Date.now=()=>now+READY_MS-1;await tickRoom();
  assert.equal((await readRoom()).seats[0]!.ready,true);
+ assert.equal((await readRoom()).seats.filter(Boolean).length,2);
  Date.now=()=>now+READY_MS;await tickRoom();
  r=await readRoom();assert.equal(r.seats[0]!.ready,false);assert.equal(r.readyDeadline,null);
  assert.equal(r.members.find(m=>m.id===who.id)!.wallet,80000);assertRoom(r);

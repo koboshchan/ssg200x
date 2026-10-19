@@ -215,7 +215,7 @@ export function tick(r: Room, now: number) {
   }
   for (let i=0;i<r.seats.length;i++) {
    const s = r.seats[i];
-   if (s && !s.ready && (s.leaveAfter || s.stack === 0 || now - s.seen > IDLE_MS)) {
+   if (s && !s.ready && (s.leaveAfter || s.stack === 0 || (r.readyDeadline == null && now - s.seen > IDLE_MS))) {
     cashOut(r,i); changed = true;
    }
   }

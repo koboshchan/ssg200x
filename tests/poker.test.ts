@@ -75,7 +75,6 @@ test("joining never deals; all seated players must explicitly ready, with one-wa
  applyAction(r,user(0),{type:"ready"},3000);assert.equal(r.readyDeadline,2000+READY_MS);
  assert.throws(()=>applyAction(r,user(0),{type:"leave"},3000));
  applyAction(r,user(1),{type:"ready"},3000);assert.equal(r.street,"waiting");
- r.seats[2]!.seen=2000+READY_MS;
  tick(r,2000+READY_MS-1);assert.ok(r.seats[0]?.ready);assert.ok(r.seats[1]?.ready);
  tick(r,2000+READY_MS);assert.equal(r.readyDeadline,null);assert.ok(r.seats[0]);assert.ok(r.seats[1]);assert.equal(r.seats[0]?.ready,false);
  applyAction(r,user(0),{type:"leave"},2000+READY_MS);assert.equal(r.members[0].wallet,100000);assertRoom(r);
@@ -124,4 +123,23 @@ test("showdown inHand is historical: cashout is allowed after settlement without
  applyAction(r,user(0),{type:"leave"},3000);
  assert.equal(r.seats[0],null);assert.equal(r.members[0].wallet,wallet+stack);
  assert.equal(r.street,"showdown");assertRoom(r);
+});
+
+test("readiness window protects idle unready blockers for the full five minutes",()=>{
+ const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
+ applyAction(r,user(0),{type:"ready"},2000);applyAction(r,user(1),{type:"ready"},3000);
+ const expiry=r.readyDeadline!;
+ tick(r,expiry-1);
+ assert.equal(r.seats.filter(Boolean).length,3);assert.equal(r.handNumber,0);
+ assert.equal(r.seats[2]!.ready,false);assert.equal(r.readyDeadline,expiry);
+ tick(r,expiry);
+ assert.equal(r.seats.filter(Boolean).length,3);assert.ok(r.seats.every(s=>!s||(!s.ready&&s.seen===expiry)));
+ assert.equal(r.readyDeadline,null);assert.equal(r.handNumber,0);
+ tick(r,expiry+90001);assert.equal(r.seats.filter(Boolean).length,0);assertRoom(r);
+});
+test("readiness window still cleans revoked seats rather than locking them until expiry",()=>{
+ const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
+ applyAction(r,user(0),{type:"ready"},2000);r.seats[2]!.leaveAfter=true;
+ const expiry=r.readyDeadline;tick(r,3000);
+ assert.equal(r.seats[2],null);assert.equal(r.readyDeadline,expiry);assert.equal(r.members[2].wallet,100000);assertRoom(r);
 });
