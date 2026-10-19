@@ -1,4 +1,5 @@
-import test from "node:test";
+import test, { mock } from "node:test";
+import fsPromises from "node:fs/promises";
 import assert from "node:assert/strict";
 import { zipSync, strToU8 } from "fflate";
 import { aggregateCandles, archivePlan, GRANULARITIES, parseArchive, parseKline, retryDelay, coinbasePages, parseCoinbaseCandles, assessBackfillSpace, historyPlan } from "../lib/candles";
@@ -46,9 +47,10 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  if(!process.env.MONGODB_DB?.startsWith("fakebucks_test_candles_"))throw new Error("Refusing non-test candle database");
  const {db,closeDatabase}=await import("../lib/db");
  process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED="1";
- const {candleUpdate,candleRead,backfillStep}=await import("../lib/candles");
+ const {candleUpdate,candleRead,backfillStep,historyBackfillStep,backfillProgress,candleEnsure}=await import("../lib/candles");
  const {createHash}=await import("node:crypto");
  const database=await db(),fetchOriginal=globalThis.fetch;
+ const capacity=mock.method(fsPromises,"statfs",async()=>({bavail:10*1024**3,bsize:1}) as Awaited<ReturnType<typeof fsPromises.statfs>>);
  try {
  await database.dropDatabase();
  await candleUpdate({BTC:{micro:10_000_000,at:time+1000}});
@@ -82,7 +84,25 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  globalThis.fetch=(async()=>new Response("missing",{status:404})) as typeof fetch;
  await backfillStep();
  assert.equal((await database.collection<{_id:string;status?:string}>("candle_backfill").findOne({_id:missing._id}))?.status,"missing");
- } finally {globalThis.fetch=fetchOriginal;await database.dropDatabase();await closeDatabase();}
+ // Production capacity guard remains intact; mock low capacity and verify no network request.
+ capacity.mock.mockImplementation(async()=>({bavail:512*1024**2,bsize:1}) as Awaited<ReturnType<typeof fsPromises.statfs>>);
+ let blockedFetches=0;
+ globalThis.fetch=(async()=>{blockedFetches++;throw new Error("Must not fetch with low capacity");}) as typeof fetch;
+ assert.equal((await historyBackfillStep()).status,"blocked");
+ const state=await database.collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"360-day-v1"});
+ assert.ok(state);
+ const queued=await database.collection("candle_coverage").countDocuments({background:true});
+ assert.equal(queued,historyPlan(state.anchor).length);
+ assert.equal((await historyBackfillStep()).status,"blocked");
+ assert.equal((await database.collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"360-day-v1"}))!.anchor,state.anchor);
+ assert.equal(await database.collection("candle_coverage").countDocuments({background:true}),queued);
+ assert.equal((await candleEnsure("BTC","1m",time,time+60000)).status,"blocked");
+ assert.equal(blockedFetches,0);
+ const progress=await backfillProgress();
+ assert.equal(progress.history.status,"blocked");
+ assert.equal(progress.history.window!.to-progress.history.window!.from,360*86400000);
+ assert.equal(progress.history.overall.etaSeconds,null);
+ } finally {capacity.mock.restore();globalThis.fetch=fetchOriginal;await database.dropDatabase();await closeDatabase();}
 });
 
 test("Coinbase pages go backwards, never exceed 300 buckets, and preserve overlapping request keys",()=>{
