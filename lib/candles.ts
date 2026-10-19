@@ -151,7 +151,7 @@ async function importJob(job:Job) {
 }
 /** Call every few seconds. Globally leased, one archive at a time, restart-safe. */
 export async function backfillStep() {
- if(active || process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED==="0" || process.env.CANDLE_BACKFILL_DISABLED==="1")return {status:"idle"};
+ if(active || process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED!=="1" || process.env.CANDLE_BACKFILL_DISABLED==="1")return {status:"idle"};
  active=true;
  let job:Job|null=null;
  try {
@@ -175,7 +175,7 @@ export async function backfillStep() {
  } finally {active=false;}
 }
 
-type Coverage = {_id:string;symbol:string;granularity:Granularity;from:number;to:number;status:"pending"|"done"|"unavailable";expiresAt:number;rows?:number;startedAt?:number;finishedAt?:number;error?:string};
+type Coverage = {background?:boolean;nextAttempt?:number;_id:string;symbol:string;granularity:Granularity;from:number;to:number;status:"pending"|"done"|"unavailable";expiresAt:number;rows?:number;startedAt?:number;finishedAt?:number;error?:string};
 /** Fixed, nonoverlapping windows allow empty/no-tick pages to be cached as coverage. */
 export function coinbasePages(from:number,to:number,width:number) {
  const span=300*width, result:{from:number;to:number}[]=[];
@@ -194,7 +194,7 @@ export function parseCoinbaseCandles(body:unknown,symbol:string,granularity:Gran
  return [...out.values()].sort((a,b)=>a.time-b.time);
 }
 /** Only on-demand missing chart pages. At most one upstream page per invocation.
- * Mongo's global 500ms lease caps all chart workers at 2 req/s, leaving live's 5 req/s untouched.
+ * Mongo's global 334ms lease caps all history workers below 3 req/s, leaving live's 5 req/s untouched.
  * Caller should retry pending results later rather than hold a request open.
  */
 export async function candleEnsure(symbol:string,granularity:string,from:number,to:number) {
@@ -215,8 +215,10 @@ export async function candleEnsure(symbol:string,granularity:string,from:number,
  const page=missing[0],id=`${symbol}:${granularity}:${page.from}`;
  await coverage.bulkWrite(missing.map(p=>({updateOne:{filter:{_id:`${symbol}:${granularity}:${p.from}`},update:{$setOnInsert:{symbol,granularity,...p,status:"pending" as const,expiresAt:0}},upsert:true}})),{ordered:false});
  await workers.updateOne({_id:"coinbase-history-budget"},{$setOnInsert:{nextAt:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
- const lease=await workers.updateOne({_id:"coinbase-history-budget",nextAt:{$lte:now}},{$set:{nextAt:now+500}});
- if(!lease.matchedCount)return {status:"pending",symbol,granularity,remainingPages:missing.length,retryAfterMs:500};
+ const space=await backfillSpace();
+ if(space.blocked)return {status:"blocked",symbol,granularity,remainingPages:missing.length,...space};
+ const lease=await workers.updateOne({_id:"coinbase-history-budget",nextAt:{$lte:now}},{$set:{nextAt:now+334}});
+ if(!lease.matchedCount)return {status:"pending",symbol,granularity,remainingPages:missing.length,retryAfterMs:334};
  const start=page.from,end=Math.min(page.to,Math.floor(now/width)*width);
  if(end<=start)return {status:"cached",symbol,granularity,remainingPages:0};
  await coverage.updateOne({_id:id},{$set:{startedAt:now}});
@@ -239,12 +241,12 @@ export async function candleEnsure(symbol:string,granularity:string,from:number,
   // Historical finalized buckets replace incomplete live snapshots and optional USDT references.
   if(rows.length)await candles.bulkWrite(rows.map(c=>({updateOne:{filter:{_id:key(c)},update:{$set:c},upsert:true}})),{ordered:false});
   await coverage.updateOne({_id:id},{$set:{status:"done",rows:rows.length,finishedAt:Date.now(),expiresAt:page.to<=now?Number.MAX_SAFE_INTEGER:now+60_000,error:""}});
-  return {status:missing.length>1?"pending":"cached",symbol,granularity,remainingPages:missing.length-1,rows:rows.length,retryAfterMs:500};
+  return {status:missing.length>1?"pending":"cached",symbol,granularity,remainingPages:missing.length-1,rows:rows.length,retryAfterMs:334};
  }catch(error){
   const message=error instanceof Error?error.message:"History fetch failed";
   await coverage.updateOne({_id:id},{$set:{error:message.slice(0,200)}});
   await workers.updateOne({_id:"coinbase-history-budget"},{$max:{nextAt:Date.now()+5000}});
-  return {status:"retry",symbol,granularity,remainingPages:missing.length,error:message,retryAfterMs:5000};
+  return {status:"retry",symbol,granularity,remainingPages:missing.length,error:message,retryAfterMs:3340};
  }
 }
 export async function backfillProgress() {
@@ -256,10 +258,10 @@ export async function backfillProgress() {
  const symbols=SYMBOLS.map(symbol=>{
   const stats=pages.filter(p=>p._id.symbol===symbol),done=stats.filter(p=>p._id.status==="done").reduce((n,p)=>n+p.count,0),pending=stats.filter(p=>p._id.status==="pending").reduce((n,p)=>n+p.count,0);
   const duration=stats.reduce((n,p)=>n+p.duration,0),rows=stats.reduce((n,p)=>n+p.rows,0);
-  return {symbol,done,pending,rows,total:done+pending,unavailable:unavailable.some(p=>p._id===symbol),percent:done+pending?Math.round(100*done/(done+pending)):100,etaSeconds:pending?Math.ceil(pending*Math.max(500,done?duration/done:500)/1000):0};
+  return {symbol,done,pending,rows,total:done+pending,unavailable:unavailable.some(p=>p._id===symbol),percent:done+pending?Math.round(100*done/(done+pending)):0,etaSeconds:pending?Math.ceil(pending*Math.max(500,done?duration/done:500)/1000):0};
  });
  const done=symbols.reduce((n,s)=>n+s.done,0),pending=symbols.reduce((n,s)=>n+s.pending,0);
- return {mode:"on-demand",enabled:true,archiveEnabled:process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED!=="0",archive:await archiveProgress(),source:"Coinbase USD historical candles and live snapshots; optional Binance USDT archive",symbols,overall:{done,pending,total:done+pending,rows:symbols.reduce((n,s)=>n+s.rows,0),percent:done+pending?Math.round(100*done/(done+pending)):100,etaSeconds:symbols.reduce((n,s)=>n+s.etaSeconds,0)},etaScope:"Queued chart pages only, not full-history completion"};
+ return {mode:"background-year",enabled:true,archiveEnabled:process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED==="1",archive:await archiveProgress(),source:"Coinbase USD historical candles and live snapshots; optional Binance USDT archive",symbols,overall:{done,pending,total:done+pending,rows:symbols.reduce((n,s)=>n+s.rows,0),percent:done+pending?Math.round(100*done/(done+pending)):0,etaSeconds:symbols.reduce((n,s)=>n+s.etaSeconds,0)},history:await historyProgress(),etaScope:"One-year queued history pages plus incremental top-ups"};
 }
 
 /** Point CANDLE_STORAGE_PATH at the Mongo volume's host mount when Mongo is remote.
@@ -280,6 +282,58 @@ async function archiveProgress() {
  const counts=await jobs.aggregate<{_id:string;count:number}>([{$group:{_id:"$status",count:{$sum:1}}}]).toArray();
  const count=(status:string)=>counts.find(c=>c._id===status)?.count||0;
  const pending=count("pending"),done=count("done"),missing=count("missing");
- const enabled=process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED!=="0"&&process.env.CANDLE_BACKFILL_DISABLED!=="1";
+ const enabled=process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED==="1"&&process.env.CANDLE_BACKFILL_DISABLED!=="1";
  return {enabled,status:!enabled?"disabled":space.blocked?"blocked":pending?"pending":done+missing?"complete":"not-started",...space,pending,done,missing,total:pending+done+missing,etaSeconds:null,etaReason:"Archive throughput has not been measured",symbols:await jobs.aggregate([{$group:{_id:{symbol:"$symbol",status:"$status"},count:{$sum:1}}}]).toArray()};
+}
+
+export function historyPlan(now=Date.now()):Coverage[] {
+ const result:Coverage[]=[];
+ for(const symbol of SYMBOLS)for(const granularity of Object.keys(GRANULARITIES) as Granularity[]){
+  const width=GRANULARITIES[granularity];
+  for(const page of coinbasePages(now-365*DAY,Math.floor(now/width)*width-1,width))result.push({_id:`${symbol}:${granularity}:${page.from}`,symbol,granularity,...page,status:"pending",expiresAt:0,background:true});
+ }
+ return result;
+}
+let historyRunning=false;
+/** Timer-driven first-boot + hourly incremental planner. No candle download until storage is safe. */
+export async function historyBackfillStep() {
+ if(historyRunning||process.env.CANDLE_BACKFILL_DISABLED==="1")return {status:"idle"};
+ historyRunning=true;
+ try{
+  const database=await db(),workers=database.collection<{_id:string;nextAt:number}>("workers"),coverage=database.collection<Coverage>("candle_coverage"),now=Date.now();
+  await coverage.createIndex({background:1,status:1,nextAttempt:1,from:-1});
+  const marker=await workers.findOne({_id:"coinbase-year-plan"});
+  if(!marker||marker.nextAt<=now){
+   await workers.updateOne({_id:"coinbase-year-plan"},{$setOnInsert:{nextAt:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
+   const lease=await workers.updateOne({_id:"coinbase-year-plan",nextAt:{$lte:now}},{$set:{nextAt:now+3600_000}});
+   if(lease.matchedCount){
+    const plan=historyPlan(now);
+    for(let i=0;i<plan.length;i+=500)await coverage.bulkWrite(plan.slice(i,i+500).map(job=>({updateOne:{filter:{_id:job._id},update:{$setOnInsert:{symbol:job.symbol,granularity:job.granularity,from:job.from,to:job.to,status:job.status,expiresAt:job.expiresAt},$set:{background:true}},upsert:true}})),{ordered:false});
+    // Refresh only the newest unfinished fixed pages, not old immutable history.
+    await coverage.updateMany({background:true,status:"done",expiresAt:{$lte:now}},{$set:{status:"pending"}});
+   }
+  }
+  const space=await backfillSpace();if(space.blocked)return {status:"blocked",...space};
+  const unavailable=await database.collection<{_id:string;unavailableUntil:number}>("candle_products").find({unavailableUntil:{$gt:now}}).toArray();
+  if(unavailable.length)await coverage.updateMany({symbol:{$in:unavailable.map(p=>p._id)},background:true,status:"pending"},{$set:{status:"unavailable"}});
+  // Previously unavailable products are checked again after their 24h marker expires.
+  await coverage.updateMany({background:true,status:"unavailable",symbol:{$nin:unavailable.map(p=>p._id)}},{$set:{status:"pending"}});
+  const job=await coverage.findOne({background:true,status:"pending",$or:[{nextAttempt:{$exists:false}},{nextAttempt:{$lte:now}}]},{sort:{from:-1,symbol:1,granularity:1}});
+  if(!job)return {status:"complete"};
+  const result=await candleEnsure(job.symbol,job.granularity,job.from,Math.min(job.to-1,Math.floor(now/GRANULARITIES[job.granularity])*GRANULARITIES[job.granularity]-1));
+  if(result.status==="retry")await coverage.updateOne({_id:job._id},{$set:{nextAttempt:now+30_000}});
+  return {...result,job:job._id};
+ }catch(error){return {status:"retry",error:error instanceof Error?error.message:"History worker failed"};}
+ finally{historyRunning=false;}
+}
+async function historyProgress(){
+ const database=await db(),space=await backfillSpace();
+ const stats=await database.collection<Coverage>("candle_coverage").aggregate<{_id:{symbol:string;status:string};count:number}>([{$match:{background:true}},{$group:{_id:{symbol:"$symbol",status:"$status"},count:{$sum:1}}}]).toArray();
+ const symbols=SYMBOLS.map(symbol=>{
+  const count=(status:string)=>stats.find(s=>s._id.symbol===symbol&&s._id.status===status)?.count||0;
+  const done=count("done"),pending=count("pending"),unavailable=count("unavailable");
+  return {symbol,done,pending,unavailable,total:done+pending+unavailable,percent:done+pending+unavailable?Math.round(100*(done+unavailable)/(done+pending+unavailable)):0,etaSeconds:space.blocked?null:Math.ceil(pending/2.99)};
+ });
+ const done=symbols.reduce((n,s)=>n+s.done,0),pending=symbols.reduce((n,s)=>n+s.pending,0),unavailable=symbols.reduce((n,s)=>n+s.unavailable,0),total=done+pending+unavailable;
+ return {status:space.blocked?"blocked":pending?"running":total?"complete":"not-started",...space,symbols,overall:{done,pending,unavailable,total,percent:total?Math.round(100*(done+unavailable)/total):0,etaSeconds:space.blocked?null:Math.ceil(pending/2.99)},etaKind:"Rate-budget lower bound; network latency and throttling may extend it"};
 }

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { zipSync, strToU8 } from "fflate";
-import { aggregateCandles, archivePlan, GRANULARITIES, parseArchive, parseKline, retryDelay, coinbasePages, parseCoinbaseCandles, assessBackfillSpace } from "../lib/candles";
+import { aggregateCandles, archivePlan, GRANULARITIES, parseArchive, parseKline, retryDelay, coinbasePages, parseCoinbaseCandles, assessBackfillSpace, historyPlan } from "../lib/candles";
 const time=Date.UTC(2026,0,1);
 const line=(at:number,o=10,h=15,l=8,c=12,v=2)=>[at,o,h,l,c,v,at+59999,0,1,0,0,0].join(",");
 test("parses milliseconds and post-2025 microseconds identically",()=>{
@@ -110,4 +110,15 @@ test("archive space guard blocks low or unknown free capacity before download",(
  assert.equal(assessBackfillSpace(NaN).blocked,true);
  assert.equal(assessBackfillSpace(2*1024**3).blocked,false);
  assert.match(assessBackfillSpace(1).reason!,/blocked/);
+});
+
+test("background year plan includes all 20 symbols and six granularities, deterministic deduped pages",()=>{
+ const now=Date.UTC(2026,9,19,13),plan=historyPlan(now);
+ assert.equal(new Set(plan.map(j=>j.symbol)).size,20);
+ assert.equal(new Set(plan.map(j=>j.granularity)).size,6);
+ assert.equal(new Set(plan.map(j=>j._id)).size,plan.length);
+ assert.deepEqual(plan,historyPlan(now));
+ const btc=plan.filter(j=>j.symbol==="BTC"&&j.granularity==="1m");
+ assert.ok(btc.length>=1752&&btc.length<=1754);
+ assert.ok(plan.every(j=>j.background&&j.status==="pending"));
 });
