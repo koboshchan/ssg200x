@@ -1,0 +1,29 @@
+{
+  "name": "fakebucks",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "test:integration": "tsx --test tests/integration/*.test.ts"
+  },
+  "dependencies": {
+    "@clerk/nextjs": "7.9.17",
+    "mongodb": "7.7.0",
+    "next": "16.4.2",
+    "pokersolver": "^2.1.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

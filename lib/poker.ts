@@ -1,0 +1,210 @@
+import { randomInt, createHash } from "node:crypto";
+import solver from "pokersolver";
+import { ensure } from "./errors";
+import type { Room, Seat, Identity, Member, Action, Payout } from "./types";
+export const SMALL = 100, BIG = 200, STRADDLE = 500;
+export const TURN_MS = 30_000, BREAK_MS = 8_000, IDLE_MS = 90_000;
+const MAX_MEMBERS = 100;
+export function freshRoom(): Room {
+ return { _id: "main", version: 0, members: [], seats: Array(6).fill(null), button: -1, street: "waiting", handNumber: 0, board: [], deck: [], currentBet: 0, minRaise: BIG, pending: [], turn: null, deadline: null, nextDeal: null, payouts: [], log: [], receipts: [] };
+}
+export function addLog(r: Room, text: string) { r.log = [text, ...r.log].slice(0,60); }
+export function register(r: Room, who: Identity, now = Date.now()): Member {
+ let m = r.members.find(m => m.id === who.id);
+ if (!m) {
+  ensure(r.members.length < MAX_MEMBERS, "This private room is full.", 409);
+  m = { id: who.id, publicId: createHash("sha256").update(who.id).digest("hex").slice(0,16), name: who.name.slice(0,32) || "Player", email: who.email, approved: who.admin, wallet: 100_000, joined: now };
+  r.members.push(m);
+ } else if (who.admin) m.approved = true;
+ return m;
+}
+export function seatOf(r: Room, id: string) { return r.seats.findIndex(s => s?.userId === id); }
+export function active(r: Room) { return r.street !== "waiting" && r.street !== "showdown"; }
+function ordered(r: Room, after: number, test: (s: Seat) => boolean) {
+ const out: number[] = [];
+ for (let n = 1; n <= r.seats.length; n++) { const i = (after + n + r.seats.length) % r.seats.length; const s = r.seats[i]; if (s && test(s)) out.push(i); }
+ return out;
+}
+function next(r: Room, after: number, test: (s: Seat) => boolean) { return ordered(r, after, test)[0]; }
+const contenders = (s: Seat) => s.inHand && !s.folded;
+const canAct = (s: Seat) => contenders(s) && s.stack > 0;
+export function pot(r: Room) { return r.seats.reduce((n,s) => n + (s?.committed ?? 0), 0); }
+function put(s: Seat, amount: number) { const n = Math.min(amount, s.stack); s.stack -= n; s.bet += n; s.committed += n; }
+function setTurn(r: Room, i: number | null, now: number) { r.turn = i; r.deadline = i === null ? null : now + TURN_MS; }
+export function shuffled(rng: (max: number) => number = randomInt) {
+ const deck = [..."shcd"].flatMap(s => [..."23456789TJQKA"].map(rank => rank + s));
+ for (let i = deck.length - 1; i > 0; i--) { const j = rng(i+1); [deck[i], deck[j]] = [deck[j], deck[i]]; }
+ return deck;
+}
+function draw(r: Room) { ensure(r.deck.length, "Deck exhausted.", 500); return r.deck.pop()!; }
+function revealStreet(r: Room) {
+ draw(r);
+ if (r.street === "preflop") { r.board.push(draw(r),draw(r),draw(r)); r.street = "flop"; }
+ else if (r.street === "flop") { r.board.push(draw(r)); r.street = "turn"; }
+ else { r.board.push(draw(r)); r.street = "river"; }
+}
+export function cashOut(r: Room, i: number) {
+ const s = r.seats[i]; if (!s) return;
+ const m = r.members.find(m => m.id === s.userId)!;
+ m.wallet += s.stack; r.seats[i] = null;
+}
+function end(r: Room, payouts: Payout[], now: number) {
+ for (const p of payouts) r.seats[p.seat]!.stack += p.amount;
+ r.payouts = payouts;
+ for (const p of payouts) {
+  const m = r.members.find(m => m.id === r.seats[p.seat]!.userId)!;
+  addLog(r, m.name + " " + (p.description === "Uncalled bet returned" ? "returned $" : "wins $") + (p.amount / 100).toFixed(2) + " · " + p.description);
+ }
+ r.street = "showdown"; r.pending = []; setTurn(r, null, now); r.nextDeal = now + BREAK_MS;
+ // Contributions are already in awarded stacks. Clearing prevents double counting.
+ for (const s of r.seats) if (s) { s.committed = 0; s.bet = 0; }
+}
+export function showdown(r: Room, now: number) {
+ const alive = r.seats.flatMap((s,i) => s && contenders(s) ? [i] : []);
+ if (alive.length === 1) { end(r, [{ seat: alive[0], amount: pot(r), description: "Everyone else folded" }], now); return; }
+ while (r.board.length < 5) revealStreet(r);
+ const levels = [...new Set(r.seats.filter(s => s && s.committed > 0).map(s => s!.committed))].sort((a,b) => a-b);
+ const payouts: Payout[] = [];
+ let previous = 0;
+ for (const level of levels) {
+  const contributors = r.seats.flatMap((s,i) => s && s.committed >= level ? [i] : []);
+  const amount = (level - previous) * contributors.length; previous = level;
+  if (contributors.length === 1) { payouts.push({ seat: contributors[0], amount, description: "Uncalled bet returned" }); continue; }
+  const eligible = contributors.filter(i => contenders(r.seats[i]!));
+  ensure(eligible.length, "Pot has no eligible player.", 500);
+  const hands = eligible.map(i => solver.Hand.solve([...r.seats[i]!.hole, ...r.board]));
+  const winners = solver.Hand.winners(hands);
+  const winningSeats = eligible.filter((_,j) => winners.includes(hands[j]));
+  // Odd cents move clockwise from the button, never disappear.
+  const clockwise = ordered(r, r.button, () => true).filter(i => winningSeats.includes(i));
+  const share = Math.floor(amount / clockwise.length), remainder = amount % clockwise.length;
+  clockwise.forEach((i,j) => payouts.push({ seat: i, amount: share + (j < remainder ? 1 : 0), description: hands[eligible.indexOf(i)].descr }));
+ }
+ end(r, payouts, now);
+}
+function advance(r: Room, after: number, now: number) {
+ const alive = r.seats.filter(s => s && contenders(s));
+ if (alive.length === 1) { showdown(r, now); return; }
+ r.pending = r.pending.filter(i => r.seats[i] && canAct(r.seats[i]!));
+ // A lone player with chips can only act if they still owe a call.
+ if (alive.filter(s => s!.stack > 0).length === 1) {
+  const lone = r.seats.findIndex(s => s && canAct(s));
+  if (r.seats[lone]!.bet >= r.currentBet) r.pending = [];
+ }
+ if (r.pending.length) {
+  const i = ordered(r, after, canAct).find(i => r.pending.includes(i))!;
+  setTurn(r, i, now); return;
+ }
+ if (r.street === "river" || alive.filter(s => s!.stack > 0).length <= 1) { showdown(r, now); return; }
+ revealStreet(r);
+ for (const s of r.seats) if (s) { s.bet = 0; s.actedAt = null; }
+ r.currentBet = 0; r.minRaise = BIG;
+ r.pending = ordered(r, r.button, canAct);
+ setTurn(r, r.pending[0] ?? null, now);
+}
+export function startHand(r: Room, now: number, rng?: (max: number) => number) {
+ ensure(!active(r), "Hand already running.", 409);
+ const eligible = (s: Seat) => !s.sitOut && !s.leaveAfter && s.stack > 0;
+ if (r.seats.filter(s => s && eligible(s)).length < 2) { r.street = "waiting"; r.nextDeal = null; return; }
+ r.button = next(r, r.button, eligible);
+ r.handNumber++; r.street = "preflop"; r.deck = shuffled(rng); r.board = []; r.payouts = []; r.nextDeal = null;
+ for (const s of r.seats) if (s) { s.inHand = eligible(s); s.folded = !s.inHand; s.bet = 0; s.committed = 0; s.hole = []; s.actedAt = null; }
+ for (let n=0;n<2;n++) for (const i of ordered(r, r.button, s => s.inHand)) r.seats[i]!.hole.push(draw(r));
+ const n = r.seats.filter(s => s?.inHand).length;
+ const sb = n === 2 ? r.button : next(r,r.button,s=>s.inHand);
+ const bb = next(r,sb,s=>s.inHand);
+ put(r.seats[sb]!,SMALL); put(r.seats[bb]!,BIG);
+ let last = bb;
+ if (n >= 3) { last = next(r,bb,s=>s.inHand); put(r.seats[last]!,STRADDLE); }
+ r.currentBet = n >= 3 ? STRADDLE : BIG; r.minRaise = r.currentBet;
+ r.pending = ordered(r,last,canAct);
+ addLog(r, "Hand #" + r.handNumber + " · " + (n >= 3 ? "$1 / $2 / $5 live UTG straddle" : "$1 / $2 heads-up"));
+ advance(r,last,now);
+}
+export function legal(r: Room, i: number) {
+ const s = r.seats[i];
+ if (!s || r.turn !== i || !active(r)) return null;
+ const toCall = Math.max(0, r.currentBet - s.bet);
+ const raiseOpen = s.actedAt === null || r.currentBet - s.actedAt >= r.minRaise;
+ return { toCall: Math.min(toCall,s.stack), check: toCall === 0, maxTo: s.bet + s.stack, minTo: r.currentBet + r.minRaise, raiseOpen: raiseOpen && s.bet + s.stack > r.currentBet && r.seats.some((other,j) => j !== i && other && canAct(other)) };
+}
+export function act(r: Room, id: string, action: Extract<Action,{type:"fold"|"check"|"call"}> | Extract<Action,{type:"raise"}>, now: number) {
+ const i = seatOf(r,id), s = r.seats[i];
+ ensure(s && i === r.turn && active(r), "It is not your turn.", 409);
+ const choices = legal(r,i)!;
+ let text: string = action.type;
+ if (action.type === "fold") s.folded = true;
+ else if (action.type === "check") ensure(choices.check, "You must call or fold.");
+ else if (action.type === "call") { ensure(!choices.check, "Nothing to call."); put(s,choices.toCall); }
+ else {
+  ensure(choices.raiseOpen, "Betting has not reopened for you.");
+  ensure(Number.isSafeInteger(action.to) && action.to > r.currentBet && action.to <= choices.maxTo, "Invalid raise total.");
+  const increment = action.to - r.currentBet;
+  ensure(increment >= r.minRaise || action.to === choices.maxTo, "Raise is below the minimum.");
+  put(s,action.to - s.bet);
+  if (increment >= r.minRaise) {
+   r.minRaise = increment;
+   r.pending = ordered(r,i,canAct).filter(j=>j!==i);
+  } else {
+   r.pending = [...new Set([...r.pending, ...ordered(r,i,canAct).filter(j=>r.seats[j]!.bet < action.to)])];
+  }
+  r.currentBet = action.to; text = "raises to $" + (action.to/100).toFixed(2);
+ }
+ s.actedAt = r.currentBet;
+ r.pending = r.pending.filter(j=>j!==i);
+ addLog(r, r.members.find(m=>m.id===id)!.name + " " + text);
+ advance(r,i,now);
+}
+export function applyAction(r: Room, who: Identity, action: Action, now: number) {
+ const member = r.members.find(m=>m.id===who.id);
+ ensure(member?.approved, "Lucas needs to approve your account first.", 403);
+ let i = seatOf(r,who.id);
+ if (action.type === "join") {
+  ensure(i < 0, "You already have a seat.", 409);
+  ensure(Number.isInteger(action.seat) && action.seat >= 0 && action.seat < 6 && !r.seats[action.seat], "That seat is taken.", 409);
+  ensure(Number.isSafeInteger(action.buyIn) && action.buyIn >= 10_000 && action.buyIn <= 100_000 && member.wallet >= action.buyIn, "Buy in with $100–$1,000 from your wallet.");
+  member.wallet -= action.buyIn;
+  r.seats[action.seat] = { userId: who.id, stack: action.buyIn, hole: [], bet: 0, committed: 0, folded: true, inHand: false, actedAt: null, sitOut: false, leaveAfter: false, seen: now };
+  addLog(r,member.name + " takes seat " + (action.seat+1));
+  if (!active(r) && r.street !== "showdown") startHand(r,now);
+ } else if (action.type === "leave") {
+  ensure(i >= 0, "You are not seated.");
+  const s = r.seats[i]!;
+  if (active(r) && s.inHand) { s.leaveAfter = true; s.sitOut = true; addLog(r,member.name + " will leave after this hand"); }
+  else { cashOut(r,i); if (!active(r) && r.street !== "showdown") startHand(r,now); }
+ } else if (action.type === "resume") {
+  ensure(i >= 0, "Choose a seat first.");
+  r.seats[i]!.sitOut = false; r.seats[i]!.leaveAfter = false;
+  if (!active(r) && r.street !== "showdown") startHand(r,now);
+ } else { act(r,who.id,action,now); }
+ i = seatOf(r,who.id); if (i >= 0) r.seats[i]!.seen = now;
+}
+export function tick(r: Room, now: number) {
+ let changed = false;
+ if (active(r) && r.deadline !== null && now >= r.deadline && r.turn !== null) {
+  const s = r.seats[r.turn]!;
+  s.sitOut = true;
+  act(r,s.userId,{type:legal(r,r.turn)!.check ? "check" : "fold"},now);
+  changed = true;
+ }
+ if (!active(r)) {
+  for (let i=0;i<r.seats.length;i++) {
+   const s = r.seats[i];
+   if (s && (s.leaveAfter || s.stack === 0 || now - s.seen > IDLE_MS)) { cashOut(r,i); changed = true; }
+  }
+  if (r.street === "showdown" && now >= (r.nextDeal ?? Infinity)) {
+   for (const s of r.seats) if (s) { s.hole = []; s.inHand = false; }
+   startHand(r,now); changed = true;
+  } else if (r.street === "waiting" && r.seats.filter(s=>s && !s.sitOut && s.stack > 0).length >= 2) { startHand(r,now); changed = true; }
+ }
+ return changed;
+}
+export function totalChips(r: Room) { return r.members.reduce((n,m)=>n+m.wallet,0) + r.seats.reduce((n,s)=>n+(s?s.stack+s.committed:0),0); }
+export function assertRoom(r: Room) {
+ const values = [...r.members.map(m=>m.wallet), ...r.seats.flatMap(s=>s?[s.stack,s.bet,s.committed]:[])];
+ ensure(values.every(n=>Number.isSafeInteger(n) && n>=0), "Invalid chip ledger.",500);
+ ensure(totalChips(r) === r.members.length * 100_000, "Chip conservation failed.",500);
+ const users = r.seats.filter(Boolean).map(s=>s!.userId);
+ ensure(new Set(users).size === users.length, "Duplicate seat.",500);
+ if (active(r)) ensure(r.turn !== null && r.pending.includes(r.turn), "Invalid turn.",500);
+}
