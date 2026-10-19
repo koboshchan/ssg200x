@@ -63,12 +63,15 @@ export async function candleRead(symbol: string, granularity: string, from: numb
  const rows=await candles.find({symbol,granularity,time:{$gte:from,$lte:to}},{projection:{_id:0}}).sort({time:-1}).limit(Math.min(5000,Math.floor(limit))).toArray();
  return rows.reverse();
 }
-/** Quotes are cache snapshots, not trade prints. Volume is unknown and stays zero. */
-export async function candleUpdate(quotes: Partial<Record<string,{micro:number;at:number}>>) {
+type QuoteSnapshot = Partial<Record<string,{micro:number;at:number}>>;
+/** Quotes are cache snapshots, not trade prints. Volume is unknown and stays zero.
+ * Array entries are processed in arrival order, including equal-time closes.
+ */
+export async function candleUpdate(quotes: QuoteSnapshot | readonly QuoteSnapshot[]) {
  const {candles}=await collections();
  const ops: AnyBulkWriteOperation<StoredCandle>[]=[];
- for(const symbol of SYMBOLS) {
-  const q=quotes[symbol];
+ for(const snapshot of Array.isArray(quotes)?quotes:[quotes as QuoteSnapshot])for(const symbol of SYMBOLS) {
+  const q=snapshot[symbol];
   if(!q || !Number.isFinite(q.micro)||q.micro<=0||!Number.isSafeInteger(q.at)||q.at<0)continue;
   const price=q.micro/1e6;
   for(const [granularity,width] of Object.entries(GRANULARITIES)) {
@@ -85,7 +88,7 @@ export async function candleUpdate(quotes: Partial<Record<string,{micro:number;a
    ],upsert:true}});
   }
  }
- if(ops.length)await candles.bulkWrite(ops,{ordered:false});
+ if(ops.length)await candles.bulkWrite(ops,{ordered:true});
 }
 export function archivePlan(now=Date.now()): Job[] {
  const to=Math.floor(now/DAY)*DAY,anchor=new Date(to),from=Date.UTC(anchor.getUTCFullYear(),anchor.getUTCMonth()-12,1);
