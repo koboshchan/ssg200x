@@ -32,11 +32,16 @@ export function startPriceWorker(){
   try{
    const now=Date.now(),locks=(await db()).collection<{_id:string;owner:string;until:number}>("workers");
    if(leaseUntil-now<5000){
+    try{
     await locks.updateOne({_id:"coinbase-feed"},{$setOnInsert:{owner:"",until:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
     const claim=await locks.updateOne({_id:"coinbase-feed",$or:[{owner},{until:{$lte:now}}]},{$set:{owner,until:now+15000}});
     // An acknowledged claim can already be expired after a delayed database response.
     if(stopped||!claim.matchedCount||Date.now()>=now+15000-1000){feed.stop();feed=makeFeed();leaseUntil=0;return;}
     leaseUntil=now+15000;
+    }catch{
+     // Renewal uncertainty immediately revokes the existing connection, not just after expiry.
+     feed.stop();feed=makeFeed();leaseUntil=0;return;
+    }
    }
    feed.step();feed.retryPending();
    const stale=feed.staleSymbols();

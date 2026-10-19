@@ -71,3 +71,11 @@ test("startup has ten seconds of WebSocket-only grace, independent of reconnects
 test("bounded clock skew accepts genuine near-future events, clamps cache time and rejects farther future",async()=>{
  const f=fixture();f.feed.receive(f.tick(1,"100",f.now()+25));f.feed.receive(f.tick(2,"101",f.now()+1001));await flush();assert.equal(f.applied.length,1);assert.equal(f.applied[0].at,f.now());f.feed.stop();
 });
+
+test("real epoch startup baseline gates fallback at elapsed 0, 9999 and 10001ms",()=>{
+ const f=fixture();assert.ok(f.now()>1_000_000_000_000);
+ assert.deepEqual(f.feed.staleSymbols(),[]);
+ f.advance(9999);assert.deepEqual(f.feed.staleSymbols(),[]);
+ f.advance(2);assert.equal(f.feed.staleSymbols().length,20);
+ f.feed.stop();
+});
