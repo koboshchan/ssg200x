@@ -7,6 +7,6 @@ export function decodeRates(body:unknown,at:number){
  const entries=SYMBOLS.flatMap(s=>{const rate=Number(data.rates![s]);const micro=Math.round(1e6/rate);
  return Number.isFinite(rate)&&rate>0&&Number.isSafeInteger(micro)&&micro>0&&micro<=1e13?[[s,{micro,at}] as const]:[];
  });
- if(entries.length!==SYMBOLS.length)throw new Error("Incomplete Coinbase rates");
+ if(!entries.length)throw new Error("No valid Coinbase rates");
  return Object.fromEntries(entries);
 }

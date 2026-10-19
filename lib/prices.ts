@@ -1,5 +1,5 @@
 import {candleUpdate} from "./candles";
-import {liquidate} from "./finance";
+import {applyMarketTick} from "./market-tick";
 import {mutate} from "./store";
 import {readRoom,db} from "./db";
 import {randomUUID} from "node:crypto";
@@ -20,7 +20,7 @@ export async function refreshPrices(){
  return;
  }
  const quotes=decodeRates(await response.json(),Date.now());
- await mutate(r=>{r.quotes={...r.quotes,...quotes};liquidate(r);});
+ await mutate(r=>{applyMarketTick(r,quotes);});
  await candleUpdate(quotes);
  }catch{ /* Preserve timestamps; expired cache fails closed for orders. */ }
  finally{running=false;}

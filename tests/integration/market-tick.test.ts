@@ -1,0 +1,26 @@
+import {test,after} from "node:test";
+import assert from "node:assert/strict";
+import {db,closeDatabase,readRoom} from "../../lib/db";
+import {mutate} from "../../lib/store";
+import {register} from "../../lib/poker";
+import {openPosition} from "../../lib/finance";
+import {applyMarketTick} from "../../lib/market-tick";
+import {publicRoom} from "../../lib/public";
+import {candleUpdate,candleRead} from "../../lib/candles";
+if(!process.env.MONGODB_DB?.startsWith("fakebucks_test_"))throw new Error("Requires isolated test DB");
+process.env.MONGODB_DB+="_market_ticks";
+after(async()=>{await(await db()).dropDatabase();await closeDatabase();});
+test("Mongo CAS publishes marks, live P/L and liquidation as one version; candles persist OHLC roll",async()=>{
+ const who={id:"tick",name:"Tick",email:"tick@test",admin:true},at=Math.floor(Date.now()/60000)*60000;
+ await mutate(r=>{register(r,who);applyMarketTick(r,{BTC:{micro:100_000_000_000,at}},at);openPosition(r,who,"BTC","long",1000,200,"position",at);});
+ const before=await readRoom();
+ const up={BTC:{micro:100_100_000_000,at:at+200}};
+ await mutate(r=>applyMarketTick(r,up,at+200));await candleUpdate(up);
+ const marked=await readRoom();assert.equal(marked.version,before.version+1);assert.equal(publicRoom(marked,who).positions[0].pnl,200);
+ const down={BTC:{micro:99_500_000_000,at:at+400}};
+ await Promise.all([mutate(r=>applyMarketTick(r,down,at+400)),mutate(r=>applyMarketTick(r,down,at+400))]);await candleUpdate(down);
+ const settled=await readRoom();assert.equal(settled.members[0].positions?.length,0);assert.equal(settled.members[0].activity?.length,1);
+ await candleUpdate({BTC:{micro:101_000_000_000,at:at+60000}});
+ const candles=await candleRead("BTC","1m",at,at+60000);
+ assert.equal(candles.length,2);assert.equal(candles[0].open,100100);assert.equal(candles[0].high,100100);assert.equal(candles[0].low,99500);assert.equal(candles[0].close,99500);assert.equal(candles[1].open,101000);
+});
