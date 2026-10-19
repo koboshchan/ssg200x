@@ -36,7 +36,7 @@ async function maintenanceBlocked(){
  return finished<state.total;
 }
 const collection=client.db(process.env.MONGODB_DB||"pokerroom").collection("rooms");let version=-1,running=false;
-const timer=setInterval(async()=>{if(running||!io.engine.clientsCount)return;running=true;try{const r=await collection.findOne({_id:"main"},{projection:{version:1,quotes:1,members:1}});const blocked=await maintenanceBlocked();for(const s of io.sockets.sockets.values())if(!s.data.admin&&blocked)s.disconnect(true);
+const timer=setInterval(async()=>{if(running||!io.engine.clientsCount)return;running=true;try{const r=await collection.findOne({_id:"main"},{projection:{version:1,quotes:1,members:1,seats:1,street:1,blackjackTables:1}});const blocked=await maintenanceBlocked();for(const s of io.sockets.sockets.values())if(!s.data.admin&&blocked)s.disconnect(true);
  if(r&&r.version!==version){version=r.version;for(const socket of io.sockets.sockets.values()){if(!socket.connected||(!socket.data.admin&&blocked)||socket.data.expires<=Date.now())continue;const payload=marketPayload(r,socket.data.userId);if(payload)socket.emit("market:update",payload);}io.emit("room:update",version);}}catch{}finally{running=false;}},200);timer.unref();
 server.listen(port,hostname);
 async function stop(){clearInterval(timer);await io.close();await client.close();server.close();process.exit(0);}
