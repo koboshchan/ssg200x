@@ -4,6 +4,7 @@ import next from "next";
 import {Server} from "socket.io";
 import {createClerkClient,verifyToken} from "@clerk/backend";
 import {MongoClient} from "mongodb";
+import {marketPayload} from "./runtime/market-payload.mjs";
 const port=Number(process.env.PORT||3000),hostname=process.env.HOSTNAME||"0.0.0.0";
 const dev=process.argv.includes("--dev");
 const config=dev?undefined:JSON.parse(readFileSync(new URL("./.next/required-server-files.json",import.meta.url))).config;
@@ -20,7 +21,7 @@ io.use(async(socket,next)=>{
  const user=await clerk.users.getUser(claims.sub);
  if(user.passwordEnabled||!user.externalAccounts.some(a=>a.provider==="oauth_google"||a.provider==="google"))throw new Error();
  if(user.publicMetadata.role!=="admin"&&await maintenanceBlocked())throw new Error();
- socket.data.admin=user.publicMetadata.role==="admin";socket.data.expires=claims.exp*1000;next();
+ socket.data.userId=claims.sub;socket.data.admin=user.publicMetadata.role==="admin";socket.data.expires=claims.exp*1000;next();
  }catch{next(new Error("Sign in with Google."));}
 });
 io.on("connection",socket=>{const timer=setTimeout(()=>socket.disconnect(true),Math.max(0,socket.data.expires-Date.now()));socket.on("disconnect",()=>clearTimeout(timer));});
@@ -35,8 +36,8 @@ async function maintenanceBlocked(){
  return finished<state.total;
 }
 const collection=client.db(process.env.MONGODB_DB||"pokerroom").collection("rooms");let version=-1,running=false;
-const timer=setInterval(async()=>{if(running||!io.engine.clientsCount)return;running=true;try{const r=await collection.findOne({_id:"main"},{projection:{version:1}});const blocked=await maintenanceBlocked();for(const s of io.sockets.sockets.values())if(!s.data.admin&&blocked)s.disconnect(true);
- if(r&&r.version!==version){version=r.version;io.emit("room:update",version);}}catch{}finally{running=false;}},200);timer.unref();
+const timer=setInterval(async()=>{if(running||!io.engine.clientsCount)return;running=true;try{const r=await collection.findOne({_id:"main"},{projection:{version:1,quotes:1,members:1}});const blocked=await maintenanceBlocked();for(const s of io.sockets.sockets.values())if(!s.data.admin&&blocked)s.disconnect(true);
+ if(r&&r.version!==version){version=r.version;for(const socket of io.sockets.sockets.values()){if(!socket.connected||(!socket.data.admin&&blocked)||socket.data.expires<=Date.now())continue;const payload=marketPayload(r,socket.data.userId);if(payload)socket.emit("market:update",payload);}io.emit("room:update",version);}}catch{}finally{running=false;}},200);timer.unref();
 server.listen(port,hostname);
 async function stop(){clearInterval(timer);await io.close();await client.close();server.close();process.exit(0);}
 process.once("SIGTERM",stop);process.once("SIGINT",stop);
