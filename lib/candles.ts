@@ -107,6 +107,7 @@ export function archivePlan(now=Date.now()): Job[] {
 export function currentMonthPlan(now=Date.now()):Job[]{
  const to=Math.floor(now/60000)*60000,d=new Date(to),from=Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),1);
  const jobs:Job[]=[];
+ if(to<=from)return jobs;
  for(const symbol of SYMBOLS)for(const page of coinbasePages(from,to-1,60000)){
   const start=Math.max(from,page.from),end=Math.min(to,page.to);
   jobs.push({_id:`${symbol}:coinbase-month:${start}:${end}`,symbol,source:"coinbase",kind:"daily",period:new Date(start).toISOString(),from:start,to:end,status:"pending",attempts:0,nextAt:0});
@@ -124,6 +125,7 @@ async function seed() {
   boot.anchor=Math.floor(Date.now()/60000)*60000;
   await state.updateOne({_id:boot._id},{$set:{anchor:boot.anchor,startedAt:Date.now(),seeded:false,version:2}});
   boot.seeded=false;
+  boot.version=2;
  }
  const plan=bootstrapPlan(boot.anchor);
  const jobIds=plan.filter(j=>j.source!=="coinbase").map(j=>j._id);
@@ -262,6 +264,8 @@ export async function candleEnsure(symbol:string,granularity:string,from:number,
  const pages=coinbasePages(from,to,width);
  const ids=pages.map(p=>`${symbol}:${granularity}:${p.from}`);
  const covered=await coverage.find({_id:{$in:ids},status:"done",expiresAt:{$gt:now}}).toArray();
+ // Windowed calls intentionally refresh recent buckets. Bootstrap jobs are each
+ // clipped from exactly one aligned page, so a refresh cannot repeat page one.
  const done=new Set(window?[]:covered.map(p=>p._id));
  const missing=pages.filter(p=>!done.has(`${symbol}:${granularity}:${p.from}`));
  if(!missing.length)return {status:"cached",symbol,granularity,remainingPages:0};

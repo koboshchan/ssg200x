@@ -254,3 +254,13 @@ test("Coinbase current month pages are bounded and contiguous with no Binance da
   }
  }
 });
+
+test("current-month bootstrap never straddles aligned pages and is empty at UTC month boundary",()=>{
+ assert.deepEqual(currentMonthPlan(Date.UTC(2026,10,1)),[]);
+ const plan=currentMonthPlan(Date.UTC(2026,9,19,13,17));
+ assert.ok(plan.length>0);
+ for(const j of plan){
+  assert.equal(Math.floor(j.from/18000000),Math.floor((j.to-1)/18000000));
+  assert.equal(coinbasePages(j.from,j.to-1,60000).length,1);
+ }
+});
