@@ -38,3 +38,14 @@ test("full room fanout projection hides opponents cards and private portfolios",
  assert.deepEqual(a.adminUsers,[]);assert.deepEqual(a.members,[]);assert.deepEqual(a.adminPositions,[]);
  for(const secret of ["alice-id","bob-id","alice@test.com","bob@test.com","Ks","Kh","987654"])assert.equal(JSON.stringify(a).includes(secret),false);
 });
+
+import {liveStatusCache} from "../lib/live-status-cache";
+test("live status cache coalesces concurrent sockets and retries a failed refresh",async()=>{
+ let reads=0;
+ const cached=liveStatusCache(async()=>{reads++;return {active:true};});
+ const results=await Promise.all(Array.from({length:30},()=>cached()));
+ assert.equal(reads,1);assert.equal(results.length,30);await cached();assert.equal(reads,1);
+ let failures=0;
+ const retry=liveStatusCache(async()=>{if(++failures===1)throw new Error("temporary");return "ok";});
+ await assert.rejects(retry());assert.equal(await retry(),"ok");assert.equal(failures,2);
+});
