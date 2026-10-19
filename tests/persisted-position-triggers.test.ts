@@ -51,3 +51,11 @@ for(const side of ["long","short"] as const)test(`legacy BSON null triggers and 
  const mark=side==="long"?99_500_000_000:100_500_000_000;
  applyMarketTick(r,{BTC:{micro:mark,at:1400}},1400);assert.equal(r.members[0].positions!.length,0);assert.equal(r.members[0].closedPositions![0].reason,"Liq");
 });
+test("explicit zero and empty-string trigger prices reject atomically rather than becoming unset",()=>{
+ const r=freshRoom();register(r,who);r.quotes={BTC:{micro:100_000_000_000,at:1000}};
+ for(const side of ["long","short"] as const)for(const key of ["takeProfit","stopLoss"] as const)for(const bad of [0,""]){
+  const before=JSON.stringify(r);
+  assert.throws(()=>openPosition(r,who,"BTC",side,1000,200,"bad",1000,{[key]:bad} as unknown as {takeProfit?:number;stopLoss?:number}));
+  assert.equal(JSON.stringify(r),before);
+ }
+});
