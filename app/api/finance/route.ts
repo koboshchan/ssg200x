@@ -9,6 +9,7 @@ import {editPositionTriggers} from "@/lib/position-triggers";
 import {resolveTriggerInput} from "@/lib/trading-settings";
 import {register} from "@/lib/poker";
 import {audit} from "@/lib/audit";
+import {financeAuditSnapshot} from "@/lib/finance-audit";
 const base={requestId:z.string().uuid(),requestAt:z.number().int()};
 const money=z.number().int().min(100).max(100_000_000),symbol=z.enum(SYMBOLS);
 const bet=z.object({kind:z.enum(["straight","red","black","odd","even","low","high","dozen","column"]),pick:z.number().int().min(0).max(36).optional(),amount:z.number().int().min(100).max(100_000)}).strict();
@@ -35,20 +36,24 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
   const member=register(r,who),now=Date.now();
   const patch=resolveTriggerInput(member,{entry:requireQuote(r,input.symbol,now),margin:input.margin,leverage:input.leverage,side:input.side},input);
   openPosition(r,who,input.symbol,input.side,input.margin,input.leverage,id,now,{...(patch.takeProfit!=null?{takeProfit:patch.takeProfit}:{}),...(patch.stopLoss!=null?{stopLoss:patch.stopLoss}:{})});
-  audit(r,who,"finance-open",id,{requestId:input.requestId,positionId:id,position:null},{requestId:input.requestId,positionId:id,position:{...member.positions!.find(p=>p.id===id)!}});
+  const opened=member.positions!.find(p=>p.id===id)!;
+  const snapshot=financeAuditSnapshot(input.requestId,"Open",opened,opened.entry);
+  audit(r,who,"finance-open",id,{...snapshot,trigger:{takeProfit:null,stopLoss:null},exists:false},{...snapshot,exists:true});
  }
  else if(input.type==="triggers"){
   const member=r.members.find(m=>m.id===who.id),position=member?.positions?.find(p=>p.id===input.positionId);
   ensure(member&&position,"Position not found.",404);
   const old={...position};
   editPositionTriggers(r,who,input.positionId,resolveTriggerInput(member,position,input));
-  audit(r,who,"finance-triggers",input.positionId,{requestId:input.requestId,positionId:input.positionId,position:old},{requestId:input.requestId,positionId:input.positionId,position:{...position}});
+  const mark=r.quotes?.[position.symbol]?.micro??null;
+  audit(r,who,"finance-triggers",input.positionId,financeAuditSnapshot(input.requestId,"Triggers",old,mark),financeAuditSnapshot(input.requestId,"Triggers",position,mark));
  }
  else {
   const member=r.members.find(m=>m.id===who.id),position=member?.positions?.find(p=>p.id===input.positionId);
   ensure(member&&position,"Position not found.",404);
   const old={...position};closePosition(r,who,input.positionId);
-  audit(r,who,"finance-close",input.positionId,{requestId:input.requestId,positionId:input.positionId,position:old},{requestId:input.requestId,positionId:input.positionId,position:{...member.closedPositions!.find(p=>p.id===input.positionId)!}});
+  const closed=member.closedPositions!.find(p=>p.id===input.positionId)!;
+  audit(r,who,"finance-close",input.positionId,{...financeAuditSnapshot(input.requestId,"Manual",old,closed.exit),exists:true},{...financeAuditSnapshot(input.requestId,closed.reason==="Liq"?"Liq":"Manual",old,closed.exit),exists:false,realizedPnl:closed.realizedPnl,closedAt:closed.closedAt});
  }
  r.receipts=[{id:input.requestId,userId:who.id,at:Date.now()},...r.receipts.filter(x=>x.at&&Date.now()-x.at<300_000)];
  });return publicRoom(room,who);
