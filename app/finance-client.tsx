@@ -1,5 +1,5 @@
 "use client";
-import {useState} from "react";
+import {useEffect,useState} from "react";
 import Chart from "./cached-chart";
 import type {PublicRoom} from "@/lib/public";
 import {SYMBOLS,RED,type Symbol,type Bet} from "@/lib/market-shared";
@@ -13,7 +13,9 @@ function TriggerEditor({position,busy,save}:{position:PublicRoom["positions"][nu
 }
 export function Markets({room,busy,post}:Props){
  const [symbol,setSymbol]=useState<Symbol>("BTC"),[mode,setMode]=useState<"spot"|"perps">("spot"),[side,setSide]=useState<"buy"|"sell">("buy"),[direction,setDirection]=useState<"long"|"short">("long"),[amount,setAmount]=useState("100"),[leverage,setLeverage]=useState("5"),[takeProfit,setTakeProfit]=useState(""),[stopLoss,setStopLoss]=useState("");
- const lev=String(Math.min(Number(leverage),room.limits.maxLeverage)),q=room.quotes[symbol],fresh=Boolean(q&&room.serverNow-q.at<10_000);
+ const [clock,setClock]=useState(room.serverNow);
+ useEffect(()=>{const received=Date.now(),server=room.serverNow;const tick=()=>setClock(server+Math.max(0,Date.now()-received));tick();const timer=setInterval(tick,1000);return()=>clearInterval(timer);},[room.serverNow]);
+ const lev=String(Math.min(Number(leverage),room.limits.maxLeverage)),q=room.quotes[symbol],fresh=Boolean(q&&Math.max(clock,room.serverNow)>=q.at&&Math.max(clock,room.serverNow)-q.at<10_000);
  const send=(body:object)=>post("/api/finance",{...body,requestId:crypto.randomUUID()});
  return <section className="markets"><div className="market-heading"><div><p className="eyebrow">MAKE-BELIEVE MARKETS</p><h2>Read the room.<br/>Or read the chart.</h2></div><div className="price"><span>{symbol} / USD</span><strong>{q?price(q.micro):"Unavailable"}</strong><small>{fresh?"Cached server reference price":"Price feed unavailable · orders paused"}</small></div></div>
  <div className="symbol-tabs">{SYMBOLS.map(s=><button key={s} aria-pressed={s===symbol} onClick={()=>setSymbol(s)}>{s}</button>)}</div>
