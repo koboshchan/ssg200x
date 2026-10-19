@@ -48,7 +48,7 @@ function revealStreet(r: Room) {
 }
 export function cashOut(r: Room, i: number) {
  const s = r.seats[i]; if (!s) return;
- ensure(!(active(r) && s.inHand) && !s.ready, "You can only leave while unready and out of a hand.", 409);
+ ensure(!s.inHand && !s.ready, "You can only leave while unready and out of a hand.", 409);
  const m = r.members.find(m => m.id === s.userId)!;
  m.wallet += s.stack; r.seats[i] = null;
 }
@@ -163,6 +163,7 @@ export function act(r: Room, id: string, action: Extract<Action,{type:"fold"|"ch
  advance(r,i,now);
 }
 export function applyAction(r: Room, who: Identity, action: Action, now: number) {
+ if ((action.type === "ready" || action.type === "resume") && !active(r) && r.readyDeadline != null && now >= r.readyDeadline) tick(r,now);
  const member = r.members.find(m=>m.id===who.id);
  ensure(member?.approved, "Lucas needs to approve your account first.", 403);
  let i = seatOf(r,who.id);
@@ -176,7 +177,7 @@ export function applyAction(r: Room, who: Identity, action: Action, now: number)
  } else if (action.type === "leave") {
   ensure(i >= 0, "You are not seated.");
   const s = r.seats[i]!;
-  ensure(!s.ready && !(active(r) && s.inHand), "You can only leave while unready and out of a hand.", 409);
+  ensure(!s.ready && !s.inHand, "You can only leave while unready and out of a hand.", 409);
   cashOut(r,i);
   if (!r.seats.some(s=>s?.ready)) r.readyDeadline = null;
   if (r.street === "waiting") startHand(r,now);
@@ -208,15 +209,15 @@ export function tick(r: Room, now: number) {
    for (const s of r.seats) if (s) { s.ready = false; s.seen = now; }
    r.readyDeadline = null; changed = true;
   }
-  for (let i=0;i<r.seats.length;i++) {
-   const s = r.seats[i];
-   if (s && !s.ready && (s.leaveAfter || s.stack === 0 || now - s.seen > IDLE_MS)) {
-    cashOut(r,i); changed = true;
-   }
-  }
   if (r.street === "showdown" && now >= (r.nextDeal ?? Infinity)) {
    for (const s of r.seats) if (s) { s.hole = []; s.inHand = false; s.ready = false; }
    r.street = "waiting"; r.nextDeal = null; r.readyDeadline = null; changed = true;
+  }
+  for (let i=0;i<r.seats.length;i++) {
+   const s = r.seats[i];
+   if (s && !s.inHand && !s.ready && (s.leaveAfter || s.stack === 0 || now - s.seen > IDLE_MS)) {
+    cashOut(r,i); changed = true;
+   }
   }
   if (r.street === "waiting") { const before = r.handNumber; startHand(r,now); if (before !== r.handNumber) changed = true; }
  }

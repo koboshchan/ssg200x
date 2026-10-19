@@ -56,7 +56,7 @@ export async function approve(who:Identity, target:string, approved:boolean) {
   m.approved=approved;
   if(!approved) {
    const i=seatOf(r,m.id);
-   if(i>=0) {const s=r.seats[i]!; if(active(r)&&s.inHand){s.leaveAfter=true;s.sitOut=true;}else {s.ready=false;cashOut(r,i);if(!r.seats.some(s=>s?.ready))r.readyDeadline=null;}}
+   if(i>=0) {const s=r.seats[i]!; if(s.inHand){s.leaveAfter=true;s.sitOut=true;}else {s.ready=false;cashOut(r,i);if(!r.seats.some(s=>s?.ready))r.readyDeadline=null;}}
   }
   addLog(r,m.name+(approved?" was approved":" had access removed"));
  })).room;
@@ -64,7 +64,7 @@ export async function approve(who:Identity, target:string, approved:boolean) {
 export async function tickRoom() {
  const r=await readRoom(), now=Date.now();
  if(Object.values(r.blackjackTables?.tables||{}).some(t=>t&&t.deadline!==null&&now>=t.deadline))await mutate(r=>blackjackTablesTick(r,Date.now()));
- if((!active(r)&&r.seats.some(s=>s?.ready)&&(r.readyDeadline==null||now>=r.readyDeadline)) || (r.deadline!==null && now>=r.deadline) || (r.nextDeal!==null && now>=r.nextDeal) || (!active(r)&&r.seats.some(s=>s&&!s.ready&&(s.leaveAfter||s.stack===0||now-s.seen>90_000))))await mutate(r=>tick(r,Date.now()));
+ if((!active(r)&&r.seats.some(s=>s?.ready)&&(r.readyDeadline==null||now>=r.readyDeadline)) || (r.deadline!==null && now>=r.deadline) || (r.nextDeal!==null && now>=r.nextDeal) || (!active(r)&&r.seats.some(s=>s&&!s.inHand&&!s.ready&&(s.leaveAfter||s.stack===0||now-s.seen>90_000))))await mutate(r=>tick(r,Date.now()));
 }
 let indexes:Promise<unknown>|undefined;
 export async function rateLimit(id:string,limit=180) {
