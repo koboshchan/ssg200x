@@ -19,7 +19,7 @@ export function rouletteTick(r:Room,now:number,rng:(max:number)=>number=randomIn
  b.history=[{round:b.round,number,at:now},...b.history].slice(0,20);b.round++;b.started=now;b.bets=[];return true;
 }
 export function rouletteAction(r:Room,who:Identity,action:RouletteAction,round:number,id:string,now:number):void{
- const m=r.members.find(m=>m.id===who.id);ensure(m?.approved,'Account approval required.',403);
+ const m=r.members.find(m=>m.id===who.id);ensure(m,'Account not found.',404);
  const b=rouletteState(r,now);ensure(round===b.round,'The roulette round changed. Refresh first.',409);
  ensure(now>=b.started&&now<b.started+ROULETTE_OPEN_MS,'Betting is locked.',409);
  const old=action.type==='bet'?undefined:b.bets.find(w=>w.id===action.betId&&w.userId===who.id);
