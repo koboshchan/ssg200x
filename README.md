@@ -34,7 +34,7 @@ Admin authorization reads currentUser().publicMetadata on the server. ADMIN_EMAI
 {"publicMetadata":"{{user.public_metadata}}"}
 ```
 
-Use a production Clerk instance for a lasting public deployment. Development instances display Clerk’s development notice.
+For production, set Clerk sign-up mode to Restricted (invitation-only), leaving Google as the only provider. The host’s Invite form sends a Clerk invitation after an explicit confirmation. Accepting an invitation does not bypass in-app approval. Use a production Clerk instance for a lasting public deployment. Development instances display Clerk’s development notice.
 
 ## Running
 
@@ -77,4 +77,4 @@ This small-group design is intended for a small group, not an unbounded public c
 
 Three multiplayer blackjack tables share the bankroll. Each has six selectable seats, a ten-second betting countdown, thirty-second turns, hit, stand, double and one split. Six-deck shoes use unbiased Fisher–Yates with OS cryptographic entropy. The dealer stands on soft 17, naturals pay 3:2, split aces receive one card, and split hands do not receive natural payouts. Dealer hole cards and the remaining shoe never enter client snapshots.
 
-Historical candles are persistently cached in Mongo. At first boot a fixed window of exactly 360 days is queued for all twenty symbols and six Coinbase granularities (1m, 5m, 15m, 1h, 6h, 1d). Pages contain at most 300 buckets. A shared historical request budget reserves live-polling capacity and stays below ten combined requests per second. Completed history resumes without restarting, missing products are marked unavailable, and later jobs top up the cache. The app remains usable while this runs. Administrators can inspect per-symbol progress and ETA; unavailable capacity pauses imports with an explicit status. At least 2 GiB free space is required before historical downloads. A low-space pause is not a completed backfill.
+Historical candles are persistently cached in Mongo. At first boot, the last twelve complete monthly Binance USDT 1-minute archives and completed daily archives for the current month are queued for all twenty symbols. They are aggregated locally into 1m, 5m, 15m, 1h, 6h and 1d candles. USDT archive references are identified as such; they are not USD trades. Coinbase USD supplies live and incremental updates afterward. Any Coinbase historical request has at most 300 buckets. A shared historical request budget reserves live-polling capacity and stays below ten combined requests per second. Completed history resumes without restarting, missing products are marked unavailable, and later jobs top up the cache. The app remains usable while this runs. Administrators can inspect per-symbol progress and ETA; unavailable capacity pauses imports with an explicit status. At least 2 GiB free space is required before historical downloads. A low-space pause is not a completed backfill.
