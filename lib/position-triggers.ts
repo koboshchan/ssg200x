@@ -35,7 +35,7 @@ export function settleTriggers(r:Room,now=Date.now()){
   const reason=p.stopLoss!==undefined&&(p.side==="long"?q.micro<=p.stopLoss:q.micro>=p.stopLoss)?"Stop-loss":p.takeProfit!==undefined&&(p.side==="long"?q.micro>=p.takeProfit:q.micro<=p.takeProfit)?"Take-profit":null;
   if(!reason)continue;
   const who={id:m.id,name:m.name,email:m.email,admin:false};
-  closePosition(r,who,p.id,now);
+  closePosition(r,who,p.id,now,reason==="Take-profit"?"TP":"SL");
   m.activity![0]=`${reason} · ${m.activity![0]} · filled at $${(q.micro/1e6).toFixed(6)}`;
  }
 }

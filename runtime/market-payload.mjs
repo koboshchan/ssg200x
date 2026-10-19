@@ -17,5 +17,5 @@ export function marketPayload(room,userId,now=Date.now()) {
   return m.wallet+spot+perps+blackjack+roulette+(seat?seat.stack+(active?seat.committed:0):0);
  };
  const leaderboard=room.members.map(m=>{const netWorth=netWorthFor(m);return {publicId:m.publicId,name:m.name,netWorth,pnl:netWorth-100000-(m.adjustments||0)};}).sort((a,b)=>b.netWorth-a.netWorth||a.name.localeCompare(b.name));
- return {netWorth:netWorthFor(member),leaderboard,version:room.version,serverNow:now,quotes,holdings,positions,wallet:member.wallet,activity:(member.activity||[]).slice(0,40)};
+ return {netWorth:netWorthFor(member),leaderboard,version:room.version,serverNow:now,quotes,holdings,positions,closedPositions:(member.closedPositions||[]).map(p=>({id:p.id,symbol:p.symbol,side:p.side,leverage:p.leverage,entry:p.entry,exit:p.exit,margin:p.margin,realizedPnl:p.realizedPnl,reason:p.reason,closedAt:p.closedAt})),wallet:member.wallet,activity:(member.activity||[]).slice(0,40)};
 }

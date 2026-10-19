@@ -6,7 +6,7 @@ import {freshRoom,register} from "../lib/poker";
 import {publicRoom} from "../lib/public";
 test("market payload updates cash and portfolio and stale responses cannot rewind state; equal full snapshot allowed",()=>{
  const r=freshRoom(),who={id:"a",email:"a@test",name:"A",admin:true};register(r,who);const full=publicRoom(r,who);
- const market:MarketSnapshot={version:2,serverNow:123,quotes:{BTC:{micro:10,at:123}},holdings:[],positions:[],activity:["Liquidated"],leaderboard:[],wallet:99000,netWorth:99000};
+ const market:MarketSnapshot={version:2,serverNow:123,quotes:{BTC:{micro:10,at:123}},holdings:[],positions:[],closedPositions:[],activity:["Liquidated"],leaderboard:[],wallet:99000,netWorth:99000};
  const live=mergeMarket(full,market)!;assert.equal(live.me.wallet,99000);assert.equal(live.quotes.BTC!.at,123);assert.equal(mergeRoom(live,full),live);assert.equal(mergeMarket(live,{...market,version:1}),live);
  assert.equal(mergeRoom(live,{...full,version:2,street:"showdown"}).street,"showdown");
 });
