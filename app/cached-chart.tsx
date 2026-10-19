@@ -35,5 +35,5 @@ export default function CachedChart({symbol,quote}:{symbol:Symbol;quote?:LiveQuo
  }
  start().catch(()=>setStatus("Could not load chart"));return()=>{closed=true;controller.abort();push.current=undefined;chart?.remove();};
  },[symbol,interval]);
- return <div><div className="symbol-tabs" aria-label="Chart interval">{Object.keys(intervals).map(g=><button key={g} aria-pressed={g===interval} onClick={()=>setIntervalName(g as keyof typeof intervals)}>{g}</button>)}</div><div className="chart-shell" ref={node}/><p className="market-note" role="status">{connection==="disconnected"?"Disconnected. Prices are stale. ":""}{status}. <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">Charting by TradingView</a></p></div>;
+ return <div className="cached-chart"><div className="symbol-tabs" aria-label="Chart interval">{Object.keys(intervals).map(g=><button key={g} aria-pressed={g===interval} onClick={()=>setIntervalName(g as keyof typeof intervals)}>{g}</button>)}</div><div className="chart-shell" ref={node}/><p className="market-note" role="status">{connection==="disconnected"?"Disconnected. Prices are stale. ":""}{status}. <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">Charting by TradingView</a></p></div>;
 }
