@@ -2,7 +2,7 @@
 import dynamic from "next/dynamic";
 const Markets=dynamic(()=>import("./finance-client").then(m=>m.Markets));
 const Blackjack=dynamic(()=>import("./blackjack-client"));
-const Roulette=dynamic(()=>import("./finance-client").then(m=>m.Roulette));
+const Roulette=dynamic(()=>import("./roulette-client"));
 import {SignInButton,UserButton,useUser,useAuth} from "@clerk/nextjs";
 import MaintenanceGate from "./maintenance-gate";
 import HistoryProgress from "./history-progress";
