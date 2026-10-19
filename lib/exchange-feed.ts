@@ -2,6 +2,7 @@ import {SYMBOLS} from "./market-shared";
 export type Tick={symbol:string;micro:number;at:number;sequence:number};
 type Socket=Pick<WebSocket,"send"|"close"|"readyState"|"onopen"|"onmessage"|"onerror"|"onclose">;
 export const STALE_MS=10_000;
+export const FUTURE_SKEW_MS=1000;
 export class ExchangeFeed {
  private socket?:Socket;
  private queue:Tick[]=[];
@@ -12,11 +13,12 @@ export class ExchangeFeed {
  private lastMessage=0;
  private unknown=new Set<string>();
  private seen=new Map<string,{sequence:number;at:number}>();
+ private startedAt:number;
  readonly latest=new Map<string,number>();
- constructor(private deps:{socket:()=>Socket;apply:(ticks:Tick[])=>Promise<void>;now?:()=>number;log?:(message:string)=>void},private capacity=4096){}
+ constructor(private deps:{socket:()=>Socket;apply:(ticks:Tick[])=>Promise<void>;now?:()=>number;log?:(message:string)=>void},private capacity=4096){this.startedAt=this.now();}
  private now(){return this.deps.now?.()??Date.now();}
  private log(s:string){this.deps.log?.(s);}
- staleSymbols(){const now=this.now();return SYMBOLS.filter(s=>now-(this.latest.get(s)??0)>STALE_MS);}
+ staleSymbols(){const now=this.now();return SYMBOLS.filter(s=>now-(this.latest.get(s)??this.startedAt)>STALE_MS);}
  get connected(){return this.socket?.readyState===1;}
  get pending(){return this.queue.length;}
  step(){
@@ -59,7 +61,7 @@ export class ExchangeFeed {
    return;
   }
   const at=typeof m.time==="string"?Date.parse(m.time):NaN;
-  if(!Number.isSafeInteger(at)||at>this.now()||this.now()-at>STALE_MS)return;
+  if(!Number.isSafeInteger(at)||at>this.now()+FUTURE_SKEW_MS||this.now()-at>STALE_MS)return;
   this.lastMessage=this.now();
   if(m.type==="heartbeat")return; // Heartbeats never refresh a stale mark.
   const sequence=m.sequence,price=typeof m.price==="string"&&m.price.trim()?Number(m.price):NaN,micro=Math.round(price*1e6);
@@ -68,7 +70,7 @@ export class ExchangeFeed {
   if(previous&&(Number(sequence)<=previous.sequence||at<previous.at))return;
   if(this.queue.length>=this.capacity){this.disconnect("queue overflow; recovering via REST");return;}
   this.seen.set(symbol,{sequence:Number(sequence),at});
-  this.queue.push({symbol,micro,at,sequence:Number(sequence)});
+  this.queue.push({symbol,micro,at:Math.min(at,this.now()),sequence:Number(sequence)});
   void this.drain();
  }
  private async drain(){

@@ -92,8 +92,8 @@ test("persistent Coinbase worker coalesces concurrent starts with one leader and
  try{
  worker=startPriceWorker();
  for(let i=0;i<10;i++)assert.equal(startPriceWorker(),worker);
- await worker.ready;assert.equal(calls,1);assert.equal(sockets,1);
- const state=await readRoom();assert.equal(state.quotes!.BTC!.micro,100_000_000_000);
+ await worker.ready;assert.equal(calls,0);assert.equal(sockets,1);
+ 
  const lock=await(await db()).collection("workers").findOne({_id:"coinbase-feed"} as never);assert.equal(lock!.owner,worker.owner);assert.ok(lock!.until>Date.now());
  }finally{worker?.stop();globalThis.fetch=original;globalThis.WebSocket=originalWS;}
 });

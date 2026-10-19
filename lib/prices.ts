@@ -5,7 +5,7 @@ import {readRoom,db} from "./db";
 import {randomUUID} from "node:crypto";
 import {pollingInterval,decodeRates} from "./price-policy";
 import {ExchangeFeed,type Tick} from "./exchange-feed";
-type Worker={ready:Promise<void>;owner:string;feed:ExchangeFeed;timer:ReturnType<typeof setInterval>;stop:()=>void};
+type Worker={runOnce:()=>Promise<void>;ready:Promise<void>;owner:string;feed:ExchangeFeed;timer:ReturnType<typeof setInterval>;stop:()=>void};
 const globalWorker=globalThis as typeof globalThis & {exchangePriceWorker?:Worker};
 export async function persistExchangeTicks(ticks:Tick[]){
  await mutate(room=>{
@@ -18,7 +18,7 @@ export async function persistExchangeTicks(ticks:Tick[]){
   }
  });
  // Preserve every print's high/low and bucket boundary, not just the last mark.
- for(const tick of ticks)await candleUpdate({[tick.symbol]:{micro:tick.micro,at:tick.at}});
+ await candleUpdate(ticks.map(tick=>({[tick.symbol]:{micro:tick.micro,at:tick.at}})));
 }
 export function startPriceWorker(){
  if(globalWorker.exchangePriceWorker)return globalWorker.exchangePriceWorker;
@@ -34,7 +34,7 @@ export function startPriceWorker(){
    if(leaseUntil-now<5000){
     await locks.updateOne({_id:"coinbase-feed"},{$setOnInsert:{owner:"",until:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
     const claim=await locks.updateOne({_id:"coinbase-feed",$or:[{owner},{until:{$lte:now}}]},{$set:{owner,until:now+15000}});
-    if(!claim.matchedCount){if(leaseUntil){feed.stop();feed=makeFeed();}leaseUntil=0;return;}
+    if(!claim.matchedCount){feed.stop();feed=makeFeed();leaseUntil=0;return;}
     leaseUntil=now+15000;
    }
    feed.step();feed.retryPending();
@@ -61,11 +61,11 @@ export function startPriceWorker(){
     await mutate(r=>{const safe=Object.fromEntries(Object.entries(fallback).filter(([s,q])=>feed.staleSymbols().includes(s as never)&&(!r.quotes?.[s as keyof typeof r.quotes]||r.quotes[s as keyof typeof r.quotes]!.at<q.at)));applyMarketTick(r,safe);});
     await candleUpdate(fallback);
    }
-  }catch{if(Date.now()>=leaseUntil){feed.stop();feed=makeFeed();leaseUntil=0;}}
+  }catch{feed.stop();feed=makeFeed();leaseUntil=0;}
   finally{running=false;}
  }
  const timer=setInterval(()=>{if(leaseUntil&&Date.now()>=leaseUntil-1000){feed.stop();feed=makeFeed();leaseUntil=0;}void step();},100);timer.unref();
- const worker:Worker={ready:Promise.resolve(),owner,get feed(){return feed;},timer,stop(){
+ const worker:Worker={runOnce:step,ready:Promise.resolve(),owner,get feed(){return feed;},timer,stop(){
   stopped=true;clearInterval(timer);feed.stop();delete globalWorker.exchangePriceWorker;
   void db().then(d=>d.collection<{_id:string;owner:string;until:number}>("workers").updateOne({_id:"coinbase-feed",owner},{$set:{until:0}})).catch(()=>{});
  }};

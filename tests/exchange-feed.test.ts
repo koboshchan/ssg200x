@@ -22,7 +22,7 @@ test("reject malformed, nonwhitelist, nonfinite, duplicate, old sequence/time an
  const f=fixture();f.feed.receive("null");f.feed.receive("{}");
  f.feed.receive(f.tick(1));f.feed.receive(f.tick(1,"200"));f.feed.receive(f.tick(0,"200"));f.feed.receive(f.tick(2,"200",f.now()-1));
  for(const price of ["NaN","Infinity","0","-1","", "1e20"])f.feed.receive(f.tick(3,price));
- f.feed.receive(f.tick(4,"200",f.now()+1));f.feed.receive(f.tick(5,"200",f.now()-STALE_MS-1));f.feed.receive(f.tick(6).replace("BTC-USD","FAKE-USD"));
+ f.feed.receive(f.tick(4,"200",f.now()+1001));f.feed.receive(f.tick(5,"200",f.now()-STALE_MS-1));f.feed.receive(f.tick(6).replace("BTC-USD","FAKE-USD"));
  await flush();assert.equal(f.applied.length,1);f.feed.stop();
 });
 test("heartbeat does not refresh quote age, stale threshold enables recovery only after 10s",async()=>{
@@ -62,4 +62,12 @@ test("all twenty healthy products suppress fallback until stale and fresh tick r
 test("transport stalls close and reconnect even without close event",()=>{
  const f=fixture();f.feed.step();f.advance(STALE_MS+1);f.feed.step();assert.equal(f.sockets[0].readyState,3);
  f.advance(500);f.feed.step();assert.equal(f.sockets.length,2);f.feed.stop();
+});
+
+test("startup has ten seconds of WebSocket-only grace, independent of reconnects",()=>{
+ const f=fixture();assert.deepEqual(f.feed.staleSymbols(),[]);f.feed.step();f.advance(STALE_MS);assert.deepEqual(f.feed.staleSymbols(),[]);
+ f.advance(1);assert.equal(f.feed.staleSymbols().length,20);f.feed.stop();
+});
+test("bounded clock skew accepts genuine near-future events, clamps cache time and rejects farther future",async()=>{
+ const f=fixture();f.feed.receive(f.tick(1,"100",f.now()+25));f.feed.receive(f.tick(2,"101",f.now()+1001));await flush();assert.equal(f.applied.length,1);assert.equal(f.applied[0].at,f.now());f.feed.stop();
 });
