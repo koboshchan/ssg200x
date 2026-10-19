@@ -10,7 +10,7 @@ European single-zero roulette supports straight, red/black, odd/even, low/high, 
 
 BTC, ETH, SOL, and DOGE spot paper trading uses Coinbase’s public USD spot prices. TradingView supplies embedded charts separately. Fractional holdings and open positions count toward net-worth standings.
 
-Isolated simulated perpetuals offer 1×–50× leverage, long or short. Choose margin, open at the current server reference, and close at market. No fees, slippage, funding, or exchange order book simulation. Global maintenance margin defaults to 0%. The initial margin ratio must exceed maintenance margin.
+Isolated simulated perpetuals offer 1×–50× leverage, long or short. Choose margin, open at the current server reference, and close at market. No fees, slippage, funding, or exchange order book simulation. Global maintenance margin defaults to 0%. Administrators can cap spot order value and perpetual margin/notional per position with a global trade limit (default $1,000,000) and cap new-position leverage (default 50×). Lowering a limit does not resize existing positions. The initial margin ratio must exceed maintenance margin.
 
 An administrator can approve or deny access, add or remove cash, edit any open position’s liquidation threshold, and change global maintenance margin. Every change records the administrator, operation, target, previous value, new value, and timestamp in MongoDB’s audit collection. Cash adjustments do not inflate profit standings.
 
@@ -46,7 +46,7 @@ cp .env.example .env.local
 docker compose --env-file .env.local up -d --build
 ```
 
-The web server is published only on 127.0.0.1 and APP_PORT. Put your HTTPS reverse proxy or tunnel in front of it. MongoDB has no published port and joins only an internal Compose network. The application reaches it by the service hostname mongo. The persistent room-data volume contains wallets, room state, and audit history. Back it up and restrict access to the Docker host.
+The web server is published only on 127.0.0.1 and APP_PORT. Put your HTTPS reverse proxy or tunnel in front of it. MongoDB has no published port and joins only an internal Compose network. The application reaches it by the service hostname mongo. The ./data/mongo bind mount contains wallets, room state, and audit history and is gitignored. Back it up and restrict access to the Docker host.
 
 For local development, point MONGODB_URI at your own Mongo instance, set MONGODB_DB, and run npm run dev. Standard production builds use npm run build and npm start. The prebuilt Dockerfile and compose.qa.yaml exist for local verification using an already-built standalone Next output; the regular compose file performs its own clean dependency/build stage.
 
@@ -65,7 +65,7 @@ The production implementation has no test authentication bypass. Never add one t
 
 ## Simulation limits
 
-Prices are fetched by the server approximately every three seconds. Orders fail closed if a quote is unavailable or more than ten seconds old. Liquidations are checked only when a fresh quote arrives. Outages and price gaps can therefore skip an intragap liquidation; this is not a real exchange or a continuous matching engine.
+The server requests one batched Coinbase USD exchange-rate response per second when no perpetual is open, or up to five per second while a perpetual is open. A Mongo-backed lease caps aggregate requests across application processes. Orders and browsers only read the cache; requests never cause extra Coinbase fetches. Market orders execute immediately and do not remain open. Coinbase HTTP 429 responses back off rather than exceeding the budget. Orders fail closed if a quote is unavailable or more than ten seconds old. Liquidations use the shared cached prices and are checked only when the worker updates the cache. Outages and price gaps can therefore skip an intragap liquidation; this is not a real exchange or a continuous matching engine.
 
 Long liquidation is entry × (1 − 1/leverage) / (1 − maintenance). Short liquidation is entry × (1 + 1/leverage) / (1 + maintenance). An administrator’s explicit threshold overrides that formula for the selected position. Maintenance changes update existing formula-based positions. Setting a threshold across the current price can immediately liquidate the position. Liquidation consumes the entire isolated margin and never the rest of the wallet.
 

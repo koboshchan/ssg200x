@@ -3,7 +3,6 @@ import {z} from "zod";
 import {endpoint,parse} from "@/lib/api";
 import {mutate,rateLimit} from "@/lib/store";
 import {publicRoom} from "@/lib/public";
-import {refreshPrices} from "@/lib/prices";
 import {spin,spot,openPosition,closePosition,SYMBOLS} from "@/lib/finance";
 import {ensure} from "@/lib/errors";
 const base={requestId:z.string().uuid(),requestAt:z.number().int()};
@@ -17,7 +16,6 @@ const schema=z.discriminatedUnion("type",[
 ]);
 export const POST=(request:Request)=>endpoint(request,async who=>{
  await rateLimit("finance:"+who.id,40);const input=await parse(request,schema);
- if(input.type!=="spin")await refreshPrices();
  const n=randomInt(37),id=randomUUID();
  const {room}=await mutate(r=>{
  ensure(Date.now()-input.requestAt>=-10_000&&Date.now()-input.requestAt<=120_000,"Request expired. Try again.",409);

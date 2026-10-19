@@ -48,3 +48,13 @@ test("host revocation schedules occupied seat cashout, cannot reset own access",
  const r=await readRoom(),m=r.members.find(m=>m.id==="user_1")!;await approve(admin,m.publicId,false);const next=await readRoom();assert.equal(next.members.find(x=>x.id===m.id)!.approved,false);assert.equal(next.seats[0]!.leaveAfter,true);await assert.rejects(approve(admin,r.members.find(x=>x.id===admin.id)!.publicId,false));assertRoom(next);
 });
 test("every admin change has durable old/new audit collection record",async()=>{const r=await readRoom();const m=r.members.find(m=>m.id==="user_1")!;const entry=await(await db()).collection("audit").findOne({what:"approval",target:m.id,new:false});assert.ok(entry);assert.equal(entry.who,admin.id);assert.equal(entry.old,true);assert.ok(entry.at);});
+test("batched Coinbase worker rate lease coalesces concurrent fetches and cache-only clients",async()=>{
+ const {refreshPrices}=await import("../../lib/prices");const original=globalThis.fetch;let calls=0;
+ globalThis.fetch=(async()=>{calls++;return new Response(JSON.stringify({data:{currency:"USD",rates:{BTC:"0.00001",ETH:"0.0005",SOL:"0.01",DOGE:"10"}}}),{status:200});}) as typeof fetch;
+ try{
+ await(await db()).collection<{_id:string;nextAt:number}>("workers").deleteOne({_id:"coinbase"});
+ await Promise.all(Array.from({length:10},()=>refreshPrices()));assert.equal(calls,1);
+ await refreshPrices();assert.equal(calls,1);const state=await readRoom();assert.equal(state.quotes!.BTC!.micro,100_000_000_000);
+ const lock=await(await db()).collection<{_id:string;nextAt:number}>("workers").findOne({_id:"coinbase"});assert.ok(lock!.nextAt>Date.now());assert.ok(lock!.nextAt-Date.now()<=1000);
+ }finally{globalThis.fetch=original;}
+});

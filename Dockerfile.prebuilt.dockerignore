@@ -4,3 +4,7 @@
 !.next/standalone/**
 !.next/static
 !.next/static/**
+
+!public
+!public/**
+!server.mjs

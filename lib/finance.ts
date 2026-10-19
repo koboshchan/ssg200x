@@ -34,6 +34,7 @@ export function spot(r:Room,who:Identity,symbol:Symbol,side:"buy"|"sell",amount:
  const m=portfolio(register(r,who));ensure(m.approved,"Account approval required.",403);
  const price=requireQuote(r,symbol,now);
  ensure(Number.isSafeInteger(amount)&&amount>=100&&amount<=100_000_000,"Use $1–$1,000,000 per order.");
+ ensure(amount<=(r.limits?.maxTrade??1000000)*100,"Order exceeds the host’s trade limit.");
  let h=m.holdings!.find(h=>h.symbol===symbol);
  if(side==="buy"){
  ensure(m.wallet>=amount,"Not enough cash.");const units=unitsFor(amount,price);ensure(units>0&&Number.isSafeInteger(units),"Order too small or too large.");
@@ -49,7 +50,8 @@ export function spot(r:Room,who:Identity,symbol:Symbol,side:"buy"|"sell",amount:
 export function openPosition(r:Room,who:Identity,symbol:Symbol,side:"long"|"short",margin:number,leverage:number,id:string=randomUUID(),now=Date.now()){
  const m=portfolio(register(r,who));ensure(m.approved,"Account approval required.",403);
  const entry=requireQuote(r,symbol,now);ensure(Number.isSafeInteger(margin)&&margin>=100&&margin<=100_000_000&&m.wallet>=margin,"Not enough cash or invalid margin.");
- ensure(Number.isInteger(leverage)&&leverage>=1&&leverage<=50,"Leverage must be 1–50x.");ensure((r.maintenance||0)<1/leverage,"Chosen leverage requires more initial margin than maintenance margin.");ensure(m.positions!.length<20,"Close a position first.");
+ ensure(margin<=(r.limits?.maxTrade??1000000)*100&&margin*leverage<=(r.limits?.maxTrade??1000000)*100,"Position margin or notional exceeds the host’s trade limit.");
+ ensure(Number.isInteger(leverage)&&leverage>=1&&leverage<=(r.limits?.maxLeverage??50),"Leverage must be 1–50x.");ensure((r.maintenance||0)<1/leverage,"Chosen leverage requires more initial margin than maintenance margin.");ensure(m.positions!.length<20,"Close a position first.");
  m.wallet-=margin;m.positions!.push({id,symbol,side,margin,leverage,entry,opened:now,maintenance:r.maintenance||0});
 }
 export function closePosition(r:Room,who:Identity,id:string,now=Date.now()){

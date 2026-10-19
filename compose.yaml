@@ -28,7 +28,7 @@ services:
     image: mongo:8.0
     networks: [backend]
     volumes:
-      - room-data:/data/db
+      - ./data/mongo:/data/db
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 5s
@@ -39,5 +39,3 @@ services:
 networks:
   backend:
     internal: true
-volumes:
-  room-data:
