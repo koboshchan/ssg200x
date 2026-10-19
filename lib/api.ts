@@ -2,6 +2,7 @@ import {auth,currentUser} from "@clerk/nextjs/server";
 import {NextResponse} from "next/server";
 import {ZodError,type ZodType} from "zod";
 import {AppError,ensure} from "./errors";
+import {endpointBudget} from "./read-policy";
 import {rateLimit} from "./store";
 import {verifiedGoogleEmail} from "./google-identity";
 import {siteMaintenance} from "./site-maintenance";
@@ -19,7 +20,8 @@ export async function endpoint(request:Request,handler:(who:Identity)=>Promise<u
   const email=verifiedGoogleEmail(user);
   ensure(user&&email,"A verified Google-only account is required.",403);
   const who:Identity={id:userId,name:user.firstName||user.username||"Player",email,admin:user.publicMetadata.role==="admin"};
-  await rateLimit(userId);
+  const budget=endpointBudget(request.method,new URL(request.url).pathname,userId);
+  await rateLimit(budget.key,budget.limit);
   if(!who.admin&&new URL(request.url).pathname!=="/api/maintenance")ensure(!(await siteMaintenance(false)).blocked,"Under maintenance",503);
   return NextResponse.json(await handler(who),{headers:{"Cache-Control":"no-store"}});
  }catch(e) {

@@ -7,6 +7,7 @@ import {SignInButton,UserButton,useUser,useAuth} from "@clerk/nextjs";
 import MaintenanceGate from "./maintenance-gate";
 import HistoryProgress from "./history-progress";
 import {useState,useEffect,useCallback,useRef} from "react";
+import {mergeRoom,mergeMarket,coalescedRead,type MarketSnapshot} from "@/lib/room-sync";
 import type {PublicRoom} from "@/lib/public";
 import type {Action} from "@/lib/types";
 const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:n%100===0?0:2}).format(n/100);
@@ -77,9 +78,9 @@ function LimitsControls({room,busy,post}:{room:PublicRoom;busy:boolean;post:(pat
 function Game(){
  const [room,setRoom]=useState<PublicRoom|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState(false),[raise,setRaise]=useState("10"),[buyIn,setBuyIn]=useState("200"),[tab,setTab]=useState<"table"|"standings"|"access"|"markets"|"roulette"|"blackjack">("table"),[clock,setClock]=useState(Date.now());
  const busyRef=useRef(false);
- const load=useCallback(async(signal?:AbortSignal)=>{
-  const response=await fetch("/api/room",{cache:"no-store",signal});const data=await response.json();if(!response.ok)throw new Error(data.error);setRoom(data);
- },[]);
+ const read=useRef<ReturnType<typeof coalescedRead<PublicRoom>>|null>(null);
+ if(!read.current)read.current=coalescedRead(async()=>{const response=await fetch("/api/room",{cache:"no-store"});const data=await response.json();if(!response.ok)throw new Error(data.error);return data as PublicRoom;});
+ const load=useCallback(async(_signal?:AbortSignal)=>{const data=await read.current!();setRoom(current=>mergeRoom(current,data));},[]);
  useEffect(()=>{
   const controller=new AbortController();let timer:ReturnType<typeof setTimeout>;
   async function refresh(){try{if(!document.hidden&&!busyRef.current)await load(controller.signal);}catch(e){if(!controller.signal.aborted)setError(e instanceof Error?e.message:"Connection lost.");}finally{if(!controller.signal.aborted)timer=setTimeout(refresh,2000);}}
@@ -93,8 +94,10 @@ function Game(){
   import("socket.io-client").then(({io})=>{
    if(closed)return;
    socket=io({path:"/socket.io",transports:["websocket","polling"],auth:(cb)=>{tokenRef.current().then(token=>cb({token}),()=>cb({}));}});
-   const refresh=()=>{if(!busyRef.current)load().catch(()=>{});};
-   socket.on("room:update",refresh);socket.on("connect",refresh);
+   let lastRead=0;
+   const refresh=()=>{if(!busyRef.current&&Date.now()-lastRead>=1000){lastRead=Date.now();load().catch(()=>{});}};
+   socket.on("market:update",(payload:MarketSnapshot)=>{setRoom(current=>mergeMarket(current,payload));});
+   socket.on("room:update",refresh);socket.on("connect",()=>{lastRead=0;refresh();});
   }).catch(()=>{});
   return()=>{closed=true;socket?.disconnect();};
  },[load]);
@@ -102,9 +105,9 @@ function Game(){
  useEffect(()=>{if(room?.legal)setRaise(String(room.legal.minTo/100));},[room?.handNumber,room?.street,room?.legal?.minTo]);
  async function post(path:string,body:object){
   if(busyRef.current)return;busyRef.current=true;setBusy(true);setError("");
-  try{const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,requestAt:Date.now()})});const data=await response.json();if(!response.ok)throw new Error(data.error);setRoom(data);}
+  try{const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,requestAt:Date.now()})});const data=await response.json();if(!response.ok)throw new Error(data.error);setRoom(current=>mergeRoom(current,data));}
   catch(e){setError(e instanceof Error?e.message:"Could not complete action.");try{await load();}catch{}}
-  finally{busyRef.current=false;setBusy(false);}
+  finally{busyRef.current=false;setBusy(false);void load().catch(()=>{});}
  }
  function action(input:Action){if(room)post("/api/action",{...input,requestId:crypto.randomUUID(),handNumber:room.handNumber,turnDeadline:room.deadline});}
  if(!room)return <main className="waiting"><p className="eyebrow">WELCOME TO THE ROOM</p><h1>Shuffling things up.</h1><p role="status">{error||"Connecting to your table…"}</p></main>;
