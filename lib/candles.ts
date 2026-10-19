@@ -110,13 +110,17 @@ export function archivePlan(now=Date.now()): Job[] {
 export function retryDelay(attempt: number) {return Math.min(6*60*60_000,5000*2**Math.min(12,Math.max(0,attempt-1)));}
 async function seed() {
  const database=await db(),{jobs}=await collections();
- const state=database.collection<{_id:string;anchor:number;seeded?:boolean;startedAt?:number}>("candle_history_state");
+ const state=database.collection<{_id:string;anchor:number;seeded?:boolean;startedAt?:number;jobIds?:string[];total?:number}>("candle_history_state");
  await state.updateOne({_id:"archive-12-month-v1"},{$setOnInsert:{anchor:Math.floor(Date.now()/DAY)*DAY,startedAt:Date.now()}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
  const boot=(await state.findOne({_id:"archive-12-month-v1"}))!;
- if(boot.seeded)return;
  const plan=archivePlan(boot.anchor);
+ const jobIds=plan.map(j=>j._id);
+ if(boot.seeded){
+  if(!boot.jobIds||boot.total!==jobIds.length)await state.updateOne({_id:boot._id},{$set:{jobIds,total:jobIds.length}});
+  return;
+ }
  await jobs.bulkWrite(plan.map(job=>({updateOne:{filter:{_id:job._id},update:{$setOnInsert:job},upsert:true}})),{ordered:false});
- await state.updateOne({_id:boot._id},{$set:{seeded:true}});
+ await state.updateOne({_id:boot._id},{$set:{seeded:true,jobIds,total:jobIds.length}});
 }
 async function boundedDownload(url: string, cap: number) {
  const response=await fetch(url,{signal:AbortSignal.timeout(30_000),cache:"no-store"});

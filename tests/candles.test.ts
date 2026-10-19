@@ -125,8 +125,16 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  assert.equal(await historyMaintenanceActive(),true);
  assert.equal((await backfillProgress()).history.status,"blocked");
  assert.equal((await historyBackfillStep()).status,"blocked");
- const freshState=await database.collection<{_id:string;anchor:number;startedAt:number;seeded:boolean}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
+ const freshState=await database.collection<{_id:string;anchor:number;startedAt:number;seeded:boolean;jobIds:string[];total:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
  assert.ok(freshState?.seeded&&freshState.startedAt>0);
+ assert.deepEqual(freshState.jobIds,archivePlan(freshState.anchor).map(j=>j._id));
+ assert.equal(freshState.total,freshState.jobIds.length);
+ // Backfill older already-seeded state for the plain-JS WebSocket guard.
+ await database.collection("candle_history_state").updateMany({},{$unset:{jobIds:"",total:""}});
+ assert.equal((await historyBackfillStep()).status,"blocked");
+ const migrated=await database.collection<{_id:string;jobIds:string[];total:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
+ assert.deepEqual(migrated!.jobIds,freshState.jobIds);
+ assert.equal(migrated!.total,freshState.total);
  await new Promise(resolve=>setTimeout(resolve,1010));
  assert.equal(await historyMaintenanceActive(),true);
  await database.collection("candle_backfill").updateMany({},{$set:{status:"done"}});
