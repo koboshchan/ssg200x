@@ -15,3 +15,9 @@ test("socket payload uses verified identity only and matches private market calc
  const serialized=JSON.stringify(payload);for(const secret of ["alice-private","bob-private","alice-secret@test","bob-secret@test","receipts","adminUsers"])assert.equal(serialized.includes(secret),false);
  assert.equal(marketPayload(r,"bob-private",now).wallet,100000);
 });
+
+test("roulette escrow stays in private net worth and public standings",()=>{
+ const r=freshRoom(),who={id:"escrow",name:"Escrow",email:"escrow@test",admin:false};register(r,who);
+ const room=r as typeof r & {roulette:unknown};room.roulette={round:1,started:Date.now(),bets:[{userId:who.id,bet:{kind:"red",amount:2500}}],history:[]};r.members[0].wallet-=2500;
+ const payload=marketPayload(r,who.id);assert.equal(payload.netWorth,100000);assert.equal(payload.leaderboard[0].netWorth,100000);assert.equal(payload.wallet,97500);
+});

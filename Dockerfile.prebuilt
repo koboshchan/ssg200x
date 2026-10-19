@@ -5,6 +5,7 @@ COPY --chown=node:node .next/standalone ./
 COPY --chown=node:node .next/static ./.next/static
 COPY --chown=node:node public ./public
 COPY --chown=node:node server.mjs ./server.mjs
+COPY --chown=node:node runtime ./runtime
 USER node
 EXPOSE 3000
 CMD ["node","server.mjs"]
