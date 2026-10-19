@@ -4,7 +4,7 @@ import type { AnyBulkWriteOperation } from "mongodb";
 import { db } from "./db";
 import { SYMBOLS } from "./market-shared";
 
-export const GRANULARITIES = { "1m": 60_000, "5m": 300_000, "15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000 } as const;
+export const GRANULARITIES = { "1m": 60_000, "5m": 300_000, "15m": 900_000, "1h": 3_600_000, "6h": 21_600_000, "1d": 86_400_000 } as const;
 export type Granularity = keyof typeof GRANULARITIES;
 export type Candle = { symbol: string; granularity: Granularity; time: number; open: number; high: number; low: number; close: number; volume: number; source: "binance" | "coinbase"; quoteCurrency: "USDT" | "USD"; firstAt: number; lastAt: number };
 type StoredCandle = Candle & { _id: string };
@@ -147,14 +147,9 @@ async function importJob(job:Job) {
  }
  await jobs.updateOne({_id:job._id,owner},{$set:{status:"done",rows:rows.length,leaseUntil:0,error:""}});
 }
-export async function backfillProgress() {
- const {jobs}=await collections();
- const counts=await jobs.aggregate< {status:string;count:number} >([{$group:{_id:"$status",count:{$sum:1}}},{$project:{_id:0,status:"$_id",count:1}}]).toArray();
- return {enabled:process.env.CANDLE_BACKFILL_DISABLED!=="1",source:"Binance spot USDT reference history; Coinbase USD live snapshots",counts};
-}
 /** Call every few seconds. Globally leased, one archive at a time, restart-safe. */
 export async function backfillStep() {
- if(active || process.env.CANDLE_BACKFILL_DISABLED==="1")return {status:"idle"};
+ if(active || process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED!=="1" || process.env.CANDLE_BACKFILL_DISABLED==="1")return {status:"idle"};
  active=true;
  let job:Job|null=null;
  try {
@@ -174,4 +169,91 @@ export async function backfillStep() {
   if(job){const {jobs}=await collections();await jobs.updateOne({_id:job._id,owner},{$set:{error:message.slice(0,200),leaseUntil:0,nextAt:Date.now()+retryDelay(job.attempts)}});}
   return {status:"retry",job:job?._id,error:message};
  } finally {active=false;}
+}
+
+type Coverage = {_id:string;symbol:string;granularity:Granularity;from:number;to:number;status:"pending"|"done"|"unavailable";expiresAt:number;rows?:number;startedAt?:number;finishedAt?:number;error?:string};
+/** Fixed, nonoverlapping windows allow empty/no-tick pages to be cached as coverage. */
+export function coinbasePages(from:number,to:number,width:number) {
+ const span=300*width, result:{from:number;to:number}[]=[];
+ for(let end=Math.floor(to/span)*span;end>=Math.floor(from/span)*span;end-=span)result.push({from:end,to:end+span});
+ return result;
+}
+export function parseCoinbaseCandles(body:unknown,symbol:string,granularity:Granularity,from:number,to:number):Candle[] {
+ if(!Array.isArray(body)||body.length>300)throw new Error("Invalid Coinbase candle response");
+ const width=GRANULARITIES[granularity],out=new Map<number,Candle>();
+ for(const raw of body){
+  if(!Array.isArray(raw)||raw.length<6||raw.slice(0,6).some(x=>typeof x!=="number"||!Number.isFinite(x)))throw new Error("Invalid Coinbase candle row");
+  const [seconds,low,high,open,close,volume]=raw as number[],time=seconds*1000;
+  if(!Number.isSafeInteger(time)||time%width||Math.min(low,high,open,close)<=0||volume<0||low>Math.min(open,close)||high<Math.max(open,close))throw new Error("Invalid Coinbase candle values");
+  if(time>=from&&time<to)out.set(time,{symbol,granularity,time,low,high,open,close,volume,source:"coinbase",quoteCurrency:"USD",firstAt:time,lastAt:time+width-1});
+ }
+ return [...out.values()].sort((a,b)=>a.time-b.time);
+}
+/** Only on-demand missing chart pages. At most one upstream page per invocation.
+ * Mongo's global 500ms lease caps all chart workers at 2 req/s, leaving live's 5 req/s untouched.
+ * Caller should retry pending results later rather than hold a request open.
+ */
+export async function candleEnsure(symbol:string,granularity:string,from:number,to:number) {
+ validateSymbol(symbol);validateGranularity(granularity);
+ const now=Date.now(),width=GRANULARITIES[granularity];
+ if(!Number.isSafeInteger(from)||!Number.isSafeInteger(to)||from<0||from>to||to>now+width||to-from>366*DAY)throw new Error("Invalid candle range (maximum 366 days)");
+ const {candles,workers}=await collections(),database=await db();
+ const coverage=database.collection<Coverage>("candle_coverage");
+ const products=database.collection<{_id:string;unavailableUntil:number}>("candle_products");
+ const product=await products.findOne({_id:symbol});
+ if(product&&product.unavailableUntil>now)return {status:"unavailable",symbol,granularity,remainingPages:0};
+ const pages=coinbasePages(from,to,width);
+ const ids=pages.map(p=>`${symbol}:${granularity}:${p.from}`);
+ const covered=await coverage.find({_id:{$in:ids},status:"done",expiresAt:{$gt:now}}).toArray();
+ const done=new Set(covered.map(p=>p._id));
+ const missing=pages.filter(p=>!done.has(`${symbol}:${granularity}:${p.from}`));
+ if(!missing.length)return {status:"cached",symbol,granularity,remainingPages:0};
+ const page=missing[0],id=`${symbol}:${granularity}:${page.from}`;
+ await coverage.bulkWrite(missing.map(p=>({updateOne:{filter:{_id:`${symbol}:${granularity}:${p.from}`},update:{$setOnInsert:{symbol,granularity,...p,status:"pending" as const,expiresAt:0}},upsert:true}})),{ordered:false});
+ await workers.updateOne({_id:"coinbase-history-budget"},{$setOnInsert:{nextAt:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
+ const lease=await workers.updateOne({_id:"coinbase-history-budget",nextAt:{$lte:now}},{$set:{nextAt:now+500}});
+ if(!lease.matchedCount)return {status:"pending",symbol,granularity,remainingPages:missing.length,retryAfterMs:500};
+ const start=page.from,end=Math.min(page.to,Math.floor(now/width)*width);
+ if(end<=start)return {status:"cached",symbol,granularity,remainingPages:0};
+ await coverage.updateOne({_id:id},{$set:{startedAt:now}});
+ try{
+  const params=new URLSearchParams({granularity:String(width/1000),start:new Date(start).toISOString(),end:new Date(end-1).toISOString()});
+  const response=await fetch(`https://api.exchange.coinbase.com/products/${symbol}-USD/candles?${params}`,{cache:"no-store",signal:AbortSignal.timeout(5000)});
+  if(response.status===404){
+   await products.updateOne({_id:symbol},{$set:{unavailableUntil:now+DAY}},{upsert:true});
+   await coverage.updateOne({_id:id},{$set:{status:"unavailable",expiresAt:now+DAY,finishedAt:Date.now()}});
+   return {status:"unavailable",symbol,granularity,remainingPages:0};
+  }
+  if(response.status===429){
+   const delay=Math.min(60_000,Math.max(1000,Number(response.headers.get("retry-after"))*1000||5000));
+   await workers.updateOne({_id:"coinbase-history-budget"},{$max:{nextAt:Date.now()+delay}});
+   return {status:"pending",symbol,granularity,remainingPages:missing.length,retryAfterMs:delay};
+  }
+  if(!response.ok)throw new Error(`Coinbase history HTTP ${response.status}`);
+  const text=await response.text();if(text.length>256*1024)throw new Error("Oversized Coinbase response");
+  const rows=parseCoinbaseCandles(JSON.parse(text),symbol,granularity,start,end);
+  // Historical finalized buckets replace incomplete live snapshots and optional USDT references.
+  if(rows.length)await candles.bulkWrite(rows.map(c=>({updateOne:{filter:{_id:key(c)},update:{$set:c},upsert:true}})),{ordered:false});
+  await coverage.updateOne({_id:id},{$set:{status:"done",rows:rows.length,finishedAt:Date.now(),expiresAt:page.to<=now?Number.MAX_SAFE_INTEGER:now+60_000,error:""}});
+  return {status:missing.length>1?"pending":"cached",symbol,granularity,remainingPages:missing.length-1,rows:rows.length,retryAfterMs:500};
+ }catch(error){
+  const message=error instanceof Error?error.message:"History fetch failed";
+  await coverage.updateOne({_id:id},{$set:{error:message.slice(0,200)}});
+  await workers.updateOne({_id:"coinbase-history-budget"},{$max:{nextAt:Date.now()+5000}});
+  return {status:"retry",symbol,granularity,remainingPages:missing.length,error:message,retryAfterMs:5000};
+ }
+}
+export async function backfillProgress() {
+ const database=await db(),now=Date.now();
+ const pages=await database.collection<Coverage>("candle_coverage").aggregate<{_id:{symbol:string;status:string};count:number;rows:number;duration:number}>([
+  {$group:{_id:{symbol:"$symbol",status:"$status"},count:{$sum:1},rows:{$sum:{$ifNull:["$rows",0]}},duration:{$sum:{$cond:[{$and:[{$ne:["$finishedAt",null]},{$ne:["$startedAt",null]}]},{$subtract:["$finishedAt","$startedAt"]},0]}}}}
+ ]).toArray();
+ const unavailable=await database.collection<{_id:string;unavailableUntil:number}>("candle_products").find({unavailableUntil:{$gt:now}}).toArray();
+ const symbols=SYMBOLS.map(symbol=>{
+  const stats=pages.filter(p=>p._id.symbol===symbol),done=stats.filter(p=>p._id.status==="done").reduce((n,p)=>n+p.count,0),pending=stats.filter(p=>p._id.status==="pending").reduce((n,p)=>n+p.count,0);
+  const duration=stats.reduce((n,p)=>n+p.duration,0),rows=stats.reduce((n,p)=>n+p.rows,0);
+  return {symbol,done,pending,rows,total:done+pending,unavailable:unavailable.some(p=>p._id===symbol),percent:done+pending?Math.round(100*done/(done+pending)):100,etaSeconds:pending?Math.ceil(pending*Math.max(500,done?duration/done:500)/1000):0};
+ });
+ const done=symbols.reduce((n,s)=>n+s.done,0),pending=symbols.reduce((n,s)=>n+s.pending,0);
+ return {mode:"on-demand",enabled:true,archiveEnabled:process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED==="1",source:"Coinbase USD historical candles and live snapshots; optional Binance USDT archive",symbols,overall:{done,pending,total:done+pending,rows:symbols.reduce((n,s)=>n+s.rows,0),percent:done+pending?Math.round(100*done/(done+pending)):100,etaSeconds:symbols.reduce((n,s)=>n+s.etaSeconds,0)},etaScope:"Queued chart pages only, not full-history completion"};
 }

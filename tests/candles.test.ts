@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { zipSync, strToU8 } from "fflate";
-import { aggregateCandles, archivePlan, GRANULARITIES, parseArchive, parseKline, retryDelay } from "../lib/candles";
+import { aggregateCandles, archivePlan, GRANULARITIES, parseArchive, parseKline, retryDelay, coinbasePages, parseCoinbaseCandles } from "../lib/candles";
 const time=Date.UTC(2026,0,1);
 const line=(at:number,o=10,h=15,l=8,c=12,v=2)=>[at,o,h,l,c,v,at+59999,0,1,0,0,0].join(",");
 test("parses milliseconds and post-2025 microseconds identically",()=>{
@@ -45,6 +45,7 @@ test("retry backoff is bounded",()=>{
 test("Mongo persistence, out-of-order snapshots, partial-import retry, leases and missing archive",{skip:!process.env.CANDLE_MONGO_TEST},async()=>{
  if(!process.env.MONGODB_DB?.startsWith("fakebucks_test_candles_"))throw new Error("Refusing non-test candle database");
  const {db,closeDatabase}=await import("../lib/db");
+ process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED="1";
  const {candleUpdate,candleRead,backfillStep}=await import("../lib/candles");
  const {createHash}=await import("node:crypto");
  const database=await db(),fetchOriginal=globalThis.fetch;
@@ -82,4 +83,24 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  await backfillStep();
  assert.equal((await database.collection<{_id:string;status?:string}>("candle_backfill").findOne({_id:missing._id}))?.status,"missing");
  } finally {globalThis.fetch=fetchOriginal;await database.dropDatabase();await closeDatabase();}
+});
+
+test("Coinbase pages go backwards, never exceed 300 buckets, and preserve overlapping request keys",()=>{
+ const pages=coinbasePages(time,time+700*60000,60000);
+ assert.ok(pages.length>=3);
+ for(const p of pages)assert.equal((p.to-p.from)/60000,300);
+ assert.ok(pages[0].from>pages[1].from);
+ const overlap=coinbasePages(time+60000,time+699*60000,60000);
+ assert.deepEqual(pages,overlap);
+});
+test("Coinbase rows decode OHLCV seconds and never synthesize empty buckets",()=>{
+ const row=[time/1000,8,15,10,12,2];
+ const parsed=parseCoinbaseCandles([row,row],"BTC","1m",time,time+60000);
+ assert.equal(parsed.length,1);
+ assert.deepEqual([parsed[0].open,parsed[0].high,parsed[0].low,parsed[0].close,parsed[0].volume],[10,15,8,12,2]);
+ assert.deepEqual(parseCoinbaseCandles([],"BTC","1m",time,time+60000),[]);
+ assert.deepEqual(parseCoinbaseCandles([row],"BTC","1m",time+60000,time+120000),[]);
+ assert.throws(()=>parseCoinbaseCandles([[time/1000,20,15,10,12,2]],"BTC","1m",time,time+60000));
+ assert.throws(()=>parseCoinbaseCandles(Array(301).fill(row),"BTC","1m",time,time+60000));
+ assert.equal(GRANULARITIES["6h"],21600000);
 });
