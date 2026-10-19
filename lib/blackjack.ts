@@ -50,7 +50,7 @@ export function blackjackTick(r:Room,now:number):void{const b=(r as BRoom).black
  else{for(let i=0;i<b.seats.length;i++){const s=b.seats[i];if(s?.leaveAfter)b.seats[i]=null;else if(s){s.bet=0;s.hands=[];}}b.phase='betting';b.dealer=[];b.turn=null;b.deadline=null;b.revealed=false;}
 }
 export function blackjackAction(r:Room,who:Identity,action:BlackjackAction,now:number):void{
- const rr=r as BRoom,m=member(rr,who.id);ensure(m.approved,'Account approval required.',403);
+ const rr=r as BRoom,m=member(rr,who.id);
  const b=state(rr),i=b.seats.findIndex(s=>s?.userId===who.id),s=i<0?null:b.seats[i];
  if(action.type==='join'){ensure(!s,'Already seated.');ensure(Number.isInteger(action.seat)&&action.seat>=0&&action.seat<6,'Invalid seat.');ensure(!b.seats[action.seat],'Seat occupied.');b.seats[action.seat]={userId:who.id,bet:0,hands:[],leaveAfter:false};return;}
  ensure(s,'Take a blackjack seat first.');
@@ -66,7 +66,7 @@ export function blackjackAction(r:Room,who:Identity,action:BlackjackAction,now:n
 }
 export function blackjackPublic(r:Room,who:Identity){const b=(r as BRoom).blackjack;if(!b)return null;
  const me=r.members.find(m=>m.id===who.id),mine=b.seats.findIndex(s=>s?.userId===who.id);
- return {phase:b.phase,round:b.round,deadline:b.deadline,turn:b.turn,hand:b.hand,dealer:b.dealer.map((c,i)=>i===0||b.revealed?c:'??'),dealerTotal:b.revealed?blackjackValue(b.dealer):null,seats:b.seats.map(s=>{if(!s)return null;const m=r.members.find(m=>m.id===s.userId);return {publicId:m?.publicId,name:m?.name,bet:s.bet,leaveAfter:s.leaveAfter,hands:s.hands.map(h=>({...h,cards:[...h.cards],total:blackjackValue(h.cards)}))};}),mySeat:mine,canAct:!!me?.approved&&b.phase==='playing'&&b.turn===mine&&mine>=0};
+ return {phase:b.phase,round:b.round,deadline:b.deadline,turn:b.turn,hand:b.hand,dealer:b.dealer.map((c,i)=>i===0||b.revealed?c:'??'),dealerTotal:b.revealed?blackjackValue(b.dealer):null,seats:b.seats.map(s=>{if(!s)return null;const m=r.members.find(m=>m.id===s.userId);return {publicId:m?.publicId,name:m?.name,bet:s.bet,leaveAfter:s.leaveAfter,hands:s.hands.map(h=>({...h,cards:[...h.cards],total:blackjackValue(h.cards)}))};}),mySeat:mine,canAct:!!me&&b.phase==='playing'&&b.turn===mine&&mine>=0};
 }
 
 export const BLACKJACK_TABLE_IDS=['lounge','salon','terrace'] as const;

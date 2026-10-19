@@ -10,4 +10,3 @@ export const actionSchema=z.discriminatedUnion("type",[
  z.object({...base,type:z.literal("call")}).strict(),
  z.object({...base,type:z.literal("raise"),to:z.number().int().min(1).max(10_000_000)}).strict(),
 ]);
-export const approvalSchema=z.object({publicId:z.string().regex(/^[a-f0-9]{16}$/),approved:z.boolean(),requestAt:z.number().int().optional()}).strict();

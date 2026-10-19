@@ -1,9 +1,9 @@
 import {blackjackTablesTick} from "./blackjack";
-import {audit,flushAudit,compactAudit} from "./audit";
+import {flushAudit,compactAudit} from "./audit";
 import { randomUUID } from "node:crypto";
 import { db, rooms, readRoom } from "./db";
 import { AppError, ensure } from "./errors";
-import { assertRoom, tick, register, seatOf, applyAction, addLog, active, cashOut } from "./poker";
+import { assertRoom, tick, register, seatOf, applyAction, active } from "./poker";
 import type { Identity, Action, Room } from "./types";
 export async function mutate<T>(fn: (r: Room)=>T | Promise<T>) {
  // Fresh server-owned copies on each CAS retry. No speculative state leaves here.
@@ -22,7 +22,7 @@ export async function mutate<T>(fn: (r: Room)=>T | Promise<T>) {
 export async function visit(who: Identity) {
  const existing=await readRoom();
  const s=existing.seats[seatOf(existing,who.id)];
- if(existing.members.some(m=>m.id===who.id) && (!s || Date.now()-s.seen < 15_000) && !(who.admin && !existing.members.find(m=>m.id===who.id)!.approved)) {
+ if(existing.members.some(m=>m.id===who.id) && (!s || Date.now()-s.seen < 15_000) && existing.members.find(m=>m.id===who.id)!.approved) {
   return existing;
  }
  return (await mutate(r=>{
@@ -43,22 +43,6 @@ export async function move(who:Identity, action:Action, requestId:string, handNu
   if(action.type==="ready"||action.type==="resume")ensure(r.handNumber===handNumber,"The hand has changed. Refresh first.",409);
   applyAction(r,who,action,now);
   r.receipts=[{id:requestId,userId:who.id,at:now},...r.receipts.filter(x=>x.at&&now-x.at<300_000)];
- })).room;
-}
-export async function approve(who:Identity, target:string, approved:boolean) {
- ensure(who.admin,"Administrator access required.",403);
- return (await mutate(r=>{
-  register(r,who);
-  const m=r.members.find(m=>m.publicId===target);
-  ensure(m,"Account not found.",404);
-  ensure(m.id!==who.id,"You cannot remove your own access.");
-  audit(r,who,"approval",m.id,m.approved,approved);
-  m.approved=approved;
-  if(!approved) {
-   const i=seatOf(r,m.id);
-   if(i>=0) {const s=r.seats[i]!; if(active(r)&&s.inHand){s.leaveAfter=true;s.sitOut=true;}else {s.ready=false;cashOut(r,i);if(!r.seats.some(s=>s?.ready))r.readyDeadline=null;}}
-  }
-  addLog(r,m.name+(approved?" was approved":" had access removed"));
  })).room;
 }
 export async function tickRoom() {

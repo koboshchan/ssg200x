@@ -21,9 +21,9 @@ test("all valid roulette bets have 36/37 expected gross return",()=>{
  }
 });
 test("roulette updates wallet and house atomically in ledger",()=>{const r=setup();spin(r,who,[{kind:"red",amount:500}],1,"x",1000);assert.equal(r.members[0].wallet,100500);assert.equal(r.house,-500);assertRoom(r);assert.throws(()=>spin(r,who,[{kind:"red",amount:500}],2,"y",2000));spin(r,who,[{kind:"red",amount:500}],0,"z",3000);assertRoom(r);});
-test("invalid roulette picks, negative stakes, no approval and overdraft fail",()=>{
+test("invalid roulette picks, negative stakes and overdraft fail",()=>{
  const r=setup();assert.throws(()=>payout({kind:"straight",pick:37,amount:100},1));assert.throws(()=>payout({kind:"column",pick:0,amount:100},1));assert.throws(()=>spin(r,who,[{kind:"red",amount:-100}],1));
- r.members[0].approved=false;assert.throws(()=>spin(r,{...who,admin:false},[{kind:"red",amount:100}],1));r.members[0].approved=true;r.members[0].wallet=10;assert.throws(()=>spin(r,who,[{kind:"red",amount:100}],1));
+ r.members[0].wallet=10;assert.throws(()=>spin(r,who,[{kind:"red",amount:100}],1));
 });
 test("spot buy and full sell round-trip conserves integer ledger",()=>{const r=setup();spot(r,who,"BTC","buy",10_000,1000);assert.equal(r.members[0].holdings![0].units,100_000);assert.equal(r.members[0].wallet,90_000);assertRoom(r);spot(r,who,"BTC","sell",10_000,1000);assert.equal(r.members[0].holdings!.length,0);assert.equal(r.members[0].wallet,100_000);assertRoom(r);});
 test("sub-cent coin price and fractional units use bigint valuation",()=>{const r=setup();spot(r,who,"DOGE","buy",1234,1000);const h=r.members[0].holdings![0];assert.equal(h.units,unitsFor(1234,123456));assert.ok(value(h.units,123456)<=1234);assertRoom(r);});
@@ -35,3 +35,5 @@ test("close realizes PnL once and enforces owner",()=>{const r=setup();openPosit
 test("stale marks cannot trigger liquidation",()=>{const r=setup();openPosition(r,who,"BTC","long",10_000,50,"position",1000);r.quotes!.BTC!.micro/=2;liquidate(r,20_000);assert.equal(r.members[0].positions!.length,1);assertRoom(r);});
 test("maintenance margin moves long and short liquidation inward",()=>{const r=setup();r.maintenance=.005;for(const side of ["long","short"] as const){openPosition(r,who,"BTC",side,1000,10,side,1000);const p=r.members[0].positions!.at(-1)!;assert.equal(liqPrice(p),p.entry*(side==="long"?.9:1.1)/(side==="long"?.995:1.005));}r.maintenance=.1;assert.throws(()=>openPosition(r,who,"BTC","long",1000,10,"bad",1000));assertRoom(r);});
 test("200x hard boundary and maintenance liquidation distance remain valid",()=>{const r=setup();r.maintenance=.001;for(const side of ["long","short"] as const){openPosition(r,who,"BTC",side,1000,200,side,1000);const p=r.members[0].positions!.at(-1)!;assert.equal(side==="long"?liqPrice(p)<p.entry:liqPrice(p)>p.entry,true);assert.ok(Math.abs(liqPrice(p)/p.entry-1)<.005);}assert.throws(()=>openPosition(r,who,"BTC","long",1000,201,"bad",1000));r.maintenance=.005;assert.throws(()=>openPosition(r,who,"BTC","long",1000,200,"bad",1000));assertRoom(r);});
+
+test("legacy false approval cannot block non-admin trading or roulette",()=>{const r=setup(),player={...who,admin:false};r.members[0].approved=false;spot(r,player,"BTC","buy",1000,1000);r.members[0].approved=false;openPosition(r,player,"BTC","long",1000,5,"access",1000);r.members[0].approved=false;closePosition(r,player,"access",1000);r.members[0].approved=false;spin(r,player,[{kind:"red",amount:100}],1,"access",1000);assertRoom(r);});

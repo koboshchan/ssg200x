@@ -17,9 +17,9 @@ export function register(r: Room, who: Identity, now = Date.now()): Member {
  let m = r.members.find(m => m.id === who.id);
  if (!m) {
   ensure(r.members.length < MAX_MEMBERS, "This private room is full.", 409);
-  m = { id: who.id, publicId: createHash("sha256").update(who.id).digest("hex").slice(0,16), name: who.name.slice(0,32) || "Player", email: who.email, approved: who.admin, wallet: 100_000, joined: now };
+  m = { id: who.id, publicId: createHash("sha256").update(who.id).digest("hex").slice(0,16), name: who.name.slice(0,32) || "Player", email: who.email, approved: true, wallet: 100_000, joined: now };
   r.members.push(m);
- } else if (who.admin) m.approved = true;
+ } else m.approved = true;
  return m;
 }
 export function seatOf(r: Room, id: string) { return r.seats.findIndex(s => s?.userId === id); }
@@ -166,7 +166,7 @@ export function act(r: Room, id: string, action: Extract<Action,{type:"fold"|"ch
 export function applyAction(r: Room, who: Identity, action: Action, now: number) {
  if ((action.type === "ready" || action.type === "resume") && !active(r) && r.readyDeadline != null && now >= r.readyDeadline) tick(r,now);
  const member = r.members.find(m=>m.id===who.id);
- ensure(member?.approved, "Lucas needs to approve your account first.", 403);
+ ensure(member, "Account not found.", 404);
  let i = seatOf(r,who.id);
  if (action.type === "join") {
   ensure(i < 0, "You already have a seat.", 409);

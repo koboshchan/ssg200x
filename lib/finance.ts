@@ -31,7 +31,7 @@ export function liquidate(r:Room,now=Date.now()){
  }}
 }
 export function spot(r:Room,who:Identity,symbol:Symbol,side:"buy"|"sell",amount:number,now=Date.now()){
- const m=portfolio(register(r,who));ensure(m.approved,"Account approval required.",403);
+ const m=portfolio(register(r,who));
  const price=requireQuote(r,symbol,now);
  ensure(Number.isSafeInteger(amount)&&amount>=100&&amount<=100_000_000,"Use $1–$1,000,000 per order.");
  ensure(amount<=(r.limits?.maxTrade??1000000)*100,"Order exceeds the host’s trade limit.");
@@ -48,14 +48,14 @@ export function spot(r:Room,who:Identity,symbol:Symbol,side:"buy"|"sell",amount:
  }
 }
 export function openPosition(r:Room,who:Identity,symbol:Symbol,side:"long"|"short",margin:number,leverage:number,id:string=randomUUID(),now=Date.now()){
- const m=portfolio(register(r,who));ensure(m.approved,"Account approval required.",403);
+ const m=portfolio(register(r,who));
  const entry=requireQuote(r,symbol,now);ensure(Number.isSafeInteger(margin)&&margin>=100&&margin<=100_000_000&&m.wallet>=margin,"Not enough cash or invalid margin.");
  ensure(margin<=(r.limits?.maxTrade??1000000)*100&&margin*leverage<=(r.limits?.maxTrade??1000000)*100,"Position margin or notional exceeds the host’s trade limit.");
  ensure(Number.isInteger(leverage)&&leverage>=1&&leverage<=(r.limits?.maxLeverage??200),"Leverage must be 1–200x.");ensure((r.maintenance||0)<1/leverage,"Chosen leverage requires more initial margin than maintenance margin.");ensure(m.positions!.length<20,"Close a position first.");
  m.wallet-=margin;m.positions!.push({id,symbol,side,margin,leverage,entry,opened:now,maintenance:r.maintenance||0});
 }
 export function closePosition(r:Room,who:Identity,id:string,now=Date.now()){
- const m=portfolio(register(r,who));ensure(m.approved,"Account approval required.",403);const p=m.positions!.find(x=>x.id===id);ensure(p,"Position not found.",404);settle(r,m,p,requireQuote(r,p.symbol,now));
+ const m=portfolio(register(r,who));const p=m.positions!.find(x=>x.id===id);ensure(p,"Position not found.",404);settle(r,m,p,requireQuote(r,p.symbol,now));
 }
 export function payout(b:Bet,n:number){
  ensure(Number.isInteger(n)&&n>=0&&n<=36,"Invalid wheel result.");
@@ -73,7 +73,7 @@ export function payout(b:Bet,n:number){
  return win?b.amount*mult:0;
 }
 export function spin(r:Room,who:Identity,bets:Bet[],n=randomInt(37),id:string=randomUUID(),now=Date.now()){
- const m=portfolio(register(r,who));ensure(m.approved,"Account approval required.",403);
+ const m=portfolio(register(r,who));
  ensure(bets.length>=1&&bets.length<=20,"Choose 1–20 bets.");
  const returned=bets.reduce((sum,b)=>sum+payout(b,n),0),stake=bets.reduce((sum,b)=>sum+b.amount,0);
  ensure(stake<=100_000&&m.wallet>=stake,"Not enough cash or total bet over $1,000.");
