@@ -93,29 +93,30 @@ export function archivePlan(now=Date.now()): Job[] {
  for(const symbol of SYMBOLS) {
   let cursor=new Date(from);cursor=new Date(Date.UTC(cursor.getUTCFullYear(),cursor.getUTCMonth(),1));
   const thisMonth=Date.UTC(new Date(to).getUTCFullYear(),new Date(to).getUTCMonth(),1);
-  while(cursor.getTime()<thisMonth) {
-   const period=cursor.toISOString().slice(0,7);
-   result.push({_id:`${symbol}:monthly:${period}`,symbol,kind:"monthly",period,from,to,status:"pending",attempts:0,nextAt:0});
-   cursor=new Date(Date.UTC(cursor.getUTCFullYear(),cursor.getUTCMonth()+1,1));
-  }
-  for(let day=Math.max(thisMonth,from);day<to;day+=DAY){
-   const period=new Date(day).toISOString().slice(0,10);
-   result.push({_id:`${symbol}:daily:${period}`,symbol,kind:"daily",period,from,to,status:"pending",attempts:0,nextAt:0});
+  while(cursor.getTime()<to) {
+   const start=cursor.getTime(),end=Date.UTC(cursor.getUTCFullYear(),cursor.getUTCMonth()+1,1);
+   if(start>=from&&end<=to){
+    const period=cursor.toISOString().slice(0,7);
+    result.push({_id:`${symbol}:monthly:${period}`,symbol,kind:"monthly",period,from,to,status:"pending",attempts:0,nextAt:0});
+   }else for(let day=Math.max(start,from);day<Math.min(end,to);day+=DAY){
+    const period=new Date(day).toISOString().slice(0,10);
+    result.push({_id:`${symbol}:daily:${period}`,symbol,kind:"daily",period,from,to,status:"pending",attempts:0,nextAt:0});
+   }
+   cursor=new Date(end);
   }
  }
  return result;
 }
 export function retryDelay(attempt: number) {return Math.min(6*60*60_000,5000*2**Math.min(12,Math.max(0,attempt-1)));}
 async function seed() {
- const {jobs,workers}=await collections();
- const now=Date.now();
- // A persistent daily planner marker prevents reseeding hundreds of jobs every few seconds.
- const day=Math.floor(now/DAY);
- const marker=await workers.findOne({_id:"candle-plan"});
- if(marker?.nextAt===day)return;
- const plan=archivePlan(now);
+ const database=await db(),{jobs}=await collections();
+ const state=database.collection<{_id:string;anchor:number;seeded?:boolean}>("candle_history_state");
+ await state.updateOne({_id:"archive-360-v1"},{$setOnInsert:{anchor:Math.floor(Date.now()/DAY)*DAY}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
+ const boot=(await state.findOne({_id:"archive-360-v1"}))!;
+ if(boot.seeded)return;
+ const plan=archivePlan(boot.anchor);
  await jobs.bulkWrite(plan.map(job=>({updateOne:{filter:{_id:job._id},update:{$setOnInsert:job},upsert:true}})),{ordered:false});
- await workers.updateOne({_id:"candle-plan"},{$set:{nextAt:day}},{upsert:true});
+ await state.updateOne({_id:boot._id},{$set:{seeded:true}});
 }
 async function boundedDownload(url: string, cap: number) {
  const response=await fetch(url,{signal:AbortSignal.timeout(30_000),cache:"no-store"});
@@ -151,19 +152,21 @@ async function importJob(job:Job) {
 }
 /** Call every few seconds. Globally leased, one archive at a time, restart-safe. */
 export async function backfillStep() {
- if(active || process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED!=="1" || process.env.CANDLE_BACKFILL_DISABLED==="1")return {status:"idle"};
+ if(active || process.env.CANDLE_BACKFILL_DISABLED==="1")return {status:"idle"};
  active=true;
  let job:Job|null=null;
  try {
+  await seed();
   const space=await backfillSpace();
   if(space.blocked)return {status:"blocked",...space};
-  await seed();
   const {jobs,workers}=await collections();const now=Date.now();
   await workers.updateOne({_id:"candle-backfill"},{$setOnInsert:{nextAt:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
   const gate=await workers.updateOne({_id:"candle-backfill",nextAt:{$lte:now}},{$set:{nextAt:now+300_000}});
   if(!gate.matchedCount)return {status:"busy"};
   try {
-   job=await jobs.findOneAndUpdate({status:"pending",nextAt:{$lte:now},$or:[{leaseUntil:{$exists:false}},{leaseUntil:{$lte:now}}]},{$set:{owner,leaseUntil:now+300_000},$inc:{attempts:1}},{sort:{period:-1,symbol:1},returnDocument:"after"});
+   const anchor=await (await db()).collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-360-v1"});
+   const allowedIds=archivePlan(anchor!.anchor).map(j=>j._id);
+   job=await jobs.findOneAndUpdate({_id:{$in:allowedIds},status:"pending",nextAt:{$lte:now},$or:[{leaseUntil:{$exists:false}},{leaseUntil:{$lte:now}}]},{$set:{owner,leaseUntil:now+300_000},$inc:{attempts:1}},{sort:{period:-1,symbol:1},returnDocument:"after"});
    if(!job)return {status:"complete"};
    await importJob(job);
    return {status:"processed",job:job._id};
@@ -261,7 +264,7 @@ export async function backfillProgress() {
   return {symbol,done,pending,rows,total:done+pending,unavailable:unavailable.some(p=>p._id===symbol),percent:done+pending?Math.round(100*done/(done+pending)):0,etaSeconds:pending?Math.ceil(pending*Math.max(500,done?duration/done:500)/1000):0};
  });
  const done=symbols.reduce((n,s)=>n+s.done,0),pending=symbols.reduce((n,s)=>n+s.pending,0);
- return {mode:"background-360-days",enabled:true,archiveEnabled:process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED==="1",archive:await archiveProgress(),source:"Coinbase USD historical candles and live snapshots; optional Binance USDT archive",symbols,overall:{done,pending,total:done+pending,rows:symbols.reduce((n,s)=>n+s.rows,0),percent:done+pending?Math.round(100*done/(done+pending)):0,etaSeconds:symbols.reduce((n,s)=>n+s.etaSeconds,0)},history:await historyProgress(),etaScope:"360-day queued history pages plus incremental top-ups"};
+ return {mode:"background-360-days",enabled:true,archiveEnabled:true,archive:await archiveProgress(),source:"Binance USDT reference history; Coinbase USD live/incremental",symbols,overall:{done,pending,total:done+pending,rows:symbols.reduce((n,s)=>n+s.rows,0),percent:done+pending?Math.round(100*done/(done+pending)):0,etaSeconds:symbols.reduce((n,s)=>n+s.etaSeconds,0)},history:await historyProgress(),etaScope:"360-day USDT archive bootstrap"};
 }
 
 /** Point CANDLE_STORAGE_PATH at the Mongo volume's host mount when Mongo is remote.
@@ -282,7 +285,7 @@ async function archiveProgress() {
  const counts=await jobs.aggregate<{_id:string;count:number}>([{$group:{_id:"$status",count:{$sum:1}}}]).toArray();
  const count=(status:string)=>counts.find(c=>c._id===status)?.count||0;
  const pending=count("pending"),done=count("done"),missing=count("missing");
- const enabled=process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED==="1"&&process.env.CANDLE_BACKFILL_DISABLED!=="1";
+ const enabled=process.env.CANDLE_BACKFILL_DISABLED!=="1";
  return {enabled,status:!enabled?"disabled":space.blocked?"blocked":pending?"pending":done+missing?"complete":"not-started",...space,pending,done,missing,total:pending+done+missing,etaSeconds:null,etaReason:"Archive throughput has not been measured",symbols:await jobs.aggregate([{$group:{_id:{symbol:"$symbol",status:"$status"},count:{$sum:1}}}]).toArray()};
 }
 
@@ -294,56 +297,19 @@ export function historyPlan(now=Date.now()):Coverage[] {
  }
  return result;
 }
-let historyRunning=false;
-/** Timer-driven first-boot + hourly incremental planner. No candle download until storage is safe. */
-export async function historyBackfillStep() {
- if(historyRunning||process.env.CANDLE_BACKFILL_DISABLED==="1")return {status:"idle"};
- historyRunning=true;
- try{
-  const database=await db(),workers=database.collection<{_id:string;nextAt:number}>("workers"),coverage=database.collection<Coverage>("candle_coverage"),now=Date.now();
-  await coverage.createIndex({background:1,status:1,nextAttempt:1,from:-1});
-  const state=database.collection<{_id:string;anchor:number;seeded?:boolean;initialComplete?:boolean;topupAt?:number}>("candle_history_state");
-  await state.updateOne({_id:"360-day-v1"},{$setOnInsert:{anchor:Math.floor(now/60_000)*60_000}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
-  const boot=(await state.findOne({_id:"360-day-v1"}))!;
-  if(!boot.seeded){
-   // Remove prior rolling-year background flags, never delete cached price data.
-   await coverage.updateMany({background:true},{$set:{background:false}});
-   const plan=historyPlan(boot.anchor);
-   for(let i=0;i<plan.length;i+=500)await coverage.bulkWrite(plan.slice(i,i+500).map(job=>({updateOne:{filter:{_id:job._id},update:{$setOnInsert:{symbol:job.symbol,granularity:job.granularity,from:job.from,to:job.to,status:job.status,expiresAt:job.expiresAt},$set:{background:true}},upsert:true}})),{ordered:false});
-   await state.updateOne({_id:boot._id},{$set:{seeded:true}});
-  }
-  if(boot.initialComplete&&(!boot.topupAt||boot.topupAt<=now)){
-   // Only add the gap since initial completion / last top-up, not a moving full window.
-   for(const symbol of SYMBOLS)for(const granularity of Object.keys(GRANULARITIES) as Granularity[]){
-    const width=GRANULARITIES[granularity];
-    for(const page of coinbasePages(Math.max(boot.anchor,(boot.topupAt||boot.anchor)-3600_000),Math.floor(now/width)*width-1,width)){
-     await coverage.updateOne({_id:`${symbol}:${granularity}:${page.from}`},{$setOnInsert:{symbol,granularity,...page,expiresAt:0},$set:{background:true,status:"pending"}},{upsert:true});
-    }
-   }
-   await state.updateOne({_id:boot._id},{$set:{topupAt:now+3600_000}});
-  }
-  const space=await backfillSpace();if(space.blocked)return {status:"blocked",...space};
-  const unavailable=await database.collection<{_id:string;unavailableUntil:number}>("candle_products").find({unavailableUntil:{$gt:now}}).toArray();
-  if(unavailable.length)await coverage.updateMany({symbol:{$in:unavailable.map(p=>p._id)},background:true,status:"pending"},{$set:{status:"unavailable"}});
-  // Previously unavailable products are checked again after their 24h marker expires.
-  await coverage.updateMany({background:true,status:"unavailable",symbol:{$nin:unavailable.map(p=>p._id)}},{$set:{status:"pending"}});
-  const job=await coverage.findOne({background:true,status:"pending",$or:[{nextAttempt:{$exists:false}},{nextAttempt:{$lte:now}}]},{sort:{from:-1,symbol:1,granularity:1}});
-  if(!job){await state.updateOne({_id:boot._id},{$set:{initialComplete:true}});return {status:"complete"};}
-  const result=await candleEnsure(job.symbol,job.granularity,job.from,Math.min(job.to-1,Math.floor(now/GRANULARITIES[job.granularity])*GRANULARITIES[job.granularity]-1),boot.initialComplete?undefined:{from:boot.anchor-360*DAY,to:boot.anchor});
-  if(result.status==="retry")await coverage.updateOne({_id:job._id},{$set:{nextAttempt:now+30_000}});
-  return {...result,job:job._id};
- }catch(error){return {status:"retry",error:error instanceof Error?error.message:"History worker failed"};}
- finally{historyRunning=false;}
-}
+/** Timer entrypoint: automatic fixed 360-day USDT archive bootstrap. Coinbase live updates run separately. */
+export async function historyBackfillStep(){return backfillStep();}
 async function historyProgress(){
- const database=await db(),space=await backfillSpace();
- const window=await database.collection("candle_history_state").findOne({_id:"360-day-v1"} as never);
- const stats=await database.collection<Coverage>("candle_coverage").aggregate<{_id:{symbol:string;status:string};count:number}>([{$match:{background:true}},{$group:{_id:{symbol:"$symbol",status:"$status"},count:{$sum:1}}}]).toArray();
+ const database=await db(),space=await backfillSpace(),{jobs}=await collections();
+ const state=await database.collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-360-v1"});
+ const planned=state?archivePlan(state.anchor):[];
+ const ids=planned.map(j=>j._id);
+ const records=ids.length?await jobs.find({_id:{$in:ids}}).toArray():[];
  const symbols=SYMBOLS.map(symbol=>{
-  const count=(status:string)=>stats.find(s=>s._id.symbol===symbol&&s._id.status===status)?.count||0;
-  const done=count("done"),pending=count("pending"),unavailable=count("unavailable");
-  return {symbol,done,pending,unavailable,total:done+pending+unavailable,percent:done+pending+unavailable?Math.round(100*(done+unavailable)/(done+pending+unavailable)):0,etaSeconds:space.blocked?null:Math.ceil(pending/2.99)};
+  const rows=records.filter(j=>j.symbol===symbol),total=planned.filter(j=>j.symbol===symbol).length;
+  const done=rows.filter(j=>j.status==="done"||j.status==="missing").length;
+  return {symbol,done,total,percent:total?Math.round(100*done/total):0,unavailable:rows.some(j=>j.status==="missing")};
  });
- const done=symbols.reduce((n,s)=>n+s.done,0),pending=symbols.reduce((n,s)=>n+s.pending,0),unavailable=symbols.reduce((n,s)=>n+s.unavailable,0),total=done+pending+unavailable;
- return {window:window?{from:window.anchor-360*DAY,to:window.anchor,days:360,initialComplete:!!window.initialComplete}:null,status:space.blocked?"blocked":pending?"running":total?"complete":"not-started",...space,symbols,overall:{done,pending,unavailable,total,percent:total?Math.round(100*(done+unavailable)/total):0,etaSeconds:space.blocked?null:Math.ceil(pending/2.99)},etaKind:"Rate-budget lower bound; network latency and throttling may extend it"};
+ const done=symbols.reduce((n,s)=>n+s.done,0),total=planned.length;
+ return {source:"Binance USDT reference history; Coinbase USD live/incremental",window:state?{from:state.anchor-360*DAY,to:state.anchor,days:360}:null,status:space.blocked?"blocked":done<total?"running":total?"complete":"not-started",...space,symbols,overall:{done,total,percent:total?Math.round(100*done/total):0,etaSeconds:!space.blocked&&done===total&&total?0:null},etaKind:"360-day archive throughput not yet measured; unavailable archives are reported, not fabricated"};
 }
