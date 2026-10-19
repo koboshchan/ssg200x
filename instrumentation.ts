@@ -11,6 +11,7 @@ export async function register() {
    g.pokerTimer=setInterval(async()=>{if(running)return;running=true;try{await tickRoom();await tickRoulette();}catch{console.error("Poker room timer unavailable");}finally{running=false;}},1000);
    g.pokerTimer.unref();
    const history=setInterval(()=>{void historyBackfillStep().catch(()=>{});},350);history.unref();
+   await refreshPrices(); // Rehydrate persisted positions and check current marks immediately on boot, even with zero clients.
    const prices=setInterval(()=>{void refreshPrices();},100);prices.unref();
   }
  }
