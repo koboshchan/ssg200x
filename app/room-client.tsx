@@ -7,7 +7,7 @@ import {SignInButton,UserButton,useUser} from "@clerk/nextjs";
 import MaintenanceGate from "./maintenance-gate";
 import HistoryProgress from "./history-progress";
 import {useState,useEffect,useRef,useContext} from "react";
-import {mergeRoom,mergeMarket,settledNotices,LiveContext,type MarketSnapshot} from "@/lib/room-sync";
+import {mergeRoom,settledNotices,LiveContext} from "@/lib/room-sync";
 import type {PublicRoom} from "@/lib/public";
 import type {Action} from "@/lib/types";
 const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:n%100===0?0:2}).format(n/100);
@@ -81,18 +81,14 @@ function Game(){
  const seenActivity=useRef<Set<string>|null>(null);
  useEffect(()=>{if(!room)return;const settled=settledNotices(room.activity||[]);if(!seenActivity.current){seenActivity.current=new Set(settled.map(s=>s.id));return;}const fresh=settled.filter(s=>!seenActivity.current!.has(s.id));for(const s of settled)seenActivity.current.add(s.id);if(fresh.length)setMarketNotice(fresh.reverse().map(s=>s.text).join(". "));},[room?.activity]);
  const busyRef=useRef(false);
- const bus=useContext(LiveContext);
+ const live=useContext(LiveContext);
  useEffect(()=>{
   const controller=new AbortController();
   fetch("/api/room",{cache:"no-store",signal:controller.signal}).then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error);setRoom(current=>mergeRoom(current,data as PublicRoom));}).catch(e=>{if(!controller.signal.aborted)setError(e instanceof Error?e.message:"Connection lost.");});
   return()=>controller.abort();
  },[]);
- useEffect(()=>{
-  if(!bus)return;
-  const offState=bus.subscribe("room:state",(payload:PublicRoom)=>{if(payload&&typeof payload.version==="number"){setRoom(current=>mergeRoom(current,payload));setError("");}});
-  const offMarket=bus.subscribe("market:update",(payload:MarketSnapshot)=>{setRoom(current=>mergeMarket(current,payload));});
-  return()=>{offState();offMarket();};
- },[bus]);
+ const liveRoom=live?.room;
+ useEffect(()=>{if(liveRoom){setRoom(current=>mergeRoom(current,liveRoom));setError("");}},[liveRoom]);
  useEffect(()=>{const t=setInterval(()=>setClock(Date.now()),1000);return()=>clearInterval(t);},[]);
  useEffect(()=>{if(room?.legal)setRaise(String(room.legal.minTo/100));},[room?.handNumber,room?.street,room?.legal?.minTo]);
  async function post(path:string,body:object){
@@ -112,7 +108,7 @@ function Game(){
  const canReady=room.street==="waiting"&&mySeat&&!mySeat.ready;
  const canCashOut=mySeat&&!mySeat.ready&&!(mySeat.inHand&&room.street!=="waiting"&&room.street!=="showdown");
  return <main className="game-main">{me.admin?<HistoryProgress/>:null}<section className="game-top"><div><h1>{"Good to see you, "+me.name+"."}</h1><p>No-limit hold’em · Six seats · $1 / $2 / $5</p></div><div className="wallet"><span>Wallet</span><strong>{money(me.wallet)}</strong><small>+ {money(mySeat?.stack||0)} at the table</small></div></section>
- <div className="tabs" role="tablist" aria-label="Room views" onKeyDown={tabKeys}>{tabList.map(t=><button key={t} id={"tab-"+t} role="tab" aria-selected={tab===t} aria-controls="panel" tabIndex={tab===t?0:-1} onClick={()=>setTab(t as typeof tab)}>{t==="table"?"Table":t==="standings"?"Standings":t==="markets"?"Markets":t==="roulette"?"Roulette":t==="blackjack"?"Blackjack":"Guest list"}</button>)}<span className="connection"><span className="status-dot"/> LIVE ROOM</span></div>
+ <div className="tabs" role="tablist" aria-label="Room views" onKeyDown={tabKeys}>{tabList.map(t=><button key={t} id={"tab-"+t} role="tab" aria-selected={tab===t} aria-controls="panel" tabIndex={tab===t?0:-1} onClick={()=>setTab(t as typeof tab)}>{t==="table"?"Table":t==="standings"?"Standings":t==="markets"?"Markets":t==="roulette"?"Roulette":t==="blackjack"?"Blackjack":"Guest list"}</button>)}<span className="connection"><span className="status-dot"/> {live&&!live.connected?"RECONNECTING":"LIVE ROOM"}</span></div>
  {marketNotice?<div className="winner-note" role="status" aria-live="polite">{marketNotice}<button aria-label="Dismiss market notice" onClick={()=>setMarketNotice("")}>×</button></div>:null}
  {error?<div className="error" role="alert">{error}<button aria-label="Dismiss error" onClick={()=>setError("")}>×</button></div>:null}
  <div role="tabpanel" id="panel" aria-labelledby={"tab-"+tab}>

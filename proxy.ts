@@ -7,6 +7,8 @@ const clerk = clerkMiddleware(async (auth, req) => {
   }
 });
 export default function proxy(request: NextRequest, event: NextFetchEvent) {
+  // Independently authenticated with a per-process secret, never Clerk cookies.
+  if(request.nextUrl.pathname==="/api/internal-live")return NextResponse.next();
   const key = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   if (!key || key.includes("REPLACE") || !process.env.CLERK_SECRET_KEY) {
     if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "Clerk setup required." }, { status: 503 });

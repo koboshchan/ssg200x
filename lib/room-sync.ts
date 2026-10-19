@@ -9,9 +9,9 @@ export function mergeMarket(current:PublicRoom|null,next:MarketSnapshot):PublicR
 /** Entries announcing a newly settled position, keyed by the stable position id. */
 export function settledNotices(activity:string[]){return activity.flatMap(entry=>{const m=/^(Liquidated|Take-profit|Stop-loss)\b.*\bposition (\S+)/.exec(entry);return m?[{id:m[2],text:entry}]:[];});}
 /**
- * Contract with the shared websocket provider. The provider owns the single socket, Clerk token auth and reconnects;
- * it supplies this bus through LiveContext. subscribe returns an unsubscribe function. Events used by the game are
- * "room:state" (PublicRoom) and "market:update" (MarketSnapshot).
+ * Contract with the shared websocket provider, which owns the one socket, Clerk auth and reconnects.
+ * room is the latest full PublicRoom from "room:state"; status is the "maintenance:state" /api/maintenance shape;
+ * history is the "history:state" object. Game merges room through mergeRoom so stale versions never rewind it.
  */
-export type LiveBus={subscribe:(event:string,handler:(payload:any)=>void)=>()=>void};
-export const LiveContext=createContext<LiveBus|null>(null);
+export type LiveValue={room:PublicRoom|null;status:unknown;history:unknown;connected:boolean};
+export const LiveContext=createContext<LiveValue|null>(null);
