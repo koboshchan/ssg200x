@@ -34,7 +34,8 @@ export function startPriceWorker(){
    if(leaseUntil-now<5000){
     await locks.updateOne({_id:"coinbase-feed"},{$setOnInsert:{owner:"",until:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
     const claim=await locks.updateOne({_id:"coinbase-feed",$or:[{owner},{until:{$lte:now}}]},{$set:{owner,until:now+15000}});
-    if(!claim.matchedCount){feed.stop();feed=makeFeed();leaseUntil=0;return;}
+    // An acknowledged claim can already be expired after a delayed database response.
+    if(stopped||!claim.matchedCount||Date.now()>=now+15000-1000){feed.stop();feed=makeFeed();leaseUntil=0;return;}
     leaseUntil=now+15000;
    }
    feed.step();feed.retryPending();

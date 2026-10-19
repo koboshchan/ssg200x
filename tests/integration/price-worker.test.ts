@@ -73,3 +73,41 @@ test("64-tick candle batch uses one ordered bulkWrite and preserves transient ex
   console.log("64-tick CAS + ordered candle batch duration ms",Math.round(elapsed));
  }finally{prototype.collection=originalCollection;}
 });
+test("delayed claim acknowledgement past expiry cannot open a socket",async()=>{
+ const originalWS=globalThis.WebSocket,originalNow=Date.now;let sockets=0,now=Date.now();
+ class MockSocket{readyState=1;onopen=null;onmessage=null;onerror=null;onclose=null;constructor(){sockets++;}send(){}close(){this.readyState=3;}}
+ globalThis.WebSocket=MockSocket as unknown as typeof WebSocket;Date.now=()=>now;
+ const database=await db(),prototype=Object.getPrototypeOf(database),originalCollection=prototype.collection;
+ await database.collection("workers").deleteOne({_id:"coinbase-feed"} as never);
+ prototype.collection=function(this:typeof database,...args:Parameters<typeof database.collection>){
+  const collection=originalCollection.apply(this,args);
+  if(args[0]==="workers"){const update=collection.updateOne.bind(collection);collection.updateOne=async(...params:Parameters<typeof collection.updateOne>)=>{const result=await update(...params);if((params[0] as {_id?:string})._id==="coinbase-feed"&&(params[1] as {$set?:{owner?:string}}).$set?.owner)now+=16000;return result;};}
+  return collection;
+ } as typeof database.collection;
+ let worker:ReturnType<typeof startPriceWorker>|undefined;
+ try{worker=startPriceWorker();clearInterval(worker.timer);await worker.ready;assert.equal(sockets,0);}
+ finally{prototype.collection=originalCollection;Date.now=originalNow;worker?.stop();globalThis.WebSocket=originalWS;}
+});
+test("independent watchdog closes socket while a renewal promise remains blocked",async()=>{
+ const originalWS=globalThis.WebSocket,originalNow=Date.now;const sockets:MockSocket[]=[];let now=Date.now();
+ class MockSocket{readyState=1;onopen=null;onmessage=null;onerror=null;onclose=null;constructor(){sockets.push(this);}send(){}close(){this.readyState=3;}}
+ globalThis.WebSocket=MockSocket as unknown as typeof WebSocket;Date.now=()=>now;
+ const database=await db(),prototype=Object.getPrototypeOf(database),originalCollection=prototype.collection;
+ await database.collection("workers").deleteOne({_id:"coinbase-feed"} as never);
+ let worker:ReturnType<typeof startPriceWorker>|undefined,release:()=>void=()=>{};
+ try{
+  worker=startPriceWorker();await worker.ready;assert.equal(sockets.length,1);
+  const blocked=new Promise<void>(resolve=>{release=resolve;});
+  prototype.collection=function(this:typeof database,...args:Parameters<typeof database.collection>){
+   const collection=originalCollection.apply(this,args);
+   if(args[0]==="workers"){const update=collection.updateOne.bind(collection);collection.updateOne=async(...params:Parameters<typeof collection.updateOne>)=>{await blocked;return update(...params);};}
+   return collection;
+  } as typeof database.collection;
+  now+=11000;const renewing=worker.runOnce();
+  await new Promise<void>(resolve=>setImmediate(resolve));
+  now+=4000;
+  await new Promise<void>(resolve=>setTimeout(resolve,150));
+  assert.equal(sockets[0].readyState,3);assert.equal(sockets.length,1);
+  release();await renewing;
+ }finally{prototype.collection=originalCollection;Date.now=originalNow;release();worker?.stop();globalThis.WebSocket=originalWS;}
+});
