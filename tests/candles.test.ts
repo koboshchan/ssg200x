@@ -85,6 +85,17 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  globalThis.fetch=(async()=>new Response("missing",{status:404})) as typeof fetch;
  await backfillStep();
  assert.equal((await database.collection<{_id:string;status?:string}>("candle_backfill").findOne({_id:missing._id}))?.status,"missing");
+ // After archive completion refresh authoritative latest two finalized USD buckets.
+ await database.collection("candle_backfill").updateMany({status:"pending"},{$set:{status:"done"}});
+ await database.collection<{_id:string;nextAt:number}>("workers").updateOne({_id:"candle-backfill"},{$set:{nextAt:0}});
+ let incrementalUrl="";
+ globalThis.fetch=(async(input:unknown)=>{incrementalUrl=String(input);return new Response("[]");}) as typeof fetch;
+ const incremental=await historyBackfillStep();
+ assert.equal("mode" in incremental?incremental.mode:null,"coinbase-incremental");
+ assert.ok(incrementalUrl.includes("/BTC-USD/candles?"));
+ const query=new URL(incrementalUrl).searchParams;
+ assert.equal(Date.parse(query.get("end")!)+1-Date.parse(query.get("start")!),2*60000);
+ assert.equal((await database.collection("candle_incremental_state").findOne({}))!.cursor,1);
  // Production capacity guard remains intact; mock low capacity and verify no network request.
  capacity.mock.mockImplementation(async()=>({bavail:512*1024**2,bsize:1}) as Awaited<ReturnType<typeof fsPromises.statfs>>);
  let blockedFetches=0;

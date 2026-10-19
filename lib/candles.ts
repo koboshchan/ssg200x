@@ -212,7 +212,7 @@ export async function candleEnsure(symbol:string,granularity:string,from:number,
  const pages=coinbasePages(from,to,width);
  const ids=pages.map(p=>`${symbol}:${granularity}:${p.from}`);
  const covered=await coverage.find({_id:{$in:ids},status:"done",expiresAt:{$gt:now}}).toArray();
- const done=new Set(covered.map(p=>p._id));
+ const done=new Set(window?[]:covered.map(p=>p._id));
  const missing=pages.filter(p=>!done.has(`${symbol}:${granularity}:${p.from}`));
  if(!missing.length)return {status:"cached",symbol,granularity,remainingPages:0};
  const page=missing[0],id=`${symbol}:${granularity}:${page.from}`;
@@ -298,7 +298,22 @@ export function historyPlan(now=Date.now()):Coverage[] {
  return result;
 }
 /** Timer entrypoint: automatic fixed 12 complete months plus current-month daily USDT archives. Coinbase live updates run separately. */
-export async function historyBackfillStep(){return backfillStep();}
+export async function historyBackfillStep(){
+ const result=await backfillStep();
+ if(result.status!=="complete")return result;
+ const database=await db(),state=database.collection<{_id:string;cursor:number;nextAt:number}>("candle_incremental_state");
+ await state.updateOne({_id:"coinbase-latest-two"},{$setOnInsert:{cursor:0,nextAt:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
+ const now=Date.now();
+ const turn=await state.findOneAndUpdate({_id:"coinbase-latest-two",nextAt:{$lte:now}},{$set:{nextAt:now+30_000}},{returnDocument:"before"});
+ if(!turn)return {status:"pending"};
+ const granularities=Object.keys(GRANULARITIES) as Granularity[],index=turn.cursor%(SYMBOLS.length*granularities.length);
+ const symbol=SYMBOLS[Math.floor(index/granularities.length)],granularity=granularities[index%granularities.length],width=GRANULARITIES[granularity];
+ const to=Math.floor(now/width)*width,from=to-2*width;
+ const update=await candleEnsure(symbol,granularity,from,to-1,{from,to});
+ const advance=!["pending","retry","blocked"].includes(update.status);
+ await state.updateOne({_id:turn._id},{$set:{nextAt:Date.now()+334},...(advance?{$inc:{cursor:1}}:{})});
+ return {...update,mode:"coinbase-incremental"};
+}
 async function historyProgress(){
  const database=await db(),space=await backfillSpace(),{jobs}=await collections();
  const state=await database.collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
