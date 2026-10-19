@@ -59,3 +59,5 @@ body>footer{display:flex;justify-content:space-between;gap:12px;margin-left:max(
 
 /* Keep the canvas out of grid intrinsic sizing so autoSize can observe shrinkage. */
 .cached-chart{min-width:0;max-width:100%}.cached-chart .chart-shell{min-width:0;width:100%;contain:inline-size}.cached-chart .symbol-tabs{flex-wrap:wrap}
+/* The chart library lays out its canvases in a table; the global table margin created a blank band above it. */
+.cached-chart .chart-shell table{margin:0;width:auto}
