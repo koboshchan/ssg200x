@@ -51,3 +51,15 @@ test("persistence failure retains bounded ticks for retry and missing products e
  f.feed.receive(JSON.stringify({type:"subscriptions",channels:[{name:"ticker",product_ids:["BTC-USD"]}]}));assert.ok(f.logs.some(s=>s.includes("missing ticker products")));
  f.feed.stop();
 });
+test("all twenty healthy products suppress fallback until stale and fresh tick recovers",async()=>{
+ const f=fixture();
+ for(const s of SYMBOLS)f.feed.receive(f.tick(1).replace("BTC-USD",s+"-USD"));
+ await flush();assert.deepEqual(f.feed.staleSymbols(),[]);
+ f.advance(STALE_MS+1);assert.equal(f.feed.staleSymbols().length,20);
+ for(const s of SYMBOLS)f.feed.receive(f.tick(2).replace("BTC-USD",s+"-USD"));
+ await flush();assert.deepEqual(f.feed.staleSymbols(),[]);f.feed.stop();
+});
+test("transport stalls close and reconnect even without close event",()=>{
+ const f=fixture();f.feed.step();f.advance(STALE_MS+1);f.feed.step();assert.equal(f.sockets[0].readyState,3);
+ f.advance(500);f.feed.step();assert.equal(f.sockets.length,2);f.feed.stop();
+});

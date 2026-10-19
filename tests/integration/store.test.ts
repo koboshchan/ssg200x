@@ -83,15 +83,19 @@ test("financial multi-operation CAS preserves every cent with shared bankroll",a
 test("Mongo-backed rate counter enforces limit across parallel callers",async()=>{
  const result=await Promise.allSettled(Array.from({length:8},()=>rateLimit("qa_rate",3)));assert.equal(result.filter(x=>x.status==="fulfilled").length,3);
 });
-test("batched Coinbase worker rate lease coalesces concurrent fetches and cache-only clients",async()=>{
- const {refreshPrices}=await import("../../lib/prices");const original=globalThis.fetch;let calls=0;
+test("persistent Coinbase worker coalesces concurrent starts with one leader and cache-only clients",async()=>{
+ const {startPriceWorker}=await import("../../lib/prices");const original=globalThis.fetch,originalWS=globalThis.WebSocket;let calls=0,sockets=0;
+ class MockSocket{readyState=0;onopen=null;onmessage=null;onerror=null;onclose=null;constructor(){sockets++;}send(){}close(){this.readyState=3;}}
+ globalThis.WebSocket=MockSocket as unknown as typeof WebSocket;
  globalThis.fetch=(async()=>{calls++;return new Response(JSON.stringify({data:{currency:"USD",rates:{...Object.fromEntries(SYMBOLS.map(s=>[s,"1"])),BTC:"0.00001",ETH:"0.0005",SOL:"0.01",DOGE:"10"}}}),{status:200});}) as typeof fetch;
+ let worker:ReturnType<typeof startPriceWorker>|undefined;
  try{
- await(await db()).collection<{_id:string;nextAt:number}>("workers").deleteOne({_id:"coinbase"});
- await Promise.all(Array.from({length:10},()=>refreshPrices()));assert.equal(calls,1);
- await refreshPrices();assert.equal(calls,1);const state=await readRoom();assert.equal(state.quotes!.BTC!.micro,100_000_000_000);
- const lock=await(await db()).collection<{_id:string;nextAt:number}>("workers").findOne({_id:"coinbase"});assert.ok(lock!.nextAt>Date.now());assert.ok(lock!.nextAt-Date.now()<=1000);
- }finally{globalThis.fetch=original;}
+ worker=startPriceWorker();
+ for(let i=0;i<10;i++)assert.equal(startPriceWorker(),worker);
+ await worker.ready;assert.equal(calls,1);assert.equal(sockets,1);
+ const state=await readRoom();assert.equal(state.quotes!.BTC!.micro,100_000_000_000);
+ const lock=await(await db()).collection("workers").findOne({_id:"coinbase-feed"} as never);assert.equal(lock!.owner,worker.owner);assert.ok(lock!.until>Date.now());
+ }finally{worker?.stop();globalThis.fetch=original;globalThis.WebSocket=originalWS;}
 });
 test("manual site maintenance persists independently and records administrator audit",async()=>{
  const {siteMaintenance}=await import("../../lib/site-maintenance");
