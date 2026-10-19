@@ -12,7 +12,7 @@ The selected twenty crypto symbols’ spot paper trading uses Coinbase’s publi
 
 Isolated simulated perpetuals offer 1×–200× leverage, long or short. Choose margin, open at the current server reference, and close at market. No fees, slippage, funding, or exchange order book simulation. Global maintenance margin defaults to 0%. Administrators can cap spot order value and perpetual margin/notional per position with a global trade limit (default $1,000,000) and cap new-position leverage (default 200×). Lowering a limit does not resize existing positions. The initial margin ratio must exceed maintenance margin.
 
-An administrator can invite players through Clerk, add or remove cash, edit any open position’s liquidation threshold, and change global maintenance margin. Every change records the administrator, operation, target, previous value, new value, and timestamp in MongoDB’s audit collection. Cash adjustments do not inflate profit standings.
+An administrator can add or remove cash, edit any open position’s liquidation threshold, and change global maintenance margin. Every change records the administrator, operation, target, previous value, new value, and timestamp in MongoDB’s audit collection. Cash adjustments do not inflate profit standings.
 
 ## Clerk setup
 
@@ -34,7 +34,7 @@ Admin authorization reads currentUser().publicMetadata on the server. ADMIN_EMAI
 {"publicMetadata":"{{user.public_metadata}}"}
 ```
 
-For production, set Clerk sign-up mode to Restricted (invitation-only), leaving Google as the only provider. The host’s Invite form sends a Clerk invitation after an explicit confirmation. Clerk Restricted mode is the only account-access gate; authenticated accounts can play immediately. There is no second in-app approval step. Use a production Clerk instance for a lasting public deployment. Development instances display Clerk’s development notice.
+For production, set Clerk sign-up mode to Restricted (invitation-only), leaving Google as the only provider. Manage invitations directly in the Clerk dashboard. The app has no invitation form or invitation endpoint. Clerk Restricted mode is the only account-access gate; authenticated accounts can play immediately. There is no second in-app approval step. Use a production Clerk instance for a lasting public deployment. Development instances display Clerk’s development notice.
 
 ## Running
 
