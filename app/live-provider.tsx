@@ -15,12 +15,12 @@ export function useLive(){const v=useContext(Context);if(!v)throw new Error("Liv
 export function useLiveEvent(event:string,handler:(payload:any)=>void){const live=useLive(),ref=useRef(handler);ref.current=handler;useEffect(()=>live.subscribe(event,p=>ref.current(p)),[live,event]);}
 export default function LiveProvider({children}:{children:React.ReactNode}){
  const {getToken}=useAuth(),tokenRef=useRef(getToken);tokenRef.current=getToken;
- const [connection,setConnection]=useState<Connection>("connecting"),[maintenance,setMaintenance]=useState<MaintenanceStatus>(),[history,setHistory]=useState<HistoryStatus>(),[historyVersion,setHistoryVersion]=useState(0),[lastMessageAt,setLast]=useState(0);
- const socketRef=useRef<Socket>(undefined),listeners=useRef(new Map<string,Set<(p:any)=>void>>()),pending=useRef<[string,unknown][]>([]);
- const api=useMemo(()=>({subscribe(event:string,handler:(p:any)=>void){let set=listeners.current.get(event);if(!set){set=new Set();listeners.current.set(event,set);}set.add(handler);return()=>{set!.delete(handler);};},emit(event:string,payload?:unknown){socketRef.current?.connected&&socketRef.current.emit(event,payload);}}),[]);
+ const [connection,setConnection]=useState<Connection>("connecting"),[maintenance,setMaintenance]=useState<MaintenanceStatus>(),[history,setHistory]=useState<HistoryStatus>(),[lastMessageAt,setLast]=useState(0);
+ const socketRef=useRef<Socket>(undefined),listeners=useRef(new Map<string,Set<(p:any)=>void>>()),latest=useRef(new Map<string,unknown>());
+ const api=useMemo(()=>({subscribe(event:string,handler:(p:any)=>void){let set=listeners.current.get(event);if(!set){set=new Set();listeners.current.set(event,set);}set.add(handler);if(latest.current.has(event)&&event!=="market:update")handler(latest.current.get(event));return()=>{set!.delete(handler);};},emit(event:string,payload?:unknown){socketRef.current?.connected&&socketRef.current.emit(event,payload);}}),[]);
  useEffect(()=>{
   let closed=false,retry:ReturnType<typeof setTimeout>|undefined,attempts=0,socket:Socket|undefined;
-  const dispatch=(event:string,p:unknown)=>{setLast(Date.now());listeners.current.get(event)?.forEach(h=>h(p));};
+  const dispatch=(event:string,p:unknown)=>{latest.current.set(event,p);setLast(Date.now());listeners.current.get(event)?.forEach(h=>h(p));};
   const later=()=>{if(closed||!socket||socket.active)return;clearTimeout(retry);attempts++;retry=setTimeout(()=>socket?.connect(),Math.min(10000,500*2**Math.min(attempts,5)));};
   import("socket.io-client").then(({io})=>{
    if(closed)return;
@@ -31,12 +31,12 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    socket.on("connect_error",e=>{setConnection("disconnected");if(e.message==="maintenance")setMaintenance(m=>({admin:false,active:true,manual:false,backfill:false,...m,blocked:true}));later();});
    socket.io.on("reconnect_attempt",()=>setConnection("connecting"));
    socket.on("maintenance:state",(p:MaintenanceStatus)=>{setMaintenance(p);dispatch("maintenance:state",p);});
-   socket.on("history:state",(p:HistoryStatus)=>{setHistory(p);setHistoryVersion(v=>v+1);dispatch("history:state",p);});
+   socket.on("history:state",(p:HistoryStatus)=>{setHistory(p);dispatch("history:state",p);});
    for(const event of ["room:state","market:update"])socket.on(event,(p:unknown)=>dispatch(event,p));
   }).catch(()=>setConnection("disconnected"));
   return()=>{closed=true;clearTimeout(retry);socket?.disconnect();socketRef.current=undefined;};
  },[]);
- const value=useMemo<Live>(()=>({connection,maintenance,history,historyVersion,lastMessageAt,...api}),[connection,maintenance,history,historyVersion,lastMessageAt,api]);
+ const value=useMemo<Live>(()=>({connection,maintenance,history,lastMessageAt,...api}),[connection,maintenance,history,lastMessageAt,api]);
  return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 export function ConnectionBadge(){const {connection}=useLive();return <p className="connection-status" role="status" data-state={connection}>{connection==="connected"?"Live":connection==="connecting"?"Connecting…":"Disconnected. Trading is paused until the connection returns."}</p>;}

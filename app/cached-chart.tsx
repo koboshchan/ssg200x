@@ -6,10 +6,9 @@ import type {Symbol} from "@/lib/market-shared";
 const intervals={"1m":60000,"5m":300000,"15m":900000,"1h":3600000,"6h":21600000,"1d":86400000};
 type Row={time:number;open:number;high:number;low:number;close:number};
 export default function CachedChart({symbol,quote}:{symbol:Symbol;quote?:LiveQuote}){
- const {historyVersion,connection}=useLive(),pendingRef=useRef(false),reload=useRef<(()=>void)|undefined>(undefined),node=useRef<HTMLDivElement>(null),[interval,setIntervalName]=useState<keyof typeof intervals>("1h"),[status,setStatus]=useState("Loading cached candles");
+ const {connection}=useLive(),node=useRef<HTMLDivElement>(null),[interval,setIntervalName]=useState<keyof typeof intervals>("1h"),[status,setStatus]=useState("Loading cached candles");
  const latest=useRef(quote),push=useRef<((q:LiveQuote)=>void)|undefined>(undefined);latest.current=quote;
  useEffect(()=>{if(quote)push.current?.(quote);},[quote?.micro,quote?.at]);
- useEffect(()=>{if(historyVersion&&pendingRef.current)reload.current?.();},[historyVersion]);
  useEffect(()=>{
  let closed=false,chart:import("lightweight-charts").IChartApi|undefined;const controller=new AbortController();
  const width=intervals[interval];
@@ -31,11 +30,10 @@ export default function CachedChart({symbol,quote}:{symbol:Symbol;quote?:LiveQuo
  const rows=[...merged.values()].sort((a,b)=>a.time-b.time).map(point);
  series.setData(rows);if(latest.current)push.current?.(latest.current);if(rows.length&&!fitted){chart?.timeScale().fitContent();fitted=true;}
  setStatus(data.status==="unavailable"?"Coinbase does not offer this symbol’s historical candles":data.status==="cached"?"Cached Coinbase USD candles":rows.length?"Updating cached history":"Fetching missing history");
- pendingRef.current=data.status==='pending';
- }catch(e){if(!closed){setStatus(e instanceof Error?e.message:"Chart unavailable");pendingRef.current=true;}}}
- reload.current=()=>{load();};await load();
+ }catch(e){if(!closed){setStatus(e instanceof Error?e.message:"Chart unavailable")}}}
+ await load();
  }
- start().catch(()=>setStatus("Could not load chart"));return()=>{closed=true;controller.abort();reload.current=undefined;push.current=undefined;chart?.remove();};
+ start().catch(()=>setStatus("Could not load chart"));return()=>{closed=true;controller.abort();push.current=undefined;chart?.remove();};
  },[symbol,interval]);
  return <div><div className="symbol-tabs" aria-label="Chart interval">{Object.keys(intervals).map(g=><button key={g} aria-pressed={g===interval} onClick={()=>setIntervalName(g as keyof typeof intervals)}>{g}</button>)}</div><div className="chart-shell" ref={node}/><p className="market-note" role="status">{connection==="disconnected"?"Disconnected. Prices are stale. ":""}{status}. <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">Charting by TradingView</a></p></div>;
 }
