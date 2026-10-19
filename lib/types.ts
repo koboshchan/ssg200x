@@ -1,6 +1,6 @@
 import type {BlackjackTablesState} from "./blackjack";
 import type {Holding,Position,ClosedPosition,Spin,Symbol,Quote} from "./finance";
-export type Member = { id: string; publicId: string; name: string; email: string; approved: boolean; wallet: number; joined: number; holdings?:Holding[]; positions?:Position[]; closedPositions?:ClosedPosition[]; spins?:Spin[]; activity?:string[]; adjustments?:number };
+export type Member = { settings?:{triggerInputMode:"price"|"pnl"}; id: string; publicId: string; name: string; email: string; approved: boolean; wallet: number; joined: number; holdings?:Holding[]; positions?:Position[]; closedPositions?:ClosedPosition[]; spins?:Spin[]; activity?:string[]; adjustments?:number };
 export type Seat = { userId: string; stack: number; hole: string[]; bet: number; committed: number; folded: boolean; inHand: boolean; actedAt: number | null; sitOut: boolean; leaveAfter: boolean; seen: number; ready?: boolean };
 export type Street = "waiting" | "preflop" | "flop" | "turn" | "river" | "showdown";
 export type Payout = { seat: number; amount: number; description: string };
