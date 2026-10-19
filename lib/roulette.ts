@@ -5,7 +5,7 @@ import type {Bet} from './market-shared';
 import type {Room,Identity} from './types';
 export const ROULETTE_MS=60_000,ROULETTE_OPEN_MS=55_000;
 export type RouletteWager={id:string;userId:string;bet:Bet};
-export type RouletteState={round:number;started:number;bets:RouletteWager[];previousBets?:RouletteWager[];history:{round:number;number:number;at:number}[]};
+export type RouletteState={round:number;started:number;bets:RouletteWager[];previousBets?:RouletteWager[];history:{round:number;number:number;at:number;winners?:{publicId:string;name:string;stake:number;returned:number}[]}[]};
 type RRoom=Room&{roulette?:RouletteState};
 export type RouletteAction={type:'rebet'}|{type:'bet';bet:Bet}|{type:'change';betId:string;bet:Bet}|{type:'cancel';betId:string};
 export function rouletteState(r:Room,now:number):RouletteState{return (r as RRoom).roulette??={round:1,started:now,bets:[],history:[]};}
@@ -16,7 +16,8 @@ export function rouletteTick(r:Room,now:number,rng:(max:number)=>number=randomIn
  const number=rng(37);ensure(Number.isInteger(number)&&number>=0&&number<=36,'Invalid wheel result.',500);
  for(const w of b.bets){const m=r.members.find(m=>m.id===w.userId);ensure(m,'Missing wager owner.',500);const returned=payout(w.bet,number);m.wallet+=returned;r.house=(r.house??0)+w.bet.amount-returned;}
  for(const m of r.members){const wagers=b.bets.filter(w=>w.userId===m.id);if(!wagers.length)continue;const stake=wagers.reduce((n,w)=>n+w.bet.amount,0),returned=wagers.reduce((n,w)=>n+payout(w.bet,number),0);m.spins=[{id:'roulette-'+b.round,number,stake,returned,at:now},...(m.spins||[])].slice(0,30);}
- b.history=[{round:b.round,number,at:now},...b.history].slice(0,20);b.round++;b.started=now;b.previousBets=b.bets;b.bets=[];return true;
+ const winners=r.members.flatMap(m=>{const spin=m.spins?.[0];return spin?.id==='roulette-'+b.round&&spin.returned>spin.stake?[{publicId:m.publicId,name:m.name,stake:spin.stake,returned:spin.returned}]:[];});
+ b.history=[{round:b.round,number,at:now,winners},...b.history].slice(0,20);b.round++;b.started=now;b.previousBets=b.bets;b.bets=[];return true;
 }
 export function rouletteAction(r:Room,who:Identity,action:RouletteAction,round:number,id:string,now:number):void{
  const m=r.members.find(m=>m.id===who.id);ensure(m,'Account not found.',404);
