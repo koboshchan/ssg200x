@@ -34,3 +34,15 @@ test('three lobby tables, cross-table seats blocked and all wagers conserved',()
  tablesAct(r,a,{tableId:'lounge',type:'leave'},40001);tablesAct(r,a,{tableId:'terrace',type:'join',seat:5},40002);
  assert.equal(tablesPub(r,a).tables[2].mySeat,5);
 });
+
+import {blackjackMemberAssets} from '../lib/blackjack';
+test('per-member assets include only own unsettled bets and doubled/split stakes',()=>{
+ const r=freshRoom() as Room&{blackjackTables?:BlackjackTablesState};register(r,a,0);register(r,b,0);
+ tablesAct(r,a,{tableId:'lounge',type:'join',seat:0},0);tablesAct(r,b,{tableId:'lounge',type:'join',seat:1},0);
+ tablesAct(r,a,{tableId:'lounge',type:'bet',amount:100},0);tablesAct(r,b,{tableId:'lounge',type:'bet',amount:200},0);
+ assert.equal(blackjackMemberAssets(r,'a'),100);assert.equal(blackjackMemberAssets(r,'b'),200);assert.equal(blackjackMemberAssets(r,'nobody'),0);
+ r.blackjackTables!.tables.lounge!.shoe=[...Array(180).fill('2s'),...['5s','9s','Ts','6h','8c','7h','Ts'].reverse()];
+ tablesTick(r,10000);tablesAct(r,a,{tableId:'lounge',type:'double'},10001);
+ assert.equal(blackjackMemberAssets(r,'a'),200);assert.equal(blackjackMemberAssets(r,'b'),200);
+ tablesAct(r,b,{tableId:'lounge',type:'stand'},10002);assert.equal(blackjackMemberAssets(r,'a'),0);assert.equal(blackjackMemberAssets(r,'b'),0);
+});

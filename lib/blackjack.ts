@@ -89,3 +89,14 @@ export function blackjackTablesPublic(r:Room,who:Identity){const rr=r as TablesR
  return {id,phase:p.phase,round:p.round,deadline:p.deadline,turn:p.turn===null?null:{seat:p.turn,hand:p.hand},dealer:{cards:p.dealer.map(c=>c==='??'?'?':c)},dealerTotal:p.dealerTotal,minBet:100,maxBet:100_000,seats:p.seats.map((s,i)=>s?{...s,isYou:i===p.mySeat}:null),mySeat:p.mySeat,legal:{hit:can,stand:can,double:can&&h!.cards.length===2&&(m?.wallet??0)>=h!.bet,split:can&&s!.hands.length===1&&h!.cards.length===2&&h!.cards[0][0]===h!.cards[1][0]&&(m?.wallet??0)>=h!.bet}};
  })};
 }
+
+/** Unsettled wagers at book value; settled returns already live in wallet. */
+export function blackjackMemberAssets(r:Room,userId:string):number{
+ const rr=r as TablesRoom;
+ return BLACKJACK_TABLE_IDS.reduce((sum,id)=>{
+  const b=rr.blackjackTables?.tables[id];if(!b||b.phase==='settled')return sum;
+  return sum+b.seats.reduce((n,s)=>n+(!s||s.userId!==userId?0:b.phase==='betting'?s.bet:s.hands.reduce((v,h)=>v+h.bet,0)),0);
+ },0);
+}
+export type BlackjackTablesPublic=ReturnType<typeof blackjackTablesPublic>;
+export type BlackjackPublic=ReturnType<typeof blackjackPublic>;
