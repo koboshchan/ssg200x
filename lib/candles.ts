@@ -230,7 +230,7 @@ export async function backfillStep() {
  } finally {active=false;}
 }
 
-type Coverage = {background?:boolean;nextAttempt?:number;_id:string;symbol:string;granularity:Granularity;from:number;to:number;status:"pending"|"done"|"unavailable";expiresAt:number;rows?:number;startedAt?:number;finishedAt?:number;error?:string};
+type Coverage = {leaseOwner?:string;leaseUntil?:number;completedToken?:string;background?:boolean;nextAttempt?:number;_id:string;symbol:string;granularity:Granularity;from:number;to:number;status:"pending"|"done"|"unavailable";expiresAt:number;rows?:number;startedAt?:number;finishedAt?:number;error?:string};
 /** Fixed, nonoverlapping windows allow empty/no-tick pages to be cached as coverage. */
 export function coinbasePages(from:number,to:number,width:number) {
  const span=300*width, result:{from:number;to:number}[]=[];
@@ -271,21 +271,36 @@ export async function candleEnsure(symbol:string,granularity:string,from:number,
  const missing=pages.filter(p=>!done.has(coverageKey(p)));
  if(!missing.length)return {status:"cached",symbol,granularity,remainingPages:0};
  const page=missing[0],id=coverageKey(page);
+ const observed=covered.find(p=>p._id===id)?.completedToken;
  await coverage.bulkWrite(missing.map(p=>({updateOne:{filter:{_id:coverageKey(p)},update:{$setOnInsert:{symbol,granularity,...p,status:"pending" as const,expiresAt:0}},upsert:true}})),{ordered:false});
  await workers.updateOne({_id:"coinbase-history-budget"},{$setOnInsert:{nextAt:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
  const space=await backfillSpace();
  if(space.blocked)return {status:"blocked",symbol,granularity,remainingPages:missing.length,...space};
- const lease=await workers.updateOne({_id:"coinbase-history-budget",nextAt:{$lte:now}},{$set:{nextAt:now+334}});
- if(!lease.matchedCount)return {status:"pending",symbol,granularity,remainingPages:missing.length,retryAfterMs:334};
- const start=Math.max(page.from,window?.from??page.from),end=Math.min(page.to,window?.to??page.to,Math.floor(now/width)*width);
- if(end<=start)return {status:"cached",symbol,granularity,remainingPages:0};
- await coverage.updateOne({_id:id},{$set:{startedAt:now}});
+ // A rate slot is not a request lease: a slow fetch can outlive many slots.
+ // The coverage document provides a cross-process, per-page fenced owner.
+ const token=randomUUID(),leaseMs=30_000;
+ const claim=await coverage.updateOne({_id:id,$or:[{leaseUntil:{$exists:false}},{leaseUntil:{$lte:Date.now()}}]},{$set:{leaseOwner:token,leaseUntil:Date.now()+leaseMs}});
+ if(!claim.matchedCount)return {status:"pending",symbol,granularity,remainingPages:missing.length,retryAfterMs:334};
+ const held={_id:id,leaseOwner:token};
  try{
+  const latest=await coverage.findOne(held);
+  // A completed fetch between the initial read and claim must not be repeated.
+  // Windowed callers refresh sequentially, but share an overlapping completion.
+  if(latest?.status==="done"&&latest.expiresAt>Date.now()&&(!window||latest.completedToken!==observed)){
+   return {status:missing.length>1?"pending":"cached",symbol,granularity,remainingPages:missing.length-1,retryAfterMs:334};
+  }
+  const budgetNow=Date.now();
+  const lease=await workers.updateOne({_id:"coinbase-history-budget",nextAt:{$lte:budgetNow}},{$set:{nextAt:budgetNow+334}});
+  if(!lease.matchedCount)return {status:"pending",symbol,granularity,remainingPages:missing.length,retryAfterMs:334};
+  const start=Math.max(page.from,window?.from??page.from),end=Math.min(page.to,window?.to??page.to,Math.floor(now/width)*width);
+  if(end<=start)return {status:"cached",symbol,granularity,remainingPages:0};
+  await coverage.updateOne(held,{$set:{startedAt:now}});
   const params=new URLSearchParams({granularity:String(width/1000),start:new Date(start).toISOString(),end:new Date(end-1).toISOString()});
   const response=await fetch(`https://api.exchange.coinbase.com/products/${symbol}-USD/candles?${params}`,{cache:"no-store",signal:AbortSignal.timeout(5000)});
+  if(!(await coverage.updateOne({...held,leaseUntil:{$gt:Date.now()}},{$set:{leaseUntil:Date.now()+leaseMs}})).matchedCount)return {status:"pending",symbol,granularity,remainingPages:missing.length,retryAfterMs:334};
   if(response.status===404){
    await products.updateOne({_id:symbol},{$set:{unavailableUntil:now+DAY}},{upsert:true});
-   await coverage.updateOne({_id:id},{$set:{status:"unavailable",expiresAt:now+DAY,finishedAt:Date.now()}});
+   await coverage.updateOne(held,{$set:{status:"unavailable",expiresAt:now+DAY,finishedAt:Date.now()}});
    return {status:"unavailable",symbol,granularity,remainingPages:0};
   }
   if(response.status===429){
@@ -296,15 +311,20 @@ export async function candleEnsure(symbol:string,granularity:string,from:number,
   if(!response.ok)throw new Error(`Coinbase history HTTP ${response.status}`);
   const text=await response.text();if(text.length>256*1024)throw new Error("Oversized Coinbase response");
   const rows=parseCoinbaseCandles(JSON.parse(text),symbol,granularity,start,end);
+  // Fence again after body decoding, before publishing either rows or coverage.
+  if(!(await coverage.updateOne({...held,leaseUntil:{$gt:Date.now()}},{$set:{leaseUntil:Date.now()+leaseMs}})).matchedCount)return {status:"pending",symbol,granularity,remainingPages:missing.length,retryAfterMs:334};
   // Historical finalized buckets replace incomplete live snapshots and optional USDT references.
   if(rows.length)await candles.bulkWrite(rows.map(c=>({updateOne:{filter:{_id:key(c)},update:{$set:c},upsert:true}})),{ordered:false});
-  await coverage.updateOne({_id:id},{$set:{status:"done",rows:rows.length,finishedAt:Date.now(),expiresAt:page.to<=now?Number.MAX_SAFE_INTEGER:now+60_000,error:""}});
+  await coverage.updateOne(held,{$set:{status:"done",completedToken:token,rows:rows.length,finishedAt:Date.now(),expiresAt:page.to<=now?Number.MAX_SAFE_INTEGER:now+60_000,error:""}});
   return {status:missing.length>1?"pending":"cached",symbol,granularity,remainingPages:missing.length-1,rows:rows.length,retryAfterMs:334};
  }catch(error){
   const message=error instanceof Error?error.message:"History fetch failed";
-  await coverage.updateOne({_id:id},{$set:{error:message.slice(0,200)}});
+  await coverage.updateOne({...held,leaseUntil:{$gt:Date.now()}},{$set:{error:message.slice(0,200)}});
   await workers.updateOne({_id:"coinbase-history-budget"},{$max:{nextAt:Date.now()+5000}});
   return {status:"retry",symbol,granularity,remainingPages:missing.length,error:message,retryAfterMs:3340};
+ } finally {
+  // Never clear a successor's lease after expiry/recovery.
+  await coverage.updateOne(held,{$unset:{leaseOwner:"",leaseUntil:""}});
  }
 }
 export async function backfillProgress() {
