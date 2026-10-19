@@ -204,7 +204,7 @@ export function totalChips(r: Room) { return r.members.reduce((n,m)=>n+m.wallet+
 export function assertRoom(r: Room) {
  const values = [...r.members.map(m=>m.wallet), ...r.seats.flatMap(s=>s?[s.stack,s.bet,s.committed]:[])];
  ensure(values.every(n=>Number.isSafeInteger(n) && n>=0), "Invalid chip ledger.",500);
- ensure(totalChips(r) === r.members.length * 100_000, "Chip conservation failed.",500);
+ ensure(totalChips(r) === r.members.length * 100_000+(r.issuance||0), "Chip conservation failed.",500);
  const users = r.seats.filter(Boolean).map(s=>s!.userId);
  ensure(new Set(users).size === users.length, "Duplicate seat.",500);
  if (active(r)) ensure(r.turn !== null && r.pending.includes(r.turn), "Invalid turn.",500);

@@ -3,5 +3,3 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.prebuilt
-  mongo:
-    ports: ["127.0.0.1:43892:27017"]

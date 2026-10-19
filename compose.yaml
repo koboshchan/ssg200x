@@ -7,10 +7,10 @@ services:
     environment:
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Set your Clerk secret key}
-      ADMIN_EMAILS: ${ADMIN_EMAILS:?Set host email}
       APP_ORIGIN: ${APP_ORIGIN:?Set exact browser origin}
       MONGODB_URI: mongodb://mongo:27017
       MONGODB_DB: pokerroom
+    networks: [default, backend]
     ports:
       - "127.0.0.1:${APP_PORT:-43891}:3000"
     depends_on:
@@ -26,6 +26,7 @@ services:
       retries: 6
   mongo:
     image: mongo:8.0
+    networks: [backend]
     volumes:
       - room-data:/data/db
     healthcheck:
@@ -35,5 +36,8 @@ services:
       retries: 20
     restart: unless-stopped
     security_opt: ["no-new-privileges:true"]
+networks:
+  backend:
+    internal: true
 volumes:
   room-data:

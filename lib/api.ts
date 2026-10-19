@@ -17,8 +17,7 @@ export async function endpoint(request:Request,handler:(who:Identity)=>Promise<u
   ensure(user&&!user.passwordEnabled&&user.externalAccounts.some(a=>a.provider==="google"),"A Google-only account is required.",403);
   const email=user.emailAddresses.find(e=>e.id===user.primaryEmailAddressId&&e.verification?.status==="verified")?.emailAddress.toLowerCase();
   ensure(email,"A verified Google email is required.",403);
-  const adminEmails=(process.env.ADMIN_EMAILS||"").split(",").map(e=>e.trim().toLowerCase()).filter(Boolean);
-  const who:Identity={id:userId,name:user.firstName||user.username||"Player",email,admin:adminEmails.includes(email)};
+  const who:Identity={id:userId,name:user.firstName||user.username||"Player",email,admin:user.publicMetadata.role==="admin"};
   await rateLimit(userId);
   return NextResponse.json(await handler(who),{headers:{"Cache-Control":"no-store"}});
  }catch(e) {

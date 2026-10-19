@@ -42,7 +42,7 @@ export async function move(who:Identity, action:Action, requestId:string, handNu
  })).room;
 }
 export async function approve(who:Identity, target:string, approved:boolean) {
- ensure(who.admin,"Only Lucas can approve players.",403);
+ ensure(who.admin,"Administrator access required.",403);
  return (await mutate(r=>{
   register(r,who);
   const m=r.members.find(m=>m.publicId===target);

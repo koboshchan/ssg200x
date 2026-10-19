@@ -19,10 +19,10 @@ export function publicRoom(r:Room,who:Identity) {
   leaderboard:r.members.filter(m=>m.approved).map(m=>{
    const s=r.seats.find(s=>s?.userId===m.id);
    const netWorth=m.wallet+assetsMarket(r,m)+(s?s.stack+(active(r)?s.committed:0):0);
-   return {publicId:m.publicId,name:m.name,netWorth,pnl:netWorth-100_000};
+   return {publicId:m.publicId,name:m.name,netWorth,pnl:netWorth-100_000-(m.adjustments||0)};
   }).sort((a,b)=>b.netWorth-a.netWorth||a.name.localeCompare(b.name)),
-  pending:who.admin?r.members.filter(m=>!m.approved).map(m=>({publicId:m.publicId,name:m.name,email:m.email})):[],
-  members:who.admin?r.members.filter(m=>m.approved&&m.id!==who.id).map(m=>({publicId:m.publicId,name:m.name,email:m.email})):[],
+  pending:who.admin?r.members.filter(m=>!m.approved).map(m=>({publicId:m.publicId,name:m.name,email:m.email,wallet:m.wallet})):[],
+  members:who.admin?r.members.filter(m=>m.approved&&m.id!==who.id).map(m=>({publicId:m.publicId,name:m.name,email:m.email,wallet:m.wallet})):[],
  };
 }
 export type PublicRoom=ReturnType<typeof publicRoom>;
