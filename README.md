@@ -4,7 +4,7 @@ A private, web-only play-money room. Google sign-in through Clerk, host-approved
 
 ## What’s included
 
-Six-seat multiplayer no-limit hold’em. Players choose a seat and buy in with $100–$1,000 from their wallet. Two players starts a hand automatically. Heads-up is $1/$2; three or more players add a live $5 UTG straddle. Server-shuffled cards, side pots, split pots, short all-ins, turn timeouts, and deferred cashouts are handled server-side. Authenticated Socket.IO invalidations refresh clients as the shared state changes, with polling fallback. WebSocket events contain only a version, never private cards.
+Six-seat multiplayer no-limit hold’em. Players choose a seat and buy in with $100–$1,000 from their wallet. A hand starts only when every seated player has pressed Ready, with at least two players. Ready is one-way; a five-minute server deadline from the first Ready resets all readiness if everyone is not ready in time. Each hand requires fresh readiness. Heads-up is $1/$2; three or more players add a live $5 UTG straddle. Server-shuffled cards, side pots, split pots, short all-ins, turn timeouts, and atomic cashouts are handled server-side. Players can return their stack to their wallet only while not ready and not in a hand. Authenticated Socket.IO invalidations refresh clients as the shared state changes, with polling fallback. WebSocket events contain only a version, never private cards.
 
 European single-zero roulette supports straight, red/black, odd/even, low/high, dozen, and column bets. Each spin is generated with Node’s cryptographic RNG. Gross returns include the stake: 36× straight, 3× dozen/column, 2× outside. $1 minimum per bet, $1,000 maximum total stake, up to 20 bets per spin.
 
