@@ -55,3 +55,14 @@ test("newest closed positions come first without overwriting older fills",()=>{
  const r=setup();closePosition(r,who,"position",1000);openPosition(r,who,"BTC","short",1000,2,"second",1000);closePosition(r,who,"second",1001);
  assert.deepEqual(r.members[0].closedPositions!.map(p=>[p.id,p.closedAt]),[["second",1001],["position",1000]]);
 });
+for(const side of ["long","short"] as const)test(`unchanged-entry manual ${side} returns full margin with plain Closed notice, not trigger or liquidation`,()=>{
+ const r=freshRoom();register(r,who);r.quotes={BTC:{micro:100_000_000_000,at:1000}};
+ openPosition(r,who,"BTC",side,2000,200,"manual-entry",1000,{takeProfit:undefined,stopLoss:undefined});
+ settleTriggers(r,1000);assert.equal(r.members[0].positions!.length,1);assert.deepEqual(r.members[0].activity,undefined);
+ closePosition(r,who,"manual-entry",1000);
+ const m=r.members[0];assert.equal(m.wallet,100000);
+ assert.equal(m.activity![0],`Closed ${side} BTC · 20.00 returned · position manual-entry`);
+ assert.equal(m.closedPositions![0].reason,"Manual");assert.equal(m.closedPositions![0].realizedPnl,0);
+ assert.equal(m.closedPositions![0].exit,m.closedPositions![0].entry);
+ assertRoom(r);
+});
