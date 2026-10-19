@@ -27,13 +27,14 @@ test("ZIP parser filters exact requested range and accepts CRLF",()=>{
  assert.equal(parseArchive(data,"BTC",time,time+60000).length,1);
  assert.throws(()=>parseArchive(zipSync({"bad.txt":strToU8("hello")}),"BTC",0,Infinity));
 });
-test("plan is deterministic and restart safe, fixed allowlist only, 360 days",()=>{
+test("plan is deterministic and restart safe, fixed allowlist only, 12 complete months plus current days",()=>{
  const now=Date.UTC(2026,9,19,13);
  const plan=archivePlan(now);
  assert.deepEqual(plan,archivePlan(now));
  assert.equal(new Set(plan.map(j=>j._id)).size,plan.length);
  assert.equal(new Set(plan.map(j=>j.symbol)).size,20);
- assert.equal(plan[0].to-plan[0].from,360*86400000);
+ assert.equal(plan[0].from,Date.UTC(2025,9,1));
+ assert.equal(plan.filter(j=>j.symbol==="BTC"&&j.kind==="monthly").length,12);
  for(const job of plan){assert.equal(job.status,"pending");assert.equal(job.attempts,0);assert.ok(job.kind==="monthly"?job.period<"2026-10":job.period>=new Date(job.from).toISOString().slice(0,10)&&job.period<"2026-10-19");}
 });
 test("retry backoff is bounded",()=>{
@@ -89,18 +90,19 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  let blockedFetches=0;
  globalThis.fetch=(async()=>{blockedFetches++;throw new Error("Must not fetch with low capacity");}) as typeof fetch;
  assert.equal((await historyBackfillStep()).status,"blocked");
- const state=await database.collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-360-v1"});
+ const state=await database.collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
  assert.ok(state);
  const queued=await database.collection("candle_backfill").countDocuments();
  assert.equal(queued,archivePlan(state.anchor).length);
  assert.equal((await historyBackfillStep()).status,"blocked");
- assert.equal((await database.collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-360-v1"}))!.anchor,state.anchor);
+ assert.equal((await database.collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"}))!.anchor,state.anchor);
  assert.equal(await database.collection("candle_backfill").countDocuments(),queued);
  assert.equal((await candleEnsure("BTC","1m",time,time+60000)).status,"blocked");
  assert.equal(blockedFetches,0);
  const progress=await backfillProgress();
  assert.equal(progress.history.status,"blocked");
- assert.equal(progress.history.window!.to-progress.history.window!.from,360*86400000);
+ assert.equal(progress.history.window!.completeMonths,12);
+ assert.equal(progress.history.window!.from,archivePlan(state.anchor)[0].from);
  assert.equal(progress.history.overall.etaSeconds,null);
  } finally {capacity.mock.restore();globalThis.fetch=fetchOriginal;await database.dropDatabase();await closeDatabase();}
 });
@@ -145,16 +147,23 @@ test("background 360-day plan includes all 20 symbols and six granularities, det
  assert.ok(plan.every(j=>j.background&&j.status==="pending"));
 });
 
-test("archive uses complete months and daily edges with exact nonoverlapping 360-day coverage",()=>{
- const plan=archivePlan(Date.UTC(2026,9,19,13)).filter(j=>j.symbol==="BTC");
- const days=new Set<number>();
- for(const j of plan){
-  const start=Date.parse(j.period+(j.kind==="monthly"?"-01":"")+"T00:00:00Z");
-  const date=new Date(start),end=j.kind==="monthly"?Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,1):start+86400000;
-  assert.ok(start>=j.from&&end<=j.to);
-  for(let t=start;t<end;t+=86400000){assert.ok(!days.has(t));days.add(t);}
+test("archive retains 12 full months plus completed current days across years and leap months",()=>{
+ for(const now of [Date.UTC(2026,9,19,13),Date.UTC(2024,2,1,13),Date.UTC(2025,0,1),Date.UTC(2024,1,29,23)]){
+  const plan=archivePlan(now).filter(j=>j.symbol==="BTC"),day=86400000;
+  const date=new Date(now),month=Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),1);
+  const expectedStart=Date.UTC(date.getUTCFullYear(),date.getUTCMonth()-12,1),expectedEnd=Math.floor(now/day)*day;
+  assert.equal(plan.filter(j=>j.kind==="monthly").length,12);
+  assert.equal(plan.filter(j=>j.kind==="daily").length,(expectedEnd-month)/day);
+  const days=new Set<number>();
+  for(const j of plan){
+   const start=Date.parse(j.period+(j.kind==="monthly"?"-01":"")+"T00:00:00Z");
+   const d=new Date(start),end=j.kind==="monthly"?Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,1):start+day;
+   assert.equal(j.from,expectedStart);assert.equal(j.to,expectedEnd);
+   assert.ok(start>=j.from&&end<=j.to);
+   if(j.kind==="monthly")assert.ok(end<=month);else assert.ok(start>=month);
+   for(let t=start;t<end;t+=day){assert.ok(!days.has(t));days.add(t);}
+  }
+  assert.equal(days.size,(expectedEnd-expectedStart)/day);
+  assert.equal(Math.min(...days),expectedStart);assert.equal(Math.max(...days)+day,expectedEnd);
  }
- assert.equal(days.size,360);
- assert.equal(Math.min(...days),plan[0].from);
- assert.equal(Math.max(...days)+86400000,plan[0].to);
 });

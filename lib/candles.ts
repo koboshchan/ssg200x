@@ -88,7 +88,7 @@ export async function candleUpdate(quotes: Partial<Record<string,{micro:number;a
  if(ops.length)await candles.bulkWrite(ops,{ordered:false});
 }
 export function archivePlan(now=Date.now()): Job[] {
- const to=Math.floor(now/DAY)*DAY,from=to-360*DAY;
+ const to=Math.floor(now/DAY)*DAY,anchor=new Date(to),from=Date.UTC(anchor.getUTCFullYear(),anchor.getUTCMonth()-12,1);
  const result:Job[]=[];
  for(const symbol of SYMBOLS) {
   let cursor=new Date(from);cursor=new Date(Date.UTC(cursor.getUTCFullYear(),cursor.getUTCMonth(),1));
@@ -111,8 +111,8 @@ export function retryDelay(attempt: number) {return Math.min(6*60*60_000,5000*2*
 async function seed() {
  const database=await db(),{jobs}=await collections();
  const state=database.collection<{_id:string;anchor:number;seeded?:boolean}>("candle_history_state");
- await state.updateOne({_id:"archive-360-v1"},{$setOnInsert:{anchor:Math.floor(Date.now()/DAY)*DAY}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
- const boot=(await state.findOne({_id:"archive-360-v1"}))!;
+ await state.updateOne({_id:"archive-12-month-v1"},{$setOnInsert:{anchor:Math.floor(Date.now()/DAY)*DAY}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
+ const boot=(await state.findOne({_id:"archive-12-month-v1"}))!;
  if(boot.seeded)return;
  const plan=archivePlan(boot.anchor);
  await jobs.bulkWrite(plan.map(job=>({updateOne:{filter:{_id:job._id},update:{$setOnInsert:job},upsert:true}})),{ordered:false});
@@ -164,7 +164,7 @@ export async function backfillStep() {
   const gate=await workers.updateOne({_id:"candle-backfill",nextAt:{$lte:now}},{$set:{nextAt:now+300_000}});
   if(!gate.matchedCount)return {status:"busy"};
   try {
-   const anchor=await (await db()).collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-360-v1"});
+   const anchor=await (await db()).collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
    const allowedIds=archivePlan(anchor!.anchor).map(j=>j._id);
    job=await jobs.findOneAndUpdate({_id:{$in:allowedIds},status:"pending",nextAt:{$lte:now},$or:[{leaseUntil:{$exists:false}},{leaseUntil:{$lte:now}}]},{$set:{owner,leaseUntil:now+300_000},$inc:{attempts:1}},{sort:{period:-1,symbol:1},returnDocument:"after"});
    if(!job)return {status:"complete"};
@@ -264,7 +264,7 @@ export async function backfillProgress() {
   return {symbol,done,pending,rows,total:done+pending,unavailable:unavailable.some(p=>p._id===symbol),percent:done+pending?Math.round(100*done/(done+pending)):0,etaSeconds:pending?Math.ceil(pending*Math.max(500,done?duration/done:500)/1000):0};
  });
  const done=symbols.reduce((n,s)=>n+s.done,0),pending=symbols.reduce((n,s)=>n+s.pending,0);
- return {mode:"background-360-days",enabled:true,archiveEnabled:true,archive:await archiveProgress(),source:"Binance USDT reference history; Coinbase USD live/incremental",symbols,overall:{done,pending,total:done+pending,rows:symbols.reduce((n,s)=>n+s.rows,0),percent:done+pending?Math.round(100*done/(done+pending)):0,etaSeconds:symbols.reduce((n,s)=>n+s.etaSeconds,0)},history:await historyProgress(),etaScope:"360-day USDT archive bootstrap"};
+ return {mode:"background-12-months-plus-current",enabled:true,archiveEnabled:true,archive:await archiveProgress(),source:"Binance USDT reference history; Coinbase USD live/incremental",symbols,overall:{done,pending,total:done+pending,rows:symbols.reduce((n,s)=>n+s.rows,0),percent:done+pending?Math.round(100*done/(done+pending)):0,etaSeconds:symbols.reduce((n,s)=>n+s.etaSeconds,0)},history:await historyProgress(),etaScope:"12 complete months plus current-month daily USDT archives"};
 }
 
 /** Point CANDLE_STORAGE_PATH at the Mongo volume's host mount when Mongo is remote.
@@ -297,11 +297,11 @@ export function historyPlan(now=Date.now()):Coverage[] {
  }
  return result;
 }
-/** Timer entrypoint: automatic fixed 360-day USDT archive bootstrap. Coinbase live updates run separately. */
+/** Timer entrypoint: automatic fixed 12 complete months plus current-month daily USDT archives. Coinbase live updates run separately. */
 export async function historyBackfillStep(){return backfillStep();}
 async function historyProgress(){
  const database=await db(),space=await backfillSpace(),{jobs}=await collections();
- const state=await database.collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-360-v1"});
+ const state=await database.collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
  const planned=state?archivePlan(state.anchor):[];
  const ids=planned.map(j=>j._id);
  const records=ids.length?await jobs.find({_id:{$in:ids}}).toArray():[];
@@ -311,5 +311,5 @@ async function historyProgress(){
   return {symbol,done,total,percent:total?Math.round(100*done/total):0,unavailable:rows.some(j=>j.status==="missing")};
  });
  const done=symbols.reduce((n,s)=>n+s.done,0),total=planned.length;
- return {source:"Binance USDT reference history; Coinbase USD live/incremental",window:state?{from:state.anchor-360*DAY,to:state.anchor,days:360}:null,status:space.blocked?"blocked":done<total?"running":total?"complete":"not-started",...space,symbols,overall:{done,total,percent:total?Math.round(100*done/total):0,etaSeconds:!space.blocked&&done===total&&total?0:null},etaKind:"360-day archive throughput not yet measured; unavailable archives are reported, not fabricated"};
+ return {source:"Binance USDT reference history; Coinbase USD live/incremental",window:state?{from:archivePlan(state.anchor)[0].from,to:state.anchor,completeMonths:12}:null,status:space.blocked?"blocked":done<total?"running":total?"complete":"not-started",...space,symbols,overall:{done,total,percent:total?Math.round(100*done/total):0,etaSeconds:!space.blocked&&done===total&&total?0:null},etaKind:"12-month archive throughput not yet measured; unavailable archives are reported, not fabricated"};
 }
