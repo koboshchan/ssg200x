@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {BSON,MongoClient} from "mongodb";
 import {freshRoom,register,assertRoom} from "../lib/poker";
-import {openPosition,liqPrice} from "../lib/finance";
+import {openPosition,liqPrice,portfolio} from "../lib/finance";
 import {applyMarketTick} from "../lib/market-tick";
 import type {Room} from "../lib/types";
 const who={id:"persist",name:"Persist",email:"persist@test",admin:false};
@@ -52,7 +52,7 @@ for(const side of ["long","short"] as const)test(`legacy BSON null triggers and 
  applyMarketTick(r,{BTC:{micro:mark,at:1400}},1400);assert.equal(r.members[0].positions!.length,0);assert.equal(r.members[0].closedPositions![0].reason,"Liq");
 });
 test("explicit zero and empty-string trigger prices reject atomically rather than becoming unset",()=>{
- const r=freshRoom();register(r,who);r.quotes={BTC:{micro:100_000_000_000,at:1000}};
+ const r=freshRoom();portfolio(register(r,who));r.quotes={BTC:{micro:100_000_000_000,at:1000}};
  for(const side of ["long","short"] as const)for(const key of ["takeProfit","stopLoss"] as const)for(const bad of [0,""]){
   const before=JSON.stringify(r);
   assert.throws(()=>openPosition(r,who,"BTC",side,1000,200,"bad",1000,{[key]:bad} as unknown as {takeProfit?:number;stopLoss?:number}));
