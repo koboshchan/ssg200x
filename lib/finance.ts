@@ -15,7 +15,7 @@ export function portfolio(m:Member){m.holdings??=[];m.positions??=[];m.spins??=[
 export function value(units:number,micro:number){return Number(BigInt(units)*BigInt(micro)/1_000_000_000_000n);}
 export function unitsFor(cents:number,micro:number){return Number(BigInt(cents)*1_000_000_000_000n/BigInt(micro));}
 export function pnl(p:Position,mark:number){return Math.floor(p.margin*p.leverage*(mark-p.entry)/p.entry*(p.side==="long"?1:-1));}
-export function liqPrice(p:Position){if(p.liquidationOverride!==undefined)return p.liquidationOverride;const m=p.maintenance||0;return p.side==="long"?p.entry*(1-1/p.leverage)/(1-m):p.entry*(1+1/p.leverage)/(1+m);}
+export function liqPrice(p:Position){if(p.liquidationOverride!=null)return p.liquidationOverride;const m=p.maintenance||0;return p.side==="long"?p.entry*(1-1/p.leverage)/(1-m):p.entry*(1+1/p.leverage)/(1+m);}
 export function liquidatable(p:Position,mark:number){return p.side==="long"?mark<=liqPrice(p):mark>=liqPrice(p);}
 export function equity(p:Position,mark:number){return Math.max(0,p.margin+pnl(p,mark));}
 export function requireQuote(r:Room,symbol:Symbol,now=Date.now()){
@@ -56,7 +56,7 @@ export function openPosition(r:Room,who:Identity,symbol:Symbol,side:"long"|"shor
  const entry=requireQuote(r,symbol,now);ensure(Number.isSafeInteger(margin)&&margin>=100&&margin<=100_000_000&&m.wallet>=margin,"Not enough cash or invalid margin.");
  ensure(margin<=(r.limits?.maxTrade??1000000)*100&&margin*leverage<=(r.limits?.maxTrade??1000000)*100,"Position margin or notional exceeds the host’s trade limit.");
  ensure(Number.isInteger(leverage)&&leverage>=1&&leverage<=(r.limits?.maxLeverage??200),"Leverage must be 1–200x.");ensure((r.maintenance||0)<1/leverage,"Chosen leverage requires more initial margin than maintenance margin.");ensure(m.positions!.length<20,"Close a position first.");
- const position:Position={id,symbol,side,margin,leverage,entry,opened:now,maintenance:r.maintenance||0,...triggers};
+ const position:Position={id,symbol,side,margin,leverage,entry,opened:now,maintenance:r.maintenance||0,...(triggers.takeProfit!=null?{takeProfit:triggers.takeProfit}:{}),...(triggers.stopLoss!=null?{stopLoss:triggers.stopLoss}:{})};
  validateTriggers(position);
  m.wallet-=margin;m.positions!.push(position);
 }
