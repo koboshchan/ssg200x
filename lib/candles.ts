@@ -128,8 +128,8 @@ async function seed() {
   boot.version=2;
  }
  const plan=bootstrapPlan(boot.anchor);
- const jobIds=plan.filter(j=>j.source!=="coinbase").map(j=>j._id);
- const coverageTotal=plan.length-jobIds.length;
+ const jobIds=plan.map(j=>j._id);
+ const coverageTotal=plan.filter(j=>j.source==="coinbase").length;
  if(boot.seeded){
   if(!boot.jobIds||boot.total!==jobIds.length)await state.updateOne({_id:boot._id},{$set:{jobIds,total:jobIds.length,coverageTotal,currentMonthComplete:false}});
   return;
@@ -262,15 +262,16 @@ export async function candleEnsure(symbol:string,granularity:string,from:number,
  const product=await products.findOne({_id:symbol});
  if(product&&product.unavailableUntil>now)return {status:"unavailable",symbol,granularity,remainingPages:0};
  const pages=coinbasePages(from,to,width);
- const ids=pages.map(p=>`${symbol}:${granularity}:${p.from}`);
+ const coverageKey=(p:{from:number;to:number})=>window?`${symbol}:${granularity}:${Math.max(p.from,window.from)}:${Math.min(p.to,window.to)}`:`${symbol}:${granularity}:${p.from}`;
+ const ids=pages.map(p=>coverageKey(p));
  const covered=await coverage.find({_id:{$in:ids},status:"done",expiresAt:{$gt:now}}).toArray();
  // Windowed calls intentionally refresh recent buckets. Bootstrap jobs are each
  // clipped from exactly one aligned page, so a refresh cannot repeat page one.
  const done=new Set(window?[]:covered.map(p=>p._id));
- const missing=pages.filter(p=>!done.has(`${symbol}:${granularity}:${p.from}`));
+ const missing=pages.filter(p=>!done.has(coverageKey(p)));
  if(!missing.length)return {status:"cached",symbol,granularity,remainingPages:0};
- const page=missing[0],id=`${symbol}:${granularity}:${page.from}`;
- await coverage.bulkWrite(missing.map(p=>({updateOne:{filter:{_id:`${symbol}:${granularity}:${p.from}`},update:{$setOnInsert:{symbol,granularity,...p,status:"pending" as const,expiresAt:0}},upsert:true}})),{ordered:false});
+ const page=missing[0],id=coverageKey(page);
+ await coverage.bulkWrite(missing.map(p=>({updateOne:{filter:{_id:coverageKey(p)},update:{$setOnInsert:{symbol,granularity,...p,status:"pending" as const,expiresAt:0}},upsert:true}})),{ordered:false});
  await workers.updateOne({_id:"coinbase-history-budget"},{$setOnInsert:{nextAt:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
  const space=await backfillSpace();
  if(space.blocked)return {status:"blocked",symbol,granularity,remainingPages:missing.length,...space};

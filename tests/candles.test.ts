@@ -146,7 +146,7 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  assert.equal((await historyBackfillStep()).status,"blocked");
  const freshState=await database.collection<{_id:string;anchor:number;startedAt:number;seeded:boolean;jobIds:string[];total:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
  assert.ok(freshState?.seeded&&freshState.startedAt>0);
- assert.deepEqual(freshState.jobIds,archivePlan(freshState.anchor).map(j=>j._id));
+ assert.deepEqual(freshState.jobIds,[...archivePlan(freshState.anchor),...currentMonthPlan(freshState.anchor)].map(j=>j._id));
  assert.equal(freshState.total,freshState.jobIds.length);
  // Backfill older already-seeded state for the plain-JS WebSocket guard.
  await database.collection("candle_history_state").updateMany({},{$unset:{jobIds:"",total:""},$set:{version:1}});
