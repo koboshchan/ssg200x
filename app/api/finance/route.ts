@@ -25,7 +25,7 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
  const receipt=r.receipts.find(x=>x.id===input.requestId);if(receipt){ensure(receipt.userId===who.id,"Invalid request.",409);return;}
  if(input.type==="spin")ensure(false,"Instant spins are disabled. Use the shared roulette table.",410);
  else if(input.type==="spot")spot(r,who,input.symbol,input.side,input.amount);
- else if(input.type==="open")openPosition(r,who,input.symbol,input.side,input.margin,input.leverage,id,Date.now(),{takeProfit:input.takeProfit,stopLoss:input.stopLoss});
+ else if(input.type==="open")openPosition(r,who,input.symbol,input.side,input.margin,input.leverage,id,Date.now(),{...(input.takeProfit!==undefined?{takeProfit:input.takeProfit}:{}),...(input.stopLoss!==undefined?{stopLoss:input.stopLoss}:{})});
  else if(input.type==="triggers")editPositionTriggers(r,who,input.positionId,input);
  else closePosition(r,who,input.positionId);
  r.receipts=[{id:input.requestId,userId:who.id,at:Date.now()},...r.receipts.filter(x=>x.at&&Date.now()-x.at<300_000)];
