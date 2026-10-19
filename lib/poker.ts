@@ -48,7 +48,7 @@ function revealStreet(r: Room) {
 }
 export function cashOut(r: Room, i: number) {
  const s = r.seats[i]; if (!s) return;
- ensure(!s.inHand && !s.ready, "You can only leave while unready and out of a hand.", 409);
+ ensure(!(active(r) && s.inHand) && !s.ready, "You can only leave while unready and out of a hand.", 409);
  const m = r.members.find(m => m.id === s.userId)!;
  m.wallet += s.stack; r.seats[i] = null;
 }
@@ -177,7 +177,7 @@ export function applyAction(r: Room, who: Identity, action: Action, now: number)
  } else if (action.type === "leave") {
   ensure(i >= 0, "You are not seated.");
   const s = r.seats[i]!;
-  ensure(!s.ready && !s.inHand, "You can only leave while unready and out of a hand.", 409);
+  ensure(!s.ready && !(active(r) && s.inHand), "You can only leave while unready and out of a hand.", 409);
   cashOut(r,i);
   if (!r.seats.some(s=>s?.ready)) r.readyDeadline = null;
   if (r.street === "waiting") startHand(r,now);
@@ -215,7 +215,7 @@ export function tick(r: Room, now: number) {
   }
   for (let i=0;i<r.seats.length;i++) {
    const s = r.seats[i];
-   if (s && !s.inHand && !s.ready && (s.leaveAfter || s.stack === 0 || now - s.seen > IDLE_MS)) {
+   if (s && !s.ready && (s.leaveAfter || s.stack === 0 || now - s.seen > IDLE_MS)) {
     cashOut(r,i); changed = true;
    }
   }
