@@ -15,3 +15,5 @@ export function settledNotices(activity:string[]){return activity.flatMap(entry=
  */
 export type LiveValue={room:PublicRoom|null;status:unknown;history:unknown;connected:boolean};
 export const LiveContext=createContext<LiveValue|null>(null);
+/** Coalesces reads: calls during a flight share it and queue at most one trailing read. A rejection (even while dirty) clears all state so later calls start fresh. */
+export function trailingRead<T>(read:()=>Promise<T>){let pending:Promise<T>|undefined,dirty=false;const run=():Promise<T>=>{dirty=false;return read().then(v=>dirty?run():v);};return ()=>{if(pending){dirty=true;return pending;}const p=run().finally(()=>{if(pending===p){pending=undefined;dirty=false;}});pending=p;return p;};}
