@@ -65,3 +65,15 @@ test("room:state initial connection and reconnect always get their own private s
  emitRoomState(socket,{...data,maintenance:{blocked:true}},true);assert.equal(events.length,2);assert.equal(socket.data.version,undefined);
  emitRoomState(socket,data);assert.equal(events.length,3);
 });
+
+import {readFileSync} from "node:fs";
+test("authenticated allowed socket snapshots use throttled visit presence, never blocked snapshots",()=>{
+ const route=readFileSync(new URL("../app/api/internal-live/route.ts",import.meta.url),"utf8");
+ assert.match(route,/maintenance\.blocked\?null:await visit\(who\)/);
+ assert.ok(route.indexOf("if(!internalLiveAuthorized(request))")<route.indexOf("await visit(who)"));
+ const store=readFileSync(new URL("../lib/store.ts",import.meta.url),"utf8");
+ const visit=store.slice(store.indexOf("export async function visit("),store.indexOf("export async function move("));
+ assert.match(visit,/Date\.now\(\)-s\.seen < 15_000/);
+ assert.match(visit,/r\.seats\[i\]!\.seen=Date\.now\(\)/);
+ assert.match(visit,/register\(r,who\)/);
+});
