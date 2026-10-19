@@ -15,7 +15,7 @@ test("notices parse only settled positions",()=>{
  assert.deepEqual(settledNotices(["Opened long BTC","Liquidated long BTC · 0.00 returned · position p1","Take-profit · Closed long ETH · position p2 · filled at $1"]).map(x=>x.id),["p1","p2"]);});
 test("trailing read queues one rerun and recovers after rejection, including while dirty",async()=>{
  let calls=0;const gates:Array<{ok:(n:number)=>void;fail:(e:Error)=>void}>=[];const load=trailingRead(()=>new Promise<number>((ok,fail)=>{calls++;gates.push({ok,fail});}));
- const a=load(),b=load(),c=load();assert.equal(calls,1);gates[0].ok(1);await new Promise(r=>setTimeout(r));assert.equal(calls,2);gates[1].ok(2);assert.deepEqual(await Promise.all([a,b,c]),[2,2,2]);assert.equal(calls,2);
+ const a=load(),b=load(),c=load();assert.equal(calls,1);gates[0].ok(1);await new Promise(r=>setTimeout(r));assert.equal(calls,2);const reentrant=load();assert.equal(calls,2);gates[1].ok(2);assert.deepEqual(await Promise.all([a,b,c,reentrant]),[2,2,2,2]);assert.equal(calls,2);
  const d=load(),e=load();const settled=Promise.allSettled([d,e]);gates[2].fail(new Error("boom"));const [rd,re]=await settled;assert.equal(rd.status,"rejected");assert.equal(re.status,"rejected");assert.equal(calls,3);
  const f=load();assert.equal(calls,4);gates[3].ok(9);assert.equal(await f,9);
  const g=load(),h=load();gates[4].ok(5);await new Promise(r=>setTimeout(r));gates[5].fail(new Error("late"));assert.equal((await Promise.allSettled([g,h]))[0].status,"rejected");const i=load();assert.equal(calls,7);gates[6].ok(1);await i;

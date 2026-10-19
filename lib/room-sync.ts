@@ -7,5 +7,5 @@ export function mergeMarket(current:PublicRoom|null,next:MarketSnapshot):PublicR
 }
 /** Entries announcing a newly settled position, keyed by the stable position id. */
 export function settledNotices(activity:string[]){return activity.flatMap(entry=>{const m=/^(Liquidated|Take-profit|Stop-loss)\b.*\bposition (\S+)/.exec(entry);return m?[{id:m[2],text:entry}]:[];});}
-/** Coalesces reads: calls during a flight share it and queue at most one trailing read. A rejection (even while dirty) clears all state so later calls start fresh. */
-export function trailingRead<T>(read:()=>Promise<T>){let pending:Promise<T>|undefined,dirty=false;const run=():Promise<T>=>{dirty=false;return read().then(v=>dirty?run():v);};return ()=>{if(pending){dirty=true;return pending;}const p=run().finally(()=>{if(pending===p){pending=undefined;dirty=false;}});pending=p;return p;};}
+/** Coalesces reads into at most two per flight: the first, plus one trailing read if anyone asked meanwhile. Calls during the trailing read share its result. A rejection clears all state so later calls start fresh. */
+export function trailingRead<T>(read:()=>Promise<T>){let pending:Promise<T>|undefined,dirty=false;return ()=>{if(pending){dirty=true;return pending;}dirty=false;const p=read().then(v=>{if(!dirty)return v;dirty=false;return read();}).finally(()=>{if(pending===p){pending=undefined;dirty=false;}});pending=p;return p;};}
