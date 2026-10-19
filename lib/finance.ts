@@ -1,5 +1,6 @@
 import {randomInt,randomUUID} from "node:crypto";
 import {ensure} from "./errors";
+import {validateTriggers,type PositionTriggers} from "./position-triggers";
 import {register} from "./poker";
 import type {Room,Identity,Member} from "./types";
 export {SYMBOLS,RED} from "./market-shared";
@@ -7,7 +8,7 @@ import {type Symbol,type Bet,RED} from "./market-shared";
 export type {Symbol,Bet} from "./market-shared";
 export type Quote={micro:number;at:number};
 export type Holding={symbol:Symbol;units:number;cost:number};
-export type Position={id:string;symbol:Symbol;side:"long"|"short";margin:number;leverage:number;entry:number;opened:number;maintenance?:number;liquidationOverride?:number};
+export type Position={id:string;symbol:Symbol;side:"long"|"short";margin:number;leverage:number;entry:number;opened:number;maintenance?:number;liquidationOverride?:number;takeProfit?:number;stopLoss?:number};
 export type Spin={id:string;number:number;stake:number;returned:number;at:number};
 export function portfolio(m:Member){m.holdings??=[];m.positions??=[];m.spins??=[];return m;}
 export function value(units:number,micro:number){return Number(BigInt(units)*BigInt(micro)/1_000_000_000_000n);}
@@ -23,11 +24,11 @@ function settle(r:Room,m:Member,p:Position,mark:number,force=false){
  const returned=force||liquidatable(p,mark)?0:equity(p,mark);
  ensure(Number.isSafeInteger(returned)&&returned<1e12,"Position exceeds simulation limit.");
  m.wallet+=returned;r.house=(r.house||0)+p.margin-returned;m.positions=m.positions!.filter(x=>x.id!==p.id);
- m.activity=[(returned===0?"Liquidated ":"Closed ")+p.side+" "+p.symbol+" · "+(returned/100).toFixed(2)+" returned",...(m.activity||[])].slice(0,40);
+ m.activity=[(returned===0?"Liquidated ":"Closed ")+p.side+" "+p.symbol+" · "+(returned/100).toFixed(2)+" returned · position "+p.id,...(m.activity||[])].slice(0,40);
 }
 export function liquidate(r:Room,now=Date.now()){
  for(const member of r.members){const m=portfolio(member);for(const p of [...m.positions!]){
- const q=r.quotes?.[p.symbol];if(q&&now-q.at<=10_000&&liquidatable(p,q.micro))settle(r,m,p,q.micro,true);
+ const q=r.quotes?.[p.symbol];if(q&&Number.isSafeInteger(q.micro)&&q.micro>0&&q.at<=now&&now-q.at<=10_000&&liquidatable(p,q.micro))settle(r,m,p,q.micro,true);
  }}
 }
 export function spot(r:Room,who:Identity,symbol:Symbol,side:"buy"|"sell",amount:number,now=Date.now()){
@@ -47,12 +48,14 @@ export function spot(r:Room,who:Identity,symbol:Symbol,side:"buy"|"sell",amount:
  if(h.units===0)m.holdings=m.holdings!.filter(x=>x!==h);
  }
 }
-export function openPosition(r:Room,who:Identity,symbol:Symbol,side:"long"|"short",margin:number,leverage:number,id:string=randomUUID(),now=Date.now()){
+export function openPosition(r:Room,who:Identity,symbol:Symbol,side:"long"|"short",margin:number,leverage:number,id:string=randomUUID(),now=Date.now(),triggers:PositionTriggers={}){
  const m=portfolio(register(r,who));
  const entry=requireQuote(r,symbol,now);ensure(Number.isSafeInteger(margin)&&margin>=100&&margin<=100_000_000&&m.wallet>=margin,"Not enough cash or invalid margin.");
  ensure(margin<=(r.limits?.maxTrade??1000000)*100&&margin*leverage<=(r.limits?.maxTrade??1000000)*100,"Position margin or notional exceeds the host’s trade limit.");
  ensure(Number.isInteger(leverage)&&leverage>=1&&leverage<=(r.limits?.maxLeverage??200),"Leverage must be 1–200x.");ensure((r.maintenance||0)<1/leverage,"Chosen leverage requires more initial margin than maintenance margin.");ensure(m.positions!.length<20,"Close a position first.");
- m.wallet-=margin;m.positions!.push({id,symbol,side,margin,leverage,entry,opened:now,maintenance:r.maintenance||0});
+ const position:Position={id,symbol,side,margin,leverage,entry,opened:now,maintenance:r.maintenance||0,...triggers};
+ validateTriggers(position);
+ m.wallet-=margin;m.positions!.push(position);
 }
 export function closePosition(r:Room,who:Identity,id:string,now=Date.now()){
  const m=portfolio(register(r,who));const p=m.positions!.find(x=>x.id===id);ensure(p,"Position not found.",404);settle(r,m,p,requireQuote(r,p.symbol,now));

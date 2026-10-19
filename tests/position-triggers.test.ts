@@ -30,3 +30,8 @@ for(const side of ["long","short"] as const){
 }
 test("edit/remove are owner-only and invalid updates atomic",()=>{const {r,p}=setup();editPositionTriggers(r,who,p.id,{takeProfit:110000000,stopLoss:95000000});assert.throws(()=>editPositionTriggers(r,{...who,id:"other"},p.id,{takeProfit:null}));assert.throws(()=>editPositionTriggers(r,who,p.id,{takeProfit:120000000,stopLoss:1}));assert.equal(p.takeProfit,110000000);editPositionTriggers(r,who,p.id,{takeProfit:null});assert.equal(p.takeProfit,undefined);assert.equal(p.stopLoss,95000000);editPositionTriggers(r,who,p.id,{stopLoss:null});assert.equal(p.stopLoss,undefined);});
 test("stale and future marks cannot trigger; serialized restart resumes without clients",()=>{const {r,p}=setup();editPositionTriggers(r,who,p.id,{takeProfit:110000000});r.quotes!.BTC!.micro=120000000;settleTriggers(r,20000);assert.equal(r.members[0].positions!.length,1);settleTriggers(r,0);assert.equal(r.members[0].positions!.length,1);const resumed=JSON.parse(JSON.stringify(r));settleTriggers(resumed,1000);assert.equal(resumed.members[0].positions.length,0);assertRoom(resumed);});
+test("opening accepts persisted triggers and invalid opening never debits margin",()=>{
+ const {r}=setup();const wallet=r.members[0].wallet;
+ assert.throws(()=>openPosition(r,who,"BTC","long",1000,10,"invalid",1000,{stopLoss:1}));assert.equal(r.members[0].wallet,wallet);assert.equal(r.members[0].positions!.length,1);
+ openPosition(r,who,"BTC","short",1000,10,"valid",1000,{takeProfit:95000000,stopLoss:105000000});assert.equal(r.members[0].positions!.at(-1)!.stopLoss,105000000);assertRoom(r);
+});

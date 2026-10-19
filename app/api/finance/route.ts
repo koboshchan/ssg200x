@@ -5,13 +5,16 @@ import {mutate,rateLimit} from "@/lib/store";
 import {publicRoom} from "@/lib/public";
 import {spot,openPosition,closePosition,SYMBOLS} from "@/lib/finance";
 import {ensure} from "@/lib/errors";
+import {editPositionTriggers} from "@/lib/position-triggers";
 const base={requestId:z.string().uuid(),requestAt:z.number().int()};
 const money=z.number().int().min(100).max(100_000_000),symbol=z.enum(SYMBOLS);
 const bet=z.object({kind:z.enum(["straight","red","black","odd","even","low","high","dozen","column"]),pick:z.number().int().min(0).max(36).optional(),amount:z.number().int().min(100).max(100_000)}).strict();
+const triggerPrice=z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const schema=z.discriminatedUnion("type",[
  z.object({...base,type:z.literal("spin"),bets:z.array(bet).min(1).max(20)}).strict(),
  z.object({...base,type:z.literal("spot"),symbol,side:z.enum(["buy","sell"]),amount:money}).strict(),
- z.object({...base,type:z.literal("open"),symbol,side:z.enum(["long","short"]),margin:money,leverage:z.number().int().min(1).max(200)}).strict(),
+ z.object({...base,type:z.literal("open"),symbol,side:z.enum(["long","short"]),margin:money,leverage:z.number().int().min(1).max(200),takeProfit:triggerPrice.optional(),stopLoss:triggerPrice.optional()}).strict(),
+ z.object({...base,type:z.literal("triggers"),positionId:z.string().uuid(),takeProfit:triggerPrice.nullable().optional(),stopLoss:triggerPrice.nullable().optional()}).strict(),
  z.object({...base,type:z.literal("close"),positionId:z.string().uuid()}).strict(),
 ]);
 export const POST=(request:Request)=>endpoint(request,async who=>{
@@ -22,7 +25,8 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
  const receipt=r.receipts.find(x=>x.id===input.requestId);if(receipt){ensure(receipt.userId===who.id,"Invalid request.",409);return;}
  if(input.type==="spin")ensure(false,"Instant spins are disabled. Use the shared roulette table.",410);
  else if(input.type==="spot")spot(r,who,input.symbol,input.side,input.amount);
- else if(input.type==="open")openPosition(r,who,input.symbol,input.side,input.margin,input.leverage,id);
+ else if(input.type==="open")openPosition(r,who,input.symbol,input.side,input.margin,input.leverage,id,Date.now(),{takeProfit:input.takeProfit,stopLoss:input.stopLoss});
+ else if(input.type==="triggers")editPositionTriggers(r,who,input.positionId,input);
  else closePosition(r,who,input.positionId);
  r.receipts=[{id:input.requestId,userId:who.id,at:Date.now()},...r.receipts.filter(x=>x.at&&Date.now()-x.at<300_000)];
  });return publicRoom(room,who);
