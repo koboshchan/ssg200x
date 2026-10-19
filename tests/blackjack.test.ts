@@ -19,3 +19,18 @@ test('split aces one card each, split 21 pays only 1:1',()=>{const r=setup(),n=b
 test('split advances hands and forbids resplit',()=>{const r=setup(),n=bank(r);rig(r,['8s','Ts','8h','7h','8c','2h']);bet(r);tick(r,10000);act(r,a,{type:'split'},10001);assert.throws(()=>act(r,a,{type:'split'},10002));act(r,a,{type:'stand'},10003);assert.equal(r.blackjack.hand,1);act(r,a,{type:'stand'},10004);assert.equal(bank(r),n);});
 test('leave active round stands hands but retains wager until settlement',()=>{const r=setup(true),n=bank(r);rig(r,['Ts','9s','Ts','8h','8c','7h']);bet(r);bet(r,b);tick(r,10000);act(r,a,{type:'leave'},10001);assert.equal(r.blackjack.turn,1);assert.equal(assets(r),200);act(r,b,{type:'stand'},10002);assert.equal(bank(r),n);tick(r,15002);assert.equal(r.blackjack.seats[0],null);assert.equal(bank(r),n);});
 test('bad bets/actions leave wallet intact, finite integer cents only',()=>{const r=setup();for(const amount of [99,101,100001,NaN,Infinity,100.5])assert.throws(()=>bet(r,a,amount));assert.equal(r.members[0].wallet,100000);assert.throws(()=>act(r,a,{type:'double'},0));bet(r);rig(r,['5s','Ts','6h','7h']);tick(r,10000);r.members[0].wallet=0;assert.throws(()=>act(r,a,{type:'double'},10001));assert.equal(assets(r),100);});
+
+import {blackjackTablesAction as tablesAct,blackjackTablesTick as tablesTick,blackjackTablesAssets as tablesAssets,blackjackTablesPublic as tablesPub,type BlackjackTablesState} from '../lib/blackjack';
+test('three lobby tables, cross-table seats blocked and all wagers conserved',()=>{
+ const r=freshRoom() as Room&{blackjackTables?:BlackjackTablesState};register(r,a,0);register(r,b,0);const n=r.members.reduce((n,m)=>n+m.wallet,0);
+ assert.equal(tablesPub(r,a).tables.length,3);assert.equal(r.blackjackTables,undefined);
+ tablesAct(r,a,{tableId:'lounge',type:'join',seat:0},0);tablesAct(r,b,{tableId:'salon',type:'join',seat:0},0);
+ assert.throws(()=>tablesAct(r,a,{tableId:'terrace',type:'join',seat:0},0));
+ tablesAct(r,a,{tableId:'lounge',type:'bet',amount:100},0);tablesAct(r,b,{tableId:'salon',type:'bet',amount:200},0);
+ assert.equal(tablesAssets(r),300);assert.equal(r.members.reduce((n,m)=>n+m.wallet,0)+tablesAssets(r)+(r.house??0),n);
+ for(const t of Object.values(r.blackjackTables!.tables))t!.shoe=[...Array(180).fill('2s'),...'7h,8s,Ts,9s'.split(',')];
+ tablesTick(r,10000);const p=tablesPub(r,a);assert.equal(p.tables[0].legal.stand,true);assert.equal(p.tables[1].legal.stand,false);assert.equal(p.tables[0].dealer.cards[1],'?');assert.equal(JSON.stringify(p).includes('shoe'),false);
+ tablesTick(r,40000);assert.equal(tablesAssets(r),0);assert.equal(r.members.reduce((n,m)=>n+m.wallet,0)+tablesAssets(r)+(r.house??0),n);
+ tablesAct(r,a,{tableId:'lounge',type:'leave'},40001);tablesAct(r,a,{tableId:'terrace',type:'join',seat:5},40002);
+ assert.equal(tablesPub(r,a).tables[2].mySeat,5);
+});

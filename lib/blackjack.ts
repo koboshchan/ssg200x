@@ -68,3 +68,24 @@ export function blackjackPublic(r:Room,who:Identity){const b=(r as BRoom).blackj
  const me=r.members.find(m=>m.id===who.id),mine=b.seats.findIndex(s=>s?.userId===who.id);
  return {phase:b.phase,round:b.round,deadline:b.deadline,turn:b.turn,hand:b.hand,dealer:b.dealer.map((c,i)=>i===0||b.revealed?c:'??'),dealerTotal:b.revealed?blackjackValue(b.dealer):null,seats:b.seats.map(s=>{if(!s)return null;const m=r.members.find(m=>m.id===s.userId);return {publicId:m?.publicId,name:m?.name,bet:s.bet,leaveAfter:s.leaveAfter,hands:s.hands.map(h=>({...h,cards:[...h.cards],total:blackjackValue(h.cards)}))};}),mySeat:mine,canAct:!!me?.approved&&b.phase==='playing'&&b.turn===mine&&mine>=0};
 }
+
+export const BLACKJACK_TABLE_IDS=['lounge','salon','terrace'] as const;
+export type BlackjackTableId=typeof BLACKJACK_TABLE_IDS[number];
+export type BlackjackTablesState={tables:Partial<Record<BlackjackTableId,BlackjackState>>};
+export type BlackjackTablesAction=BlackjackAction & {tableId:BlackjackTableId};
+type TablesRoom=Room & {blackjackTables?:BlackjackTablesState};
+function tableRoom(r:TablesRoom,id:BlackjackTableId):BRoom{return {...r,blackjack:r.blackjackTables?.tables[id]};}
+function saveTable(r:TablesRoom,id:BlackjackTableId,scoped:BRoom){r.blackjackTables??={tables:{}};r.blackjackTables.tables[id]=scoped.blackjack;r.house=scoped.house;}
+export function blackjackTablesAssets(r:Room):number{const rr=r as TablesRoom;return BLACKJACK_TABLE_IDS.reduce((n,id)=>n+blackjackAssets(tableRoom(rr,id)),0);}
+export function blackjackTablesAction(r:Room,who:Identity,action:BlackjackTablesAction,now:number):void{
+ ensure(BLACKJACK_TABLE_IDS.includes(action.tableId),'Unknown blackjack table.');
+ const rr=r as TablesRoom;
+ if(action.type==='join')ensure(!BLACKJACK_TABLE_IDS.some(id=>rr.blackjackTables?.tables[id]?.seats.some(s=>s?.userId===who.id)),'Leave your current blackjack table first.');
+ const scoped=tableRoom(rr,action.tableId);blackjackAction(scoped,who,action,now);saveTable(rr,action.tableId,scoped);
+}
+export function blackjackTablesTick(r:Room,now:number):void{const rr=r as TablesRoom;for(const id of BLACKJACK_TABLE_IDS){if(!rr.blackjackTables?.tables[id])continue;const scoped=tableRoom(rr,id);blackjackTick(scoped,now);saveTable(rr,id,scoped);}}
+export function blackjackTablesPublic(r:Room,who:Identity){const rr=r as TablesRoom,m=r.members.find(m=>m.id===who.id);
+ return {tables:BLACKJACK_TABLE_IDS.map(id=>{const scoped=tableRoom(rr,id);state(scoped);const b=scoped.blackjack!,p=blackjackPublic(scoped,who)!;const s=p.mySeat<0?null:b.seats[p.mySeat],h=s?.hands[b.hand];const can=p.canAct&&!!h&&!h.done;
+ return {id,phase:p.phase,round:p.round,deadline:p.deadline,turn:p.turn===null?null:{seat:p.turn,hand:p.hand},dealer:{cards:p.dealer.map(c=>c==='??'?'?':c)},dealerTotal:p.dealerTotal,minBet:100,maxBet:100_000,seats:p.seats.map((s,i)=>s?{...s,isYou:i===p.mySeat}:null),mySeat:p.mySeat,legal:{hit:can,stand:can,double:can&&h!.cards.length===2&&(m?.wallet??0)>=h!.bet,split:can&&s!.hands.length===1&&h!.cards.length===2&&h!.cards[0][0]===h!.cards[1][0]&&(m?.wallet??0)>=h!.bet}};
+ })};
+}
