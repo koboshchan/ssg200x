@@ -59,3 +59,17 @@ test("batched Coinbase worker rate lease coalesces concurrent fetches and cache-
  const lock=await(await db()).collection<{_id:string;nextAt:number}>("workers").findOne({_id:"coinbase"});assert.ok(lock!.nextAt>Date.now());assert.ok(lock!.nextAt-Date.now()<=1000);
  }finally{globalThis.fetch=original;}
 });
+test("manual site maintenance persists independently and records administrator audit",async()=>{
+ const {siteMaintenance}=await import("../../lib/site-maintenance");
+ const {audit}=await import("../../lib/audit");
+ await mutate(r=>{audit(r,admin,"site-maintenance","global",r.siteMaintenance===true,true);r.siteMaintenance=true;});
+ assert.equal((await siteMaintenance(false)).blocked,true);
+ assert.equal((await siteMaintenance(true)).blocked,false);
+ assert.equal((await siteMaintenance(true)).manual,true);
+ await mutate(r=>{audit(r,admin,"site-maintenance","global",true,false);r.siteMaintenance=false;});
+ assert.equal((await siteMaintenance(false)).manual,false);
+ assert.equal((await siteMaintenance(false)).backfill,true);
+ const events=await(await db()).collection("audit").find({what:"site-maintenance"}).toArray();
+ assert.equal(events.length,2);assert.equal(events[0].who,admin.id);
+ assert.ok(events.some(e=>e.old===false&&e.new===true));assert.ok(events.some(e=>e.old===true&&e.new===false));
+});

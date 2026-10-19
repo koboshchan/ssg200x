@@ -3,6 +3,7 @@ import {NextResponse} from "next/server";
 import {ZodError,type ZodType} from "zod";
 import {AppError,ensure} from "./errors";
 import {rateLimit} from "./store";
+import {siteMaintenance} from "./site-maintenance";
 import type {Identity} from "./types";
 export const configured=()=>Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.startsWith("pk_")&&process.env.CLERK_SECRET_KEY);
 export async function endpoint(request:Request,handler:(who:Identity)=>Promise<unknown>) {
@@ -19,6 +20,7 @@ export async function endpoint(request:Request,handler:(who:Identity)=>Promise<u
   ensure(email,"A verified Google email is required.",403);
   const who:Identity={id:userId,name:user.firstName||user.username||"Player",email,admin:user.publicMetadata.role==="admin"};
   await rateLimit(userId);
+  if(!who.admin&&new URL(request.url).pathname!=="/api/maintenance")ensure(!(await siteMaintenance(false)).blocked,"Under maintenance",503);
   return NextResponse.json(await handler(who),{headers:{"Cache-Control":"no-store"}});
  }catch(e) {
   const status=e instanceof AppError?e.status:e instanceof ZodError||e instanceof SyntaxError?400:503;
