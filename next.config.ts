@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
   output: "standalone",
+  outputFileTracingIncludes: {"/*":["./server.mjs","./node_modules/socket.io/**/*","./node_modules/engine.io/**/*","./node_modules/@clerk/backend/**/*","./node_modules/@clerk/shared/**/*","./node_modules/mongodb/**/*"]},
   poweredByHeader: false,
   async headers() {
     return [{ source: "/:path*", headers: [

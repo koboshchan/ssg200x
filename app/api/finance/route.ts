@@ -11,7 +11,7 @@ const bet=z.object({kind:z.enum(["straight","red","black","odd","even","low","hi
 const schema=z.discriminatedUnion("type",[
  z.object({...base,type:z.literal("spin"),bets:z.array(bet).min(1).max(20)}).strict(),
  z.object({...base,type:z.literal("spot"),symbol,side:z.enum(["buy","sell"]),amount:money}).strict(),
- z.object({...base,type:z.literal("open"),symbol,side:z.enum(["long","short"]),margin:money,leverage:z.number().int().min(1).max(50)}).strict(),
+ z.object({...base,type:z.literal("open"),symbol,side:z.enum(["long","short"]),margin:money,leverage:z.number().int().min(1).max(200)}).strict(),
  z.object({...base,type:z.literal("close"),positionId:z.string().uuid()}).strict(),
 ]);
 export const POST=(request:Request)=>endpoint(request,async who=>{

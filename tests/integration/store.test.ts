@@ -1,3 +1,4 @@
+import {SYMBOLS} from "../../lib/market-shared";
 import {test,after,before} from "node:test";
 import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
@@ -50,7 +51,7 @@ test("host revocation schedules occupied seat cashout, cannot reset own access",
 test("every admin change has durable old/new audit collection record",async()=>{const r=await readRoom();const m=r.members.find(m=>m.id==="user_1")!;const entry=await(await db()).collection("audit").findOne({what:"approval",target:m.id,new:false});assert.ok(entry);assert.equal(entry.who,admin.id);assert.equal(entry.old,true);assert.ok(entry.at);});
 test("batched Coinbase worker rate lease coalesces concurrent fetches and cache-only clients",async()=>{
  const {refreshPrices}=await import("../../lib/prices");const original=globalThis.fetch;let calls=0;
- globalThis.fetch=(async()=>{calls++;return new Response(JSON.stringify({data:{currency:"USD",rates:{BTC:"0.00001",ETH:"0.0005",SOL:"0.01",DOGE:"10"}}}),{status:200});}) as typeof fetch;
+ globalThis.fetch=(async()=>{calls++;return new Response(JSON.stringify({data:{currency:"USD",rates:{...Object.fromEntries(SYMBOLS.map(s=>[s,"1"])),BTC:"0.00001",ETH:"0.0005",SOL:"0.01",DOGE:"10"}}}),{status:200});}) as typeof fetch;
  try{
  await(await db()).collection<{_id:string;nextAt:number}>("workers").deleteOne({_id:"coinbase"});
  await Promise.all(Array.from({length:10},()=>refreshPrices()));assert.equal(calls,1);

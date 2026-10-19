@@ -1,16 +1,16 @@
-# Fakebucks
+# ssg200x
 
 A private, web-only play-money room. Google sign-in through Clerk, host-approved accounts, and one shared $1,000 starting bankroll. No deposits, withdrawals, real-money trades, or cash prizes.
 
 ## What’s included
 
-Six-seat multiplayer no-limit hold’em. Players choose a seat and buy in with $100–$1,000 from their wallet. Two players starts a hand automatically. Heads-up is $1/$2; three or more players add a live $5 UTG straddle. Server-shuffled cards, side pots, split pots, short all-ins, turn timeouts, and deferred cashouts are handled server-side. The room refreshes every two seconds, not through WebSockets.
+Six-seat multiplayer no-limit hold’em. Players choose a seat and buy in with $100–$1,000 from their wallet. Two players starts a hand automatically. Heads-up is $1/$2; three or more players add a live $5 UTG straddle. Server-shuffled cards, side pots, split pots, short all-ins, turn timeouts, and deferred cashouts are handled server-side. Authenticated Socket.IO invalidations refresh clients as the shared state changes, with polling fallback. WebSocket events contain only a version, never private cards.
 
 European single-zero roulette supports straight, red/black, odd/even, low/high, dozen, and column bets. Each spin is generated with Node’s cryptographic RNG. Gross returns include the stake: 36× straight, 3× dozen/column, 2× outside. $1 minimum per bet, $1,000 maximum total stake, up to 20 bets per spin.
 
-BTC, ETH, SOL, and DOGE spot paper trading uses Coinbase’s public USD spot prices. TradingView supplies embedded charts separately. Fractional holdings and open positions count toward net-worth standings.
+The selected twenty crypto symbols’ spot paper trading uses Coinbase’s public USD spot prices. TradingView Lightweight Charts renders cached Coinbase USD candles, without a third-party price iframe. Fractional holdings and open positions count toward net-worth standings.
 
-Isolated simulated perpetuals offer 1×–50× leverage, long or short. Choose margin, open at the current server reference, and close at market. No fees, slippage, funding, or exchange order book simulation. Global maintenance margin defaults to 0%. Administrators can cap spot order value and perpetual margin/notional per position with a global trade limit (default $1,000,000) and cap new-position leverage (default 50×). Lowering a limit does not resize existing positions. The initial margin ratio must exceed maintenance margin.
+Isolated simulated perpetuals offer 1×–200× leverage, long or short. Choose margin, open at the current server reference, and close at market. No fees, slippage, funding, or exchange order book simulation. Global maintenance margin defaults to 0%. Administrators can cap spot order value and perpetual margin/notional per position with a global trade limit (default $1,000,000) and cap new-position leverage (default 200×). Lowering a limit does not resize existing positions. The initial margin ratio must exceed maintenance margin.
 
 An administrator can approve or deny access, add or remove cash, edit any open position’s liquidation threshold, and change global maintenance margin. Every change records the administrator, operation, target, previous value, new value, and timestamp in MongoDB’s audit collection. Cash adjustments do not inflate profit standings.
 
@@ -18,9 +18,9 @@ An administrator can approve or deny access, add or remove cash, edit any open p
 
 Create a Clerk application with Google as its only sign-in/sign-up method. Disable passwords, email-code sign-in, and other social providers. The backend checks for a verified primary email, a linked Google account, and password-disabled accounts, not merely a client-side Google button.
 
-Copy .env.example to .env.local and supply your development or production Clerk keys. Never commit that file. The publishable key is embedded at build time, so changing it requires a rebuild.
+Copy .env.example to .env.local and supply your development Clerk keys for local work. Never commit that file. The publishable key is embedded at build time, so changing it requires a rebuild.
 
-Set APP_ORIGIN to the exact public HTTPS origin, without a path, and APP_PORT to an unused local port. In the Clerk dashboard, add that origin where appropriate for your instance and configure the production domain before publishing a production deployment.
+For local development set APP_ORIGIN=http://localhost:43891 and APP_PORT=43891. In the Clerk dashboard, add that origin where appropriate for your instance and configure the production domain before publishing a production deployment.
 
 After the host signs in once, open that user in Clerk’s dashboard and set Public metadata to:
 
@@ -43,10 +43,10 @@ With Docker and Compose installed:
 ```sh
 cp .env.example .env.local
 # Fill in the keys and exact origin.
-docker compose --env-file .env.local up -d --build
+docker compose --env-file .env.local -f compose.yaml -f compose.dev.yaml up -d
 ```
 
-The web server is published only on 127.0.0.1 and APP_PORT. Put your HTTPS reverse proxy or tunnel in front of it. MongoDB has no published port and joins only an internal Compose network. The application reaches it by the service hostname mongo. The ./data/mongo bind mount contains wallets, room state, and audit history and is gitignored. Back it up and restrict access to the Docker host.
+The local development web server is bound only to 127.0.0.1 and APP_PORT. No public deployment or tunnel is needed. MongoDB has no published port and joins only an internal Compose network. The application reaches it by the service hostname mongo. The ./data/mongo bind mount contains wallets, room state, and audit history and is gitignored. Back it up and restrict access to the Docker host.
 
 For local development, point MONGODB_URI at your own Mongo instance, set MONGODB_DB, and run npm run dev. Standard production builds use npm run build and npm start. The prebuilt Dockerfile and compose.qa.yaml exist for local verification using an already-built standalone Next output; the regular compose file performs its own clean dependency/build stage.
 
@@ -73,4 +73,8 @@ Quotes and charts can differ. Unrealized standings use the last available quote 
 
 All bankroll writes use optimistic compare-and-swap against one Mongo room document, which also keeps poker chips and financial holdings atomic with cash. Request IDs with short expiry prevent duplicate financial actions; Mongo-backed counters rate-limit requests. Private cards, decks, internal user IDs, other users’ portfolio details, and admin-only emails are never sent in ordinary player snapshots.
 
-This one-room design is intended for a small group, not an unbounded public casino. Administrator audit events first enter the same atomic room update, then are idempotently copied to the audit collection. Pending events remain durable and retry on subsequent updates after an audit-write outage. Administrators with direct database access can change the data; the audit is not a tamperproof external ledger.
+This small-group design is intended for a small group, not an unbounded public casino. Administrator audit events first enter the same atomic room update, then are idempotently copied to the audit collection. Pending events remain durable and retry on subsequent updates after an audit-write outage. Administrators with direct database access can change the data; the audit is not a tamperproof external ledger.
+
+Three multiplayer blackjack tables share the bankroll. Each has six selectable seats, a ten-second betting countdown, thirty-second turns, hit, stand, double and one split. Six-deck shoes use unbiased Fisher–Yates with OS cryptographic entropy. The dealer stands on soft 17, naturals pay 3:2, split aces receive one card, and split hands do not receive natural payouts. Dealer hole cards and the remaining shoe never enter client snapshots.
+
+Historical candles are persistently cached in Mongo. At first boot a fixed window of exactly 360 days is queued for all twenty symbols and six Coinbase granularities (1m, 5m, 15m, 1h, 6h, 1d). Pages contain at most 300 buckets. A shared historical request budget reserves live-polling capacity and stays below ten combined requests per second. Completed history resumes without restarting, missing products are marked unavailable, and later jobs top up the cache. The app remains usable while this runs. Administrators can inspect per-symbol progress and ETA; unavailable capacity pauses imports with an explicit status. At least 2 GiB free space is required before historical downloads. A low-space pause is not a completed backfill.

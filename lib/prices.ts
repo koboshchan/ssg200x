@@ -1,3 +1,4 @@
+import {candleUpdate} from "./candles";
 import {liquidate} from "./finance";
 import {mutate} from "./store";
 import {readRoom,db} from "./db";
@@ -20,6 +21,7 @@ export async function refreshPrices(){
  }
  const quotes=decodeRates(await response.json(),Date.now());
  await mutate(r=>{r.quotes={...r.quotes,...quotes};liquidate(r);});
+ await candleUpdate(quotes);
  }catch{ /* Preserve timestamps; expired cache fails closed for orders. */ }
  finally{running=false;}
 }

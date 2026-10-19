@@ -1,22 +1,26 @@
 {
-  "name": "fakebucks",
+  "name": "ssg200x",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname 0.0.0.0",
+    "dev": "node server.mjs --dev",
     "build": "next build",
-    "start": "next start --hostname 0.0.0.0",
+    "start": "node server.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "test:integration": "tsx --test tests/integration/*.test.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "7.9.17",
+    "fflate": "^0.8.3",
+    "lightweight-charts": "^5.2.1",
     "mongodb": "7.7.0",
     "next": "16.4.2",
     "pokersolver": "^2.1.4",
     "react": "19.3.1",
     "react-dom": "19.3.1",
+    "socket.io": "^4.8.4",
+    "socket.io-client": "^4.8.4",
     "zod": "4.6.7"
   },
   "devDependencies": {

@@ -1,0 +1,13 @@
+services:
+  app:
+    image: node:24-bookworm-slim
+    build: !reset null
+    working_dir: /work
+    command: ["npm", "run", "dev"]
+    volumes:
+      - .:/work
+    environment:
+      NODE_ENV: development
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      CANDLE_BACKFILL_DISABLED: ${CANDLE_BACKFILL_DISABLED:-0}

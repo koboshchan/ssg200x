@@ -51,7 +51,7 @@ export function openPosition(r:Room,who:Identity,symbol:Symbol,side:"long"|"shor
  const m=portfolio(register(r,who));ensure(m.approved,"Account approval required.",403);
  const entry=requireQuote(r,symbol,now);ensure(Number.isSafeInteger(margin)&&margin>=100&&margin<=100_000_000&&m.wallet>=margin,"Not enough cash or invalid margin.");
  ensure(margin<=(r.limits?.maxTrade??1000000)*100&&margin*leverage<=(r.limits?.maxTrade??1000000)*100,"Position margin or notional exceeds the host’s trade limit.");
- ensure(Number.isInteger(leverage)&&leverage>=1&&leverage<=(r.limits?.maxLeverage??50),"Leverage must be 1–50x.");ensure((r.maintenance||0)<1/leverage,"Chosen leverage requires more initial margin than maintenance margin.");ensure(m.positions!.length<20,"Close a position first.");
+ ensure(Number.isInteger(leverage)&&leverage>=1&&leverage<=(r.limits?.maxLeverage??200),"Leverage must be 1–200x.");ensure((r.maintenance||0)<1/leverage,"Chosen leverage requires more initial margin than maintenance margin.");ensure(m.positions!.length<20,"Close a position first.");
  m.wallet-=margin;m.positions!.push({id,symbol,side,margin,leverage,entry,opened:now,maintenance:r.maintenance||0});
 }
 export function closePosition(r:Room,who:Identity,id:string,now=Date.now()){

@@ -1,0 +1,8 @@
+"use client";
+import {useEffect,useState} from "react";
+type Progress={status:string;reason?:string;overall:{done:number;total:number;percent:number;etaSeconds:number|null};symbols:{symbol:string;done:number;total:number;percent:number;unavailable:number}[]};
+export default function HistoryProgress(){
+ const [p,setP]=useState<Progress>(),[error,setError]=useState("");
+ useEffect(()=>{let closed=false,t:ReturnType<typeof setTimeout>;const c=new AbortController();async function load(){try{const r=await fetch("/api/candles?progress=1",{signal:c.signal});if(!r.ok)throw new Error("History progress unavailable");const d=await r.json();if(!closed){setP(d.history);setError("");}}catch(e){if(!closed)setError(e instanceof Error?e.message:"History unavailable");}finally{if(!closed)t=setTimeout(load,10000);}}load();return()=>{closed=true;c.abort();clearTimeout(t);};},[]);
+ return <section><h3>Historical price cache</h3>{p?<><p role="status">{p.status==="blocked"?p.reason:p.status+" · "+p.overall.done.toLocaleString()+" / "+p.overall.total.toLocaleString()+" pages"}{p.overall.etaSeconds!==null&&p.status==="running"?" · at least "+Math.ceil(p.overall.etaSeconds/60)+" min remaining":""}. The app stays available.</p><progress aria-label="Overall history cache" value={p.overall.percent} max={100}/><details className="rules"><summary>Per-symbol progress</summary>{p.symbols.map(s=><div key={s.symbol} style={{display:"flex",gap:12,alignItems:"center",margin:"8px 0"}}><span style={{minWidth:50}}>{s.symbol}</span><progress aria-label={s.symbol+" history cache"} value={s.percent} max={100}/><small>{s.done} / {s.total}{s.unavailable?" · unavailable pages "+s.unavailable:""}</small></div>)}</details></>:<p>{error||"Loading history progress"}</p>}</section>;
+}

@@ -1,15 +1,11 @@
 "use client";
-import {useState,useEffect,useRef} from "react";
+import {useState} from "react";
+import Chart from "./cached-chart";
 import type {PublicRoom} from "@/lib/public";
 import {SYMBOLS,RED,type Symbol,type Bet} from "@/lib/market-shared";
 const money=(c:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:2}).format(c/100);
 const price=(micro:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:micro<1e5?8:micro<1e7?6:micro<1e9?4:2}).format(micro/1e6);
 type Props={room:PublicRoom;busy:boolean;post:(path:string,body:object)=>Promise<void>};
-function Chart({symbol}:{symbol:Symbol}){
- const ref=useRef<HTMLDivElement>(null);
- useEffect(()=>{const node=ref.current;if(!node)return;const script=document.createElement("script");script.src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";script.async=true;script.textContent=JSON.stringify({autosize:true,symbol:"BINANCE:"+symbol+"USDT",interval:"60",timezone:"Etc/UTC",theme:"light",style:"1",locale:"en",allow_symbol_change:false,calendar:false,support_host:"https://www.tradingview.com"});node.append(script);return()=>{node.replaceChildren();};},[symbol]);
- return <div className="chart-shell"><div className="tradingview-widget-container" ref={ref} style={{height:"100%",width:"100%"}}><div className="tradingview-widget-container__widget" style={{height:"calc(100% - 24px)",width:"100%"}}/><div className="tradingview-widget-copyright"><a href={"https://www.tradingview.com/symbols/"+symbol+"USDT/"} target="_blank" rel="noopener noreferrer">{symbol} chart by TradingView</a></div></div></div>;
-}
 export function Markets({room,busy,post}:Props){
  const [symbol,setSymbol]=useState<Symbol>("BTC"),[mode,setMode]=useState<"spot"|"perps">("spot"),[side,setSide]=useState<"buy"|"sell">("buy"),[direction,setDirection]=useState<"long"|"short">("long"),[amount,setAmount]=useState("100"),[leverage,setLeverage]=useState("5");
  const lev=String(Math.min(Number(leverage),room.limits.maxLeverage)),q=room.quotes[symbol],fresh=Boolean(q&&room.serverNow-q.at<10_000);
@@ -24,7 +20,7 @@ export function Markets({room,busy,post}:Props){
  <div className="positions"><h3>Spot portfolio</h3>{room.holdings.length?<div className="table-scroll"><table><thead><tr><th>Asset</th><th>Quantity</th><th>Cost</th><th>Value</th><th>P/L</th></tr></thead><tbody>{room.holdings.map(h=><tr key={h.symbol}><th>{h.symbol}</th><td>{(h.units/1e8).toFixed(8)}</td><td>{money(h.cost)}</td><td>{money(h.value)}</td><td className={h.value>=h.cost?"positive":"negative"}>{money(h.value-h.cost)}</td></tr>)}</tbody></table></div>:<p className="empty">No spot holdings yet.</p>}
  <h3>Open perpetuals</h3>{room.positions.length?<div className="table-scroll"><table><thead><tr><th>Position</th><th>Margin</th><th>Entry</th><th>Liquidation</th><th>Unrealized P/L</th><th/></tr></thead><tbody>{room.positions.map(p=><tr key={p.id}><th>{p.symbol} {p.side} {p.leverage}x</th><td>{money(p.margin)}</td><td>{money(p.entry/10000)}</td><td>{money(p.liquidation/10000)}</td><td className={p.pnl>=0?"positive":"negative"}>{money(p.pnl)}</td><td><button disabled={busy||!room.me.approved} onClick={()=>send({type:"close",positionId:p.id})}>Close</button></td></tr>)}</tbody></table></div>:<p className="empty">No open positions.</p>}
  {room.activity.length?<details className="rules"><summary>Closed positions</summary>{room.activity.map((x,i)=><p key={i}>{x}</p>)}</details>:null}
- <p className="market-note">Charts are provided by TradingView and may differ from the cached prices used for fills. Prices come from a server-side cached reference, refreshed about once per second, or up to five times per second while any perpetual position is open. Liquidations are checked each time the cache updates, and gaps during outages are only caught when prices return. Standings use the latest available quotes.</p></div></section>;
+ <p className="market-note">Charts use cached Coinbase USD candles with TradingView’s chart library. Candle close and fill reference prices can differ. Prices come from a server-side cached reference, refreshed about once per second, or up to five times per second while any perpetual position is open. Liquidations are checked each time the cache updates, and gaps during outages are only caught when prices return. Standings use the latest available quotes.</p></div></section>;
 }
 export function Roulette({room,busy,post}:Props){
  const [kind,setKind]=useState<Bet["kind"]>("red"),[pick,setPick]=useState("0"),[amount,setAmount]=useState("5"),[bets,setBets]=useState<Bet[]>([]);

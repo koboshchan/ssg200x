@@ -29,6 +29,6 @@ export function setLiquidation(r:Room,who:Identity,target:string,id:string,price
 }
 export function setLimits(r:Room,who:Identity,maxTrade:number,maxLeverage:number){
  ensure(who.admin,"Administrator access required.",403);ensure(Number.isFinite(maxTrade)&&maxTrade>=1&&maxTrade<=1000000&&Math.abs(maxTrade*100-Math.round(maxTrade*100))<1e-7,"Trade limit must be $1–$1,000,000 to the cent.");
- ensure(Number.isInteger(maxLeverage)&&maxLeverage>=1&&maxLeverage<=50,"Leverage cap must be 1–50x.");
- const limits={maxTrade,maxLeverage};audit(r,who,"trading-limits","global",r.limits||{maxTrade:1000000,maxLeverage:50},limits);r.limits=limits;
+ ensure(Number.isInteger(maxLeverage)&&maxLeverage>=1&&maxLeverage<=200,"Leverage cap must be 1–200x.");
+ const limits={maxTrade,maxLeverage};audit(r,who,"trading-limits","global",r.limits||{maxTrade:1000000,maxLeverage:200},limits);r.limits=limits;
 }
