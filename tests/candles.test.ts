@@ -48,12 +48,13 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  if(!process.env.MONGODB_DB?.startsWith("fakebucks_test_candles_"))throw new Error("Refusing non-test candle database");
  const {db,closeDatabase}=await import("../lib/db");
  process.env.CANDLE_ARCHIVE_BACKFILL_ENABLED="1";
- const {candleUpdate,candleRead,backfillStep,historyBackfillStep,backfillProgress,candleEnsure}=await import("../lib/candles");
+ const {candleUpdate,candleRead,backfillStep,historyBackfillStep,backfillProgress,candleEnsure,historyMaintenanceActive}=await import("../lib/candles");
  const {createHash}=await import("node:crypto");
  const database=await db(),fetchOriginal=globalThis.fetch;
  const capacity=mock.method(fsPromises,"statfs",async()=>({bavail:10*1024**3,bsize:1}) as Awaited<ReturnType<typeof fsPromises.statfs>>);
  try {
  await database.dropDatabase();
+ assert.equal(await historyMaintenanceActive(),true);
  await candleUpdate({BTC:{micro:10_000_000,at:time+1000}});
  await candleUpdate({BTC:{micro:12_000_000,at:time+3000}});
  await candleUpdate({BTC:{micro:8_000_000,at:time+2000}});
@@ -115,6 +116,36 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  assert.equal(progress.history.window!.completeMonths,12);
  assert.equal(progress.history.window!.from,archivePlan(state.anchor)[0].from);
  assert.equal(progress.history.overall.etaSeconds,null);
+ assert.equal(progress.history.symbols.length,20);
+ assert.equal(progress.history.symbols[0].monthsTotal,12);
+ assert.equal(progress.history.symbols[0].etaSeconds,null);
+ // A separate fresh database initialization must remain maintenance-active until seeded and terminal.
+ await database.dropDatabase();
+ await new Promise(resolve=>setTimeout(resolve,1010));
+ assert.equal(await historyMaintenanceActive(),true);
+ assert.equal((await backfillProgress()).history.status,"blocked");
+ assert.equal((await historyBackfillStep()).status,"blocked");
+ const freshState=await database.collection<{_id:string;anchor:number;startedAt:number;seeded:boolean}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
+ assert.ok(freshState?.seeded&&freshState.startedAt>0);
+ await new Promise(resolve=>setTimeout(resolve,1010));
+ assert.equal(await historyMaintenanceActive(),true);
+ await database.collection("candle_backfill").updateMany({},{$set:{status:"done"}});
+ const firstJob=archivePlan(freshState.anchor)[0];
+ await database.collection<{_id:string;status:string}>("candle_backfill").updateOne({_id:firstJob._id},{$set:{status:"missing"}});
+ capacity.mock.mockImplementation(async()=>({bavail:10*1024**3,bsize:1}) as Awaited<ReturnType<typeof fsPromises.statfs>>);
+ await new Promise(resolve=>setTimeout(resolve,1010));
+ assert.equal(await historyMaintenanceActive(),false);
+ const complete=(await backfillProgress()).history;
+ assert.equal(complete.status,"complete");
+ assert.equal(complete.overall.percent,100);
+ assert.equal(complete.overall.etaSeconds,0);
+ assert.equal(complete.symbols.find(s=>s.symbol===firstJob.symbol)!.unavailable,true);
+ // A pending job must re-enable maintenance; cached answers expire after one second.
+ await database.collection<{_id:string;status:string}>("candle_backfill").updateOne({_id:firstJob._id},{$set:{status:"pending"}});
+ await new Promise(resolve=>setTimeout(resolve,1010));
+ assert.equal(await historyMaintenanceActive(),true);
+ assert.equal((await backfillProgress()).history.status,"running");
+
  } finally {capacity.mock.restore();globalThis.fetch=fetchOriginal;await database.dropDatabase();await closeDatabase();}
 });
 
