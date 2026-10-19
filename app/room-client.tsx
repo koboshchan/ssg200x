@@ -80,7 +80,7 @@ function Game(){
  const [room,setRoom]=useState<PublicRoom|null>(null),[error,setError]=useState(""),[busyState,setBusy]=useState(false),[raise,setRaise]=useState("10"),[buyIn,setBuyIn]=useState("200"),[tab,setTab]=useState<"table"|"standings"|"access"|"markets"|"roulette"|"blackjack">("table"),[clock,setClock]=useState(Date.now());
  const [marketNotice,setMarketNotice]=useState("");
  const seenActivity=useRef<Set<string>|null>(null);
- useEffect(()=>{if(!room)return;const settled=settledNotices(room.activity||[]);if(!seenActivity.current){seenActivity.current=new Set(settled.map(s=>s.id));return;}const fresh=settled.filter(s=>!seenActivity.current!.has(s.id));for(const s of settled)seenActivity.current.add(s.id);if(fresh.length)setMarketNotice(fresh.reverse().map(s=>s.text).join(". "));},[room?.activity]);
+ useEffect(()=>{if(!room)return;const settled=settledNotices(room.activity||[]);if(!seenActivity.current){seenActivity.current=new Set(settled.map(s=>s.id));return;}const fresh=settled.filter(s=>!seenActivity.current!.has(s.id));for(const s of settled)seenActivity.current.add(s.id);if(fresh.length)setMarketNotice(fresh.reverse().map(s=>s.text.replace(/ · position \S+/g,"").replace(/(\d+\.\d{2}) returned/g,(_,n)=>"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+" returned")).join(". "));},[room?.activity]);
  const {connection}=useLive();
  const busyRef=useRef(false),busy=busyState||connection!=="connected";
  useEffect(()=>{
