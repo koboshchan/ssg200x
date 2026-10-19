@@ -1,0 +1,6 @@
+# docker compose -f compose.yaml -f compose.ghcr.yaml up -d --no-build
+# Private package pulls require docker login ghcr.io first.
+services:
+  app:
+    build: !reset null
+    image: ghcr.io/koboshchan/ssg200x:${IMAGE_TAG:-latest}

@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import test from 'node:test';
+const workflow=readFileSync('.github/workflows/docker-publish.yml','utf8');
+
+test('GHCR publishes main, version tags and manual runs with scoped permissions',()=>{
+ assert.match(workflow,/branches: \[main\]/);
+ assert.match(workflow,/tags: \['v\*'\]/);
+ assert.match(workflow,/workflow_dispatch:/);
+ assert.match(workflow,/contents: read\n  packages: write/);
+ assert.doesNotMatch(workflow,/pull_request|write-all/);
+ assert.match(workflow,/registry: ghcr.io/);
+ assert.match(workflow,/password: \$\{\{ secrets.GITHUB_TOKEN \}\}/);
+ assert.match(workflow,/images: ghcr.io\/koboshchan\/ssg200x/);
+});
+test('latest is main-only, release tags are semver and SHA tags are immutable identifiers',()=>{
+ assert.match(workflow,/flavor: latest=false/);
+ assert.match(workflow,/type=raw,value=latest,enable=\$\{\{ github.ref == 'refs\/heads\/main' \}\}/);
+ assert.match(workflow,/type=sha,format=long/);
+ assert.match(workflow,/type=semver,pattern=\{\{version\}\}/);
+ assert.match(workflow,/type=semver,pattern=\{\{major\}\}.\{\{minor\}\}/);
+});
+test('all actions are SHA pinned and builds cache without baking private Clerk keys',()=>{
+ const actions=[...workflow.matchAll(/uses: ([^\s]+)@([^\s]+)/g)];
+ assert.equal(actions.length,5);
+ for(const [,name,ref] of actions) assert.match(ref,/^[a-f0-9]{40}$/,name);
+ assert.match(workflow,/persist-credentials: false/);
+ assert.match(workflow,/cache-from: type=gha/);
+ assert.match(workflow,/cache-to: type=gha,mode=max/);
+ assert.match(workflow,/secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY/);
+ assert.match(workflow,/if \[\[ -z "\$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" \]\]/);
+ assert.match(workflow,/::error::Set the repository Actions secret/);
+ assert.doesNotMatch(workflow,/CLERK_SECRET_KEY|sk_live_|pk_test_/);
+ const dockerfile=readFileSync('Dockerfile','utf8');
+ assert.equal((dockerfile.match(/^FROM /gm)||[]).length,3);
+ assert.doesNotMatch(dockerfile,/CLERK_SECRET_KEY/);
+});
+test('GHCR compose override removes builds and preserves isolated Mongo and runtime settings',()=>{
+ const config=JSON.parse(execFileSync('docker',['compose','--env-file','/dev/null','-f','compose.yaml','-f','compose.ghcr.yaml','config','--format','json'],{
+  encoding:'utf8',env:{...process.env,NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:'pk_synthetic',CLERK_SECRET_KEY:'synthetic',APP_ORIGIN:'https://example.invalid',IMAGE_TAG:'sha-test'},
+ }));
+ assert.equal(config.services.app.image,'ghcr.io/koboshchan/ssg200x:sha-test');
+ assert.equal(config.services.app.build,undefined);
+ assert.equal(config.services.app.environment.MONGODB_URI,'mongodb://mongo:27017');
+ assert.equal(config.services.app.environment.CLERK_SECRET_KEY,'synthetic');
+ assert.equal(config.services.mongo.ports,undefined);
+ assert.equal(config.networks.backend.internal,true);
+ assert.match(config.services.mongo.volumes[0].source,/\/data\/mongo$/);
+});
