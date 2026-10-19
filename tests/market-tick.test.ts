@@ -23,3 +23,16 @@ test("one tick liquidates at threshold exactly once and rejects stale or out-of-
  const house=room.house;applyMarketTick(room,{BTC:{micro:100_000_000_000,at}},at+201);assert.equal(room.quotes!.BTC!.micro,99_500_000_000);assert.equal(room.house,house);
  applyMarketTick(room,{BTC:{micro:1,at:at+300}},at+20000);assert.equal(room.quotes!.BTC!.micro,99_500_000_000);
 });
+test("live tick invokes persisted TP/SL at current mark and liquidation wins a gap",()=>{
+ const at=Date.now();
+ for(const mode of ["profit","stop","gap"]){
+  const room=freshRoom();register(room,who);applyMarketTick(room,{BTC:{micro:100_000_000_000,at}},at);
+  openPosition(room,who,"BTC","long",1000,200,"trigger",at,{takeProfit:100_100_000_000,stopLoss:99_900_000_000});
+  const mark=mode==="profit"?100_200_000_000:mode==="stop"?99_800_000_000:99_400_000_000;
+  applyMarketTick(room,{BTC:{micro:mark,at:at+200}},at+200);
+  const member=room.members[0];assert.equal(member.positions!.length,0);
+  assert.equal(member.wallet,mode==="profit"?100400:mode==="stop"?99600:99000);
+  assert.match(member.activity![0],mode==="profit"?/^Take-profit/:mode==="stop"?/^Stop-loss/:/^Liquidated/);
+  applyMarketTick(room,{BTC:{micro:mark,at:at+400}},at+400);assert.equal(member.activity!.length,1);
+ }
+});

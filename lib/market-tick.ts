@@ -1,6 +1,6 @@
 import type {Room} from "./types";
 import type {Quote} from "./finance";
-import {liquidate} from "./finance";
+import {settleTriggers} from "./position-triggers";
 /** Run inside room CAS mutation so quote publication and settlements commit together. */
 export function applyMarketTick(room:Room,quotes:Partial<Record<string,Quote>>,now=Date.now()){
  room.quotes??={};
@@ -9,5 +9,5 @@ export function applyMarketTick(room:Room,quotes:Partial<Record<string,Quote>>,n
   const key=symbol as keyof typeof room.quotes,previous=room.quotes[key];
   if(!previous||q.at>previous.at)room.quotes[key]=q;
  }
- liquidate(room,now);
+ settleTriggers(room,now);
 }
