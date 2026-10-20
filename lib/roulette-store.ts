@@ -7,7 +7,7 @@ import {readRoom} from './db';
 import type {RouletteState} from './roulette';
 export async function tickRoulette(){
  const r=await readRoom(),b=(r as typeof r&{roulette?:RouletteState}).roulette;
- if(!b||Date.now()>=b.started+ROULETTE_MS)await mutate(r=>rouletteTick(r,Date.now()));
+ if(!b||Date.now()>=(b.spin?.nextAt??b.started+ROULETTE_MS))await mutate(r=>rouletteTick(r,Date.now()));
 }
 
 export async function rouletteMove(who:Identity,action:RouletteAction,round:number,requestId:string,requestAt:number){
