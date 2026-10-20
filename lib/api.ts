@@ -34,10 +34,10 @@ export async function endpoint(request:Request,handler:(who:Identity)=>Promise<u
   return NextResponse.json({error:e instanceof AppError?e.message:status===400?"Invalid request.":"Service unavailable. Try again."},{status,headers:{"Cache-Control":"no-store",...(status===429?{"Retry-After":"60"}:{})}});
  }
 }
-export async function parse<T>(request:Request,schema:ZodType<T>) {
+export async function parse<T>(request:Request,schema:ZodType<T>,maxBytes=2048) {
  const reader=request.body?.getReader();ensure(reader,"Missing body.");
  let text="",bytes=0;const decoder=new TextDecoder();
- try {while(true){const chunk=await reader.read();if(chunk.done)break;bytes+=chunk.value.byteLength;ensure(bytes<=2048,"Request too large.",413);text+=decoder.decode(chunk.value,{stream:true});}text+=decoder.decode();}
+ try {while(true){const chunk=await reader.read();if(chunk.done)break;bytes+=chunk.value.byteLength;ensure(bytes<=maxBytes,"Request too large.",413);text+=decoder.decode(chunk.value,{stream:true});}text+=decoder.decode();}
  finally{await reader.cancel();}
  return schema.parse(JSON.parse(text));
 }

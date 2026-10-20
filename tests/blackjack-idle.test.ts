@@ -24,7 +24,7 @@ test('JSON restart keeps absolute deadline and countdown hidden until last 90 se
  tick(r,300000);assert.equal(r.blackjack.seats[0],null);
 });
 test('valid bet resets budget; rejected bet does not extend it; late bet cannot dodge expiry',()=>{
- const r=setup();assert.throws(()=>act(r,a,{type:'bet',amount:101},200000));
+ const r=setup();assert.throws(()=>act(r,a,{type:'bet',amount:100.5},200000));
  assert.equal(r.blackjack.seats[0]!.idleDeadline,300000);
  act(r,a,{type:'bet',amount:100},299999);
  assert.equal(r.blackjack.seats[0]!.idleRemaining,300000);

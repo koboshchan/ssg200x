@@ -20,7 +20,7 @@ mock.module("../lib/clerk-reads.ts",{namedExports:{
 }});
 mock.module("../lib/store.ts",{namedExports:{rateLimit:async()=>{},mutate:async()=>{throw Error("must not reach writes");}}});
 mock.module("../lib/site-maintenance.ts",{namedExports:{siteMaintenance:async()=>({blocked:false})}});
-const {endpoint}=await import("../lib/api.ts");
+const {endpoint,parse}=await import("../lib/api.ts");
 const {POST:adminAction}=await import("../app/api/admin/route.ts");
 await import("../proxy.ts");
 process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="pk_fixture";
@@ -89,4 +89,11 @@ test("signed-out admin requests never look up a user",async()=>{
   assert.equal((await middleware(async()=>({userId:null}),new NextRequest("https://example.test"+path))).status,307);
  }
  assert.deepEqual(adminLookups,[]);
+});
+
+test("blackjack chip composition uses a bounded larger body while other APIs keep 2KB limit",async()=>{
+ const {z}=await import("zod");const data={amount:100000,chips:Array(1000).fill(100)};
+ assert.deepEqual(await parse(request("/api/blackjack","POST",data),z.unknown(),8192),data);
+ await assert.rejects(()=>parse(request("/api/settings","POST",data),z.unknown()),{status:413});
+ await assert.rejects(()=>parse(request("/api/blackjack","POST",{chips:"x".repeat(8200)}),z.unknown(),8192),{status:413});
 });

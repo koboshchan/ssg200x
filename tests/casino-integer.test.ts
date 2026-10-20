@@ -34,15 +34,15 @@ test("roulette and poker request schemas reject fractional dollars and preserve 
  for(const to of invalid)assert.equal(actionSchema.safeParse({...base,type:"raise",to}).success,false);
  for(const buyIn of [10001,10050,"10000",9999,100001])assert.equal(actionSchema.safeParse({...base,type:"join",seat:0,buyIn}).success,false);
  for(const buyIn of [10000,100000])assert.equal(actionSchema.safeParse({...base,type:"join",seat:0,buyIn}).success,true);
- for(const f of ["app/api/blackjack/route.ts","app/api/roulette/route.ts","app/api/finance/route.ts"]){
+ for(const f of ["app/api/roulette/route.ts","app/api/finance/route.ts"]){
   assert.match(readFileSync(f,"utf8"),/casino-schemas/);
  }
 });
-test("blackjack legacy and all table boundaries reject decimals with exact financial no-op",()=>{
+test("blackjack legacy and all table boundaries reject fractional cents and invalid limits with exact financial no-op",()=>{
  for(const tableId of [null,"lounge","salon","terrace"] as const){
   const r=freshRoom();register(r,a,0);
   if(tableId)blackjackTablesAction(r,a,{tableId,type:"join",seat:0},0);else blackjackAction(r,a,{type:"join",seat:0},0);
-  for(const amount of [...invalid,0,99,100001]){
+  for(const amount of [...invalid.filter(n=>!(typeof n==="number"&&Number.isSafeInteger(n)&&n>=100&&n<=100000)),0,99,100001]){
    const before=structuredClone(r);
    assert.throws(()=>tableId?blackjackTablesAction(r,a,{tableId,type:"bet",amount:amount as number},0):blackjackAction(r,a,{type:"bet",amount:amount as number},0));
    assert.deepEqual(r,before);
