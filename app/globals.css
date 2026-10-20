@@ -129,3 +129,5 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
  html.chat-open,html.chat-open body{overflow:hidden}
  .chat-dock{top:var(--chat-viewport-top,0px);height:var(--chat-viewport-height,100dvh);padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
 }
+
+.chat-warn code{display:block;overflow-wrap:anywhere;white-space:normal;margin:6px 0}
