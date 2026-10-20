@@ -28,26 +28,25 @@ test('all actions are SHA pinned and builds cache without baking private Clerk k
  assert.match(workflow,/persist-credentials: false/);
  assert.match(workflow,/cache-from: type=gha/);
  assert.match(workflow,/cache-to: type=gha,mode=max/);
- assert.match(workflow,/secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY/);
- assert.match(workflow,/if \[\[ -z "\$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" \]\]/);
- assert.match(workflow,/::error::Set the repository Actions secret/);
- assert.doesNotMatch(workflow,/CLERK_SECRET_KEY|sk_live_|pk_test_/);
+ assert.doesNotMatch(workflow,/CLERK|build-args|sk_live_|pk_test_/i);
  const dockerfile=readFileSync('Dockerfile','utf8');
  assert.equal((dockerfile.match(/^FROM /gm)||[]).length,4);
  assert.match(dockerfile,/FROM deps AS production-deps/);
  assert.match(dockerfile,/npm prune --omit=dev --ignore-scripts/);
  assert.match(dockerfile,/COPY --from=production-deps --chown=node:node \/app\/node_modules/);
  assert.match(dockerfile,/socket\.io.*@clerk\/backend.*mongodb/);
- assert.doesNotMatch(dockerfile,/CLERK_SECRET_KEY/);
+ assert.doesNotMatch(dockerfile,/CLERK_|^ARG /m);
+ assert.doesNotMatch(readFileSync('compose.yaml','utf8'),/args:|NEXT_PUBLIC_CLERK/);
 });
 test('GHCR compose override removes builds and preserves isolated Mongo and runtime settings',()=>{
  const config=JSON.parse(execFileSync('docker',['compose','--env-file','/dev/null','-f','compose.yaml','-f','compose.ghcr.yaml','config','--format','json'],{
-  encoding:'utf8',env:{...process.env,NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:'pk_synthetic',CLERK_SECRET_KEY:'synthetic',APP_ORIGIN:'https://example.invalid',IMAGE_TAG:'sha-test'},
+  encoding:'utf8',env:{...process.env,CLERK_PUBLISHABLE_KEY:'pk_synthetic',CLERK_SECRET_KEY:'sk_synthetic',APP_ORIGIN:'https://example.invalid',IMAGE_TAG:'sha-test'},
  }));
  assert.equal(config.services.app.image,'ghcr.io/koboshchan/ssg200x:sha-test');
  assert.equal(config.services.app.build,undefined);
  assert.equal(config.services.app.environment.MONGODB_URI,'mongodb://mongo:27017/?replicaSet=rs0&directConnection=true');
- assert.equal(config.services.app.environment.CLERK_SECRET_KEY,'synthetic');
+ assert.equal(config.services.app.environment.CLERK_SECRET_KEY,'sk_synthetic');
+ assert.equal(config.services.app.environment.CLERK_PUBLISHABLE_KEY,'pk_synthetic');
  assert.equal(config.services.mongo.ports,undefined);
  assert.equal(config.networks.backend.internal,true);
  assert.match(config.services.mongo.volumes[0].source,/\/data\/mongo$/);

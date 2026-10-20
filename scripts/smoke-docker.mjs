@@ -3,7 +3,7 @@
 import {execFileSync} from "node:child_process";
 import {randomBytes} from "node:crypto";
 const image=process.argv[2];
-if(!image||!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)throw new Error("Pass the final image and NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY");
+if(!image||!process.env.CLERK_PUBLISHABLE_KEY)throw new Error("Pass the final image and CLERK_PUBLISHABLE_KEY");
 const prefix="ssg-package-"+randomBytes(6).toString("hex");
 const db=prefix+"-mongo",app=prefix+"-app";
 const docker=(...args)=>execFileSync("docker",args,{encoding:"utf8",stdio:["ignore","pipe","pipe"]}).trim();
@@ -15,7 +15,7 @@ try{
  docker("run","-d","--name",app,"--network",prefix,
   "-e","MONGODB_URI=mongodb://"+db+":27017","-e","MONGODB_DB=packaging_smoke",
   "-e","APP_ORIGIN=http://localhost:3000",
-  "-e","NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="+process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+  "-e","CLERK_PUBLISHABLE_KEY="+process.env.CLERK_PUBLISHABLE_KEY,
   "-e","CLERK_SECRET_KEY=sk_test_cGFja2FnaW5nLXNtb2tl",image);
  const probe=`const paths=["/","/leaderboard"];for(const path of paths){const r=await fetch("http://127.0.0.1:3000"+path);if(r.status!==200)throw Error(path+" HTTP "+r.status);await r.text();console.log(path+" HTTP "+r.status)}`;
  let http;

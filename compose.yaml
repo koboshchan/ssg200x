@@ -2,10 +2,8 @@ services:
   app:
     build:
       context: .
-      args:
-        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?Set your Clerk publishable key}
     environment:
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:?Set your Clerk publishable key}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Set your Clerk secret key}
       APP_ORIGIN: ${APP_ORIGIN:?Set exact browser origin}
       MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0&directConnection=true

@@ -38,12 +38,15 @@ const server=createServer(async(request,response)=>{
  }catch{response.writeHead(503).end();}
 });
 const io=new Server(server,{cors:{origin:process.env.APP_ORIGIN,credentials:true},maxHttpBufferSize:CHAT_MAX_PAYLOAD,transports:["websocket"]});
-const clerk=createClerkClient({secretKey:process.env.CLERK_SECRET_KEY});
+// Runtime-only Clerk keys; the legacy NEXT_PUBLIC name is accepted from the container environment only.
+const clerkPublishableKey=(process.env.CLERK_PUBLISHABLE_KEY||process.env["NEXT_PUBLIC_"+"CLERK_PUBLISHABLE_KEY"]||"").trim()||undefined;
+const clerkSecretKey=(process.env.CLERK_SECRET_KEY||"").trim()||undefined;
+const clerk=createClerkClient({secretKey:clerkSecretKey,publishableKey:clerkPublishableKey});
 io.use(async(socket,next)=>{
  try{
  if(socket.handshake.headers.origin!==process.env.APP_ORIGIN)throw new Error();
  const token=socket.handshake.auth?.token;if(typeof token!=="string"||token.length>10000)throw new Error();
- const claims=await verifyToken(token,{secretKey:process.env.CLERK_SECRET_KEY,authorizedParties:[process.env.APP_ORIGIN]});
+ const claims=await verifyToken(token,{secretKey:clerkSecretKey,authorizedParties:[process.env.APP_ORIGIN]});
  const user=await clerk.users.getUser(claims.sub);
  const identity=verifiedSocketIdentity(user,claims.sub);if(!identity||!Number.isFinite(claims.exp)||claims.exp*1000<=Date.now())throw new Error();
  socket.data.sessionId=claims.sid;socket.data.identity=identity;socket.data.expires=claims.exp*1000;next();

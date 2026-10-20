@@ -4,11 +4,12 @@ import {NextResponse} from "next/server";
 import {ZodError,type ZodType} from "zod";
 import {AppError,ensure} from "./errors";
 import {endpointBudget} from "./read-policy";
+import {clerkConfigured} from "./clerk-env";
 import {rateLimit} from "./store";
 import {verifiedGoogleEmail} from "./google-identity";
 import {siteMaintenance} from "./site-maintenance";
 import type {Identity} from "./types";
-export const configured=()=>Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.startsWith("pk_")&&process.env.CLERK_SECRET_KEY);
+export const configured=clerkConfigured;
 export async function endpoint(request:Request,handler:(who:Identity)=>Promise<unknown>) {
  try {
   ensure(configured(),"Clerk setup required.",503);

@@ -4,8 +4,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 FROM deps AS builder
 WORKDIR /app
-ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+# No Clerk keys exist at build time. Both keys are supplied only as container runtime environment.
 COPY . .
 RUN npm run build
 FROM deps AS production-deps

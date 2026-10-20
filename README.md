@@ -44,7 +44,7 @@ Create a Clerk application before starting the app.
 The server checks the current Clerk user and verified Google identity. Administrator access requires `user.privateMetadata.admin === true` from the Clerk Backend User. Only the boolean `admin` in server-generated maintenance/room responses reaches the client; private metadata is never serialized, added to session claims or read by client code. Public/unsafe metadata, session roles and `ADMIN_EMAILS` do not grant access. HTTP endpoints fetch the current user server-side; WebSocket authentication fetches the user on every connection/token renewal. Reconnect after changing metadata (existing sockets expire with their Clerk token). Middleware verifies sign-in only and never derives an admin role; API and socket handlers enforce authorization.
 
 > [!IMPORTANT]
-> `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is embedded in the client build. Rebuild when changing Clerk instances. Never put `CLERK_SECRET_KEY` into a build argument, image layer or Git commit.
+> Images are key-agnostic. No Clerk key exists at build time: both `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` are read from the container's runtime environment, so one image works with any Clerk instance. Never put either key into a build argument, image layer or Git commit.
 
 ## Quick start with Docker Compose
 
@@ -100,7 +100,7 @@ Existing stored Mongo candles are preserved and remain readable. Only future liv
 
 | Variable | Purpose |
 | --- | --- |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Required Clerk publishable key. Used at build time and runtime; must match the secret key's instance. |
+| `CLERK_PUBLISHABLE_KEY` | Required Clerk publishable key, read at runtime only. Must match the secret key's instance. The legacy runtime name `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is still accepted as a fallback. |
 | `CLERK_SECRET_KEY` | Required server-only Clerk secret. Runtime environment only. |
 | `APP_ORIGIN` | Exact browser origin, such as `http://localhost:43891`. Used by CSRF and WebSocket origin checks. No trailing path. |
 | `APP_PORT` | Host port for Compose; defaults to `43891`. |
@@ -118,7 +118,7 @@ The base Compose file forwards the required app variables. Optional native-devel
 
 The publishing workflow builds `ghcr.io/koboshchan/ssg200x` on pushes to `main`, version tags matching `v*`, or manual dispatch. It uses `GITHUB_TOKEN` with package-write permission, pinned Docker actions and GitHub Actions build cache.
 
-Set the repository Actions secret `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` to the production publishable key before running the workflow. The Clerk secret key is supplied only when running the image.
+The workflow needs no Clerk secrets. Both Clerk keys are supplied only when running the image.
 
 Tags include `latest` on main, `sha-<full-commit>`, and version/major-minor tags for semantic version releases. Publishing an image does not deploy it.
 
@@ -130,7 +130,7 @@ docker compose --env-file .env.local -f compose.yaml -f compose.ghcr.yaml pull
 docker compose --env-file .env.local -f compose.yaml -f compose.ghcr.yaml up -d --no-build
 ```
 
-Set `IMAGE_TAG` to a specific version or commit tag to pin a release. Use the same production Clerk instance as the image's embedded publishable key. For a different instance, build locally with your own key.
+Set `IMAGE_TAG` to a specific version or commit tag to pin a release. Pass the Clerk keys of the instance you want as runtime environment variables; the same image works for any instance.
 
 ## Development
 
@@ -201,7 +201,7 @@ Perpetuals simulate isolated margin with no fees, slippage, funding or order boo
 
 **Players see maintenance:** sign in as an admin to inspect the manual maintenance switch.
 
-**Changed publishable key has no effect:** rebuild the local image, or use a GHCR build made for that Clerk instance.
+**Changed publishable key has no effect:** recreate the container (`docker compose up -d`) so it picks up the new environment. No rebuild is needed.
 
 ## References
 

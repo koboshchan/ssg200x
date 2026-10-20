@@ -1,4 +1,5 @@
 import {createClerkClient} from "@clerk/backend";
+import {clerkKeys} from "./clerk-env";
 import {loadClerkProfiles,roomWithClerkNames,profileName,type DisplayProfiles} from "../runtime/clerk-names.mjs";
 import type {Room,Identity} from "./types";
 import type {Transfer} from "./transfers";
@@ -8,7 +9,7 @@ import {ensure} from "./errors";
 // No TTL, persistent cache or saved Mongo labels. Each request/emission gets a
 // fresh official SDK batch. Callers may share the resulting map within that operation.
 export function currentProfiles(ids:string[]){
- return loadClerkProfiles(createClerkClient({secretKey:process.env.CLERK_SECRET_KEY}),ids);
+ return loadClerkProfiles(createClerkClient(clerkKeys()!),ids);
 }
 export async function currentNamedRoom(room:Room,profiles?:DisplayProfiles){
  return roomWithClerkNames(room,profiles??await currentProfiles(room.members.map(m=>m.id)));

@@ -1,6 +1,8 @@
 import { clerkMiddleware, currentUser } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest, type NextFetchEvent } from "next/server";
+import { clerkKeys } from "@/lib/clerk-env";
 const publicPages = new Set(["/", "/leaderboard", "/privacy", "/terms"]);
+// Options are resolved per request so the keys come from the runtime environment, never the build.
 const clerk = clerkMiddleware(async (auth, req) => {
   const path = req.nextUrl.pathname;
   if (publicPages.has(path)) return;
@@ -12,6 +14,11 @@ const clerk = clerkMiddleware(async (auth, req) => {
     const user = await currentUser();
     if (user?.privateMetadata?.admin !== true) return new NextResponse("Not found", { status: 404 });
   }
+}, () => {
+  // Only the publishable key is passed dynamically. A dynamic secretKey option would demand a separate
+  // CLERK_ENCRYPTION_KEY; Clerk reads CLERK_SECRET_KEY from the runtime server environment itself.
+  const keys = clerkKeys();
+  return keys ? { publishableKey: keys.publishableKey } : {};
 });
 export default function proxy(request: NextRequest, event: NextFetchEvent) {
   // /leaderboard stays public: clerkMiddleware below only reads the session so the page can show the
@@ -19,8 +26,7 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
   // excludes public routes from maintenance; unconfigured Clerk falls through to NextResponse.next().
   // Independently authenticated with a per-process secret, never Clerk cookies.
   if(request.nextUrl.pathname==="/api/internal-live")return NextResponse.next();
-  const key = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-  if (!key || key.includes("REPLACE") || !process.env.CLERK_SECRET_KEY) {
+  if (!clerkKeys()) {
     if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "Clerk setup required." }, { status: 503 });
     if (!publicPages.has(request.nextUrl.pathname)) return new NextResponse("Authentication unavailable", { status: 503 });
     return NextResponse.next();

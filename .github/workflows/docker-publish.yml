@@ -18,16 +18,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
     steps:
-      - name: Check build configuration
-        shell: bash
-        run: |
-          if [[ -z "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" ]]; then
-            echo '::error::Set the repository Actions secret NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY to the production Clerk publishable key before publishing.'
-            exit 1
-          fi
       - name: Check out source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -60,7 +51,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
           cache-from: type=gha,scope=ssg200x
           cache-to: type=gha,mode=max,scope=ssg200x
