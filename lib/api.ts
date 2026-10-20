@@ -19,7 +19,7 @@ export async function endpoint(request:Request,handler:(who:Identity)=>Promise<u
   const user=await currentUser();
   const email=verifiedGoogleEmail(user);
   ensure(user&&email,"A verified Google-only account is required.",403);
-  const who:Identity={id:userId,name:user.firstName||user.username||"Player",email,admin:user.publicMetadata.role==="admin"};
+  const who:Identity={id:userId,name:user.firstName||user.username||"Player",email,admin:user.privateMetadata?.admin===true};
   const budget=endpointBudget(request.method,new URL(request.url).pathname,userId);
   await rateLimit(budget.key,budget.limit);
   if(!who.admin&&new URL(request.url).pathname!=="/api/maintenance")ensure(!(await siteMaintenance(false)).blocked,"Under maintenance",503);

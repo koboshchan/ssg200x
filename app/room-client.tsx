@@ -24,12 +24,17 @@ export default function RoomClient({configured,children}:{configured:boolean;chi
  return configured?<Authenticated>{children}</Authenticated>:<Shell><Landing setup/></Shell>;
 }
 function Authenticated({children}:{children?:React.ReactNode}){
- const {isLoaded,isSignedIn,user}=useUser(),router=useRouter(),path=usePathname();
- const admin=(user?.publicMetadata as {role?:string}|undefined)?.role==="admin";
+ const {isLoaded,isSignedIn}=useUser(),router=useRouter(),path=usePathname();
  const signedOut=isLoaded&&!isSignedIn;
  useEffect(()=>{if(isLoaded&&isSignedIn&&path==="/")router.replace("/poker");},[isLoaded,isSignedIn,path,router]);
  useEffect(()=>{if(signedOut&&path!=="/")router.replace("/");},[signedOut,path,router]);
- return <Shell signedIn={!!isSignedIn} admin={admin} account={isSignedIn?<UserButton/>:undefined}>{!isLoaded||(isSignedIn&&path==="/")?<p className="loading" role="status">Opening the room…</p>:isSignedIn?<LiveProvider><MaintenanceGate>{children}</MaintenanceGate></LiveProvider>:<Landing/>}</Shell>;
+ const opening=!isLoaded||(isSignedIn&&path==="/");
+ return isSignedIn?<LiveProvider><SignedInShell>{opening?<p className="loading" role="status">Opening the room…</p>:<MaintenanceGate>{children}</MaintenanceGate>}</SignedInShell></LiveProvider>:<Shell>{opening?<p className="loading" role="status">Opening the room…</p>:<Landing/>}</Shell>;
+}
+function SignedInShell({children}:{children:React.ReactNode}){
+ const {maintenance}=useLive();
+ // Only the server-derived boolean is sent to the browser, never Clerk private metadata.
+ return <Shell signedIn admin={maintenance?.admin===true} account={<UserButton/>}>{children}</Shell>;
 }
 function Shell({children,account,signedIn=false,admin=false}:{children:React.ReactNode;account?:React.ReactNode;signedIn?:boolean;admin?:boolean}){
  const path=usePathname()||"";

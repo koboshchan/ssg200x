@@ -33,13 +33,13 @@ Create a Clerk application before starting the app.
 1. Enable **Google only** for sign-in/sign-up. Disable passwords, email codes and other providers.
 2. Set sign-up mode to **Restricted** and send invitations from the Clerk dashboard. There is no in-app approval queue or invitation endpoint.
 3. Copy the publishable and secret keys into your local environment file. Use development keys locally and production keys for a lasting deployment.
-4. After the administrator signs in, set their Clerk **Public metadata** to:
+4. After the administrator signs in, set their Clerk **Private metadata** to:
 
    ```json
-   {"role":"admin"}
+   {"admin":true}
    ```
 
-The server checks the current Clerk user and verified Google identity. Administrator access comes from server-read public metadata, never a role supplied by the browser. `ADMIN_EMAILS` is not used.
+The server checks the current Clerk user and verified Google identity. Administrator access requires `user.privateMetadata.admin === true` from the Clerk Backend User. Only the boolean `admin` in server-generated maintenance/room responses reaches the client; private metadata is never serialized, added to session claims or read by client code. Public/unsafe metadata, session roles and `ADMIN_EMAILS` do not grant access. HTTP endpoints fetch the current user server-side; WebSocket authentication fetches the user on every connection/token renewal. Reconnect after changing metadata (existing sockets expire with their Clerk token). Middleware verifies sign-in only and never derives an admin role; API and socket handlers enforce authorization.
 
 > [!IMPORTANT]
 > `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is embedded in the client build. Rebuild when changing Clerk instances. Never put `CLERK_SECRET_KEY` into a build argument, image layer or Git commit.

@@ -19,8 +19,8 @@ test("internal snapshots reject missing, wrong, and unequal length secrets befor
  }finally{if(previous===undefined)delete process.env.INTERNAL_LIVE_SECRET;else process.env.INTERNAL_LIVE_SECRET=previous;}
 });
 test("socket identity matches verified Google rules including admin exception",()=>{
- const base={passwordEnabled:false,publicMetadata:{role:""},externalAccounts:[{provider:"oauth_google",emailAddress:"Alice@test.com"}],primaryEmailAddressId:"e",emailAddresses:[{id:"e",emailAddress:"alice@test.com",verification:{status:"verified"}}]};
- for(const user of [base,{...base,passwordEnabled:true},{...base,externalAccounts:[]},{...base,emailAddresses:[{...base.emailAddresses[0],verification:{status:"unverified"}}]},{...base,externalAccounts:[{provider:"google",emailAddress:"other@test.com"}]},{...base,passwordEnabled:true,publicMetadata:{role:"admin"},externalAccounts:[]}]){
+ const base={passwordEnabled:false,privateMetadata:{admin:false},externalAccounts:[{provider:"oauth_google",emailAddress:"Alice@test.com"}],primaryEmailAddressId:"e",emailAddresses:[{id:"e",emailAddress:"alice@test.com",verification:{status:"verified"}}]};
+ for(const user of [base,{...base,passwordEnabled:true},{...base,externalAccounts:[]},{...base,emailAddresses:[{...base.emailAddresses[0],verification:{status:"unverified"}}]},{...base,externalAccounts:[{provider:"google",emailAddress:"other@test.com"}]},{...base,passwordEnabled:true,privateMetadata:{admin:true},externalAccounts:[]}]){
   assert.equal(verifiedSocketIdentity(user,"alice")?.email,verifiedGoogleEmail(user));
  }
 });

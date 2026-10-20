@@ -1,13 +1,13 @@
 type GoogleUser = {
  passwordEnabled: boolean;
- publicMetadata?:{role?:unknown};
+ privateMetadata?:{admin?:unknown};
  externalAccounts: {provider:string;emailAddress?:string}[];
  primaryEmailAddressId:string|null;
  emailAddresses:{id:string;emailAddress:string;verification?:{status:string}|null}[];
 };
 export function verifiedGoogleEmail(user:GoogleUser|null):string|undefined {
  if(!user)return;
- if(user.publicMetadata?.role==="admin")return user.emailAddresses.find(e=>e.id===user.primaryEmailAddressId)?.emailAddress.toLowerCase();
+ if(user.privateMetadata?.admin===true)return user.emailAddresses.find(e=>e.id===user.primaryEmailAddressId)?.emailAddress.toLowerCase();
  if(user.passwordEnabled)return;
  const accounts=user.externalAccounts.filter(a=>a.provider==="google"||a.provider==="oauth_google");
  if(!accounts.length)return;
