@@ -96,6 +96,7 @@ test('real Mongo stores ciphertext only, bootstrap leases, wrapping, replay, str
  await assert.rejects(chat.handle(b.user,'wrap',ba),/forbidden/);
  await assert.rejects(chat.handle(a.user,'send',p),/stale_revision/);
  const fresh=await chat.handle(a.user,'state',{v:1});assert.notEqual(fresh.epoch,state.epoch);assert.ok(fresh.revision>state.revision);assert.ok(fresh.wraps.some((w:any)=>w.epoch===state.epoch));
+ const retainedSender=fresh.wraps.find((w:any)=>w.epoch===state.epoch);assert.equal(retainedSender.senderDhPublic,b.registration.dhPublic);assert.equal(retainedSender.senderSignPublic,b.registration.signPublic);
  // Restored browser carries same account key ID and reads retained older epoch.
  const restored=createChatService(db,{now:()=>clock});
  assert.equal((await restored.handle(a.user,'history',{v:1,epoch:state.epoch,deviceId:a.deviceId})).messages.length,1);
@@ -114,8 +115,9 @@ test('account Clerk backup endpoints preserve metadata, validate bounds, own DTO
  // @ts-expect-error runtime module
  const {createIdentityStore}=await import('../../runtime/chat-identity.mjs');
  const profiles:any={user_a:{publicMetadata:{other:'keep'},privateMetadata:{admin:true,other:'private'}},user_b:{publicMetadata:{},privateMetadata:{secret:'never return'}}};
- let ambiguous=false;
+ let ambiguous=false,failBefore=false;
  const clerk={users:{getUser:async(u:string)=>structuredClone(profiles[u]),updateUserMetadata:async(u:string,p:any)=>{
+  if(failBefore){failBefore=false;throw Error('failed before Clerk write');}
   for(const field of ['publicMetadata','privateMetadata'])profiles[u][field]={...profiles[u][field],tabletalk:{...profiles[u][field].tabletalk,...p[field].tabletalk}};
   if(ambiguous){ambiguous=false;throw Error('ambiguous write');}return profiles[u];
  }}};
@@ -127,11 +129,69 @@ test('account Clerk backup endpoints preserve metadata, validate bounds, own DTO
  await assert.rejects(store.put(a.user,{...p,backup:{...p.backup,memoryKiB:9999999}}),/invalid_kdf/);
  await assert.rejects(store.put(a.user,{...p,backup:{...p.backup,recoveryScheme:'eff-large-6-v1'}}),/invalid_kdf/);
  ambiguous=true;await assert.rejects(store.put(a.user,p),/identity_unavailable/);
- const result=await store.put(a.user,p);assert.equal(result.identity.keyVersion,1);
+ const recovered=await store.get(a.user);assert.equal(recovered.identity.keyVersion,1);
+ const result=await store.put(a.user,p);assert.deepEqual(result,recovered);
  assert.equal(profiles.user_a.privateMetadata.admin,true);assert.equal(profiles.user_a.privateMetadata.other,'private');assert.equal(profiles.user_a.publicMetadata.other,'keep');
  assert.equal(JSON.stringify(result).includes('admin'),false);assert.equal(JSON.stringify(result).includes('private'),false);
- await assert.rejects(store.put(a.user,p),/identity_conflict/);
- const next={...p,expectedVersion:1,keyVersion:2};next.signature=await a.signature(store.signed(a.user,next));
- const results=await Promise.allSettled([store.put(a.user,next),store.put(a.user,next)]);assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
+ assert.deepEqual(await store.put(a.user,p),result);
+ const reused={...p,expectedVersion:1,keyVersion:2};reused.signature=await a.signature(store.signed(a.user,reused));
+ await assert.rejects(store.put(a.user,reused),/identity_conflict/);
+ const replacement=await identity(a.user);
+ const next={...p,deviceId:replacement.deviceId,dhPublic:replacement.registration.dhPublic,signPublic:replacement.registration.signPublic,expectedVersion:1,keyVersion:2};next.signature=await replacement.signature(store.signed(a.user,next));
+ const results=await Promise.allSettled([store.put(a.user,next),store.put(a.user,next)]);assert.ok(results.some(x=>x.status==='fulfilled'));
+ assert.equal((await store.put(a.user,next)).identity.keyVersion,2);
  assert.equal((await store.get(a.user)).identity.keyVersion,2);
+ const b=await identity('user_b'),lost={...p,deviceId:b.deviceId,dhPublic:b.registration.dhPublic,signPublic:b.registration.signPublic};
+ lost.signature=await b.signature(store.signed(b.user,lost));
+ failBefore=true;await assert.rejects(store.put(b.user,lost),/identity_unavailable/);
+ assert.equal((await store.get(b.user)).identity.deviceId,b.deviceId); // No original request needed.
+ assert.equal((await store.put(b.user,lost)).identity.deviceId,b.deviceId);
+});
+
+test('committed bootstrap response loss survives addition; real account reset excludes old self grant without rotating',async()=>{
+ const isolated=client.db(process.env.MONGODB_DB+'_identity_flow');
+ try{
+ const profiles:any={};
+ const clerk={users:{getUser:async(u:string)=>structuredClone(profiles[u]||{publicMetadata:{},privateMetadata:{}}),updateUserMetadata:async(u:string,p:any)=>{
+  const old=profiles[u]||{publicMetadata:{},privateMetadata:{}};
+  for(const field of ['publicMetadata','privateMetadata'])old[field]={...old[field],tabletalk:{...old[field].tabletalk,...p[field].tabletalk}};
+  profiles[u]=old;return structuredClone(old);
+ }}};
+ // @ts-expect-error runtime module
+ const {createIdentityStore}=await import('../../runtime/chat-identity.mjs');
+ const identities=createIdentityStore(isolated,clerk),chat=createChatService(isolated,{clerk});await chat.ready;
+ await isolated.collection('rooms').insertOne({_id:'main' as never,version:0,members:[{id:'owner',approved:true}]});
+ async function publish(who:Awaited<ReturnType<typeof identity>>,version:number){
+  const p={v:1,expectedVersion:version,keyVersion:version+1,deviceId:who.deviceId,dhPublic:who.registration.dhPublic,signPublic:who.registration.signPublic,backup:{v:1,recoveryScheme:'bip39-english-6-v1',kdf:'argon2id',memoryKiB:65536,iterations:3,parallelism:1,salt:rand(32),iv:rand(12),ciphertext:rand(256)},signature:''};
+  p.signature=await who.signature(identities.signed(who.user,p));
+  const result=await chat.handle(who.user,'keys:put',p);
+  assert.deepEqual(await chat.handle(who.user,'keys:put',p),result);
+  assert.equal(await isolated.collection('chat_devices').countDocuments({userId:who.user}),1);
+  return result;
+ }
+ const owner=await identity('owner');await publish(owner,0);
+ let state=await chat.handle(owner.user,'state',{v:1});
+ state=await chat.handle(owner.user,'claim',{v:1,revision:state.revision,epoch:state.epoch,deviceId:owner.deviceId});
+ const self={v:1,room:'main',revision:state.revision,epoch:state.epoch,deviceId:owner.deviceId,toUserId:owner.user,toDeviceId:owner.deviceId,salt:rand(32),iv:rand(12),ciphertext:rand(48),signature:''};
+ self.signature=await owner.signature(signedWrap(owner.user,self));
+ await chat.handle(owner.user,'wrap',self); // Response deliberately discarded after commit.
+ await isolated.collection('rooms').updateOne({_id:'main' as never},{$push:{members:{id:'added',approved:true}} as never,$inc:{version:1}});
+ const added=await identity('added');await publish(added,0);
+ await assert.rejects(chat.handle(owner.user,'wrap',self),/stale_revision/);
+ const restored=await chat.handle(owner.user,'state',{v:1});
+ assert.equal(restored.status,'active');assert.equal(restored.epoch,state.epoch);
+ assert.ok(restored.wraps.some((w:any)=>w.ciphertext===self.ciphertext));
+ const replacement=await identity(owner.user);await publish(replacement,1);
+ const reset=await chat.handle(owner.user,'state',{v:1});
+ assert.equal(reset.epoch,state.epoch);assert.ok(reset.revision>restored.revision);
+ assert.equal(reset.wraps.length,0);
+ await assert.rejects(chat.handle(owner.user,'history',{v:1,epoch:state.epoch,deviceId:replacement.deviceId}),/waiting/);
+ // Removal and explicit re-admission before the next snapshot still fences the epoch.
+ await isolated.collection('rooms').updateOne({_id:'main' as never},{$inc:{version:1,chatRemovalVersion:1}});
+ assert.notEqual((await chat.handle(owner.user,'state',{v:1})).epoch,state.epoch);
+ // Retrieval pagination, not cryptographic validity of synthetic historical rows.
+ await isolated.collection('chat_wraps').insertMany(Array.from({length:513},(_,i)=>({...self,_id:i.toString(16).padStart(64,'0') as never,senderUserId:owner.user,toDeviceId:replacement.deviceId,epoch:randomUUID(),senderDhPublic:owner.registration.dhPublic,senderSignPublic:owner.registration.signPublic})));
+ const first=await chat.handle(owner.user,'state',{v:1});assert.equal(first.wraps.length,512);assert.ok(first.nextWrapCursor);
+ const second=await chat.handle(owner.user,'state',{v:1,beforeWrap:first.nextWrapCursor});assert.equal(second.wraps.length,1);assert.equal(second.nextWrapCursor,null);
+ }finally{await isolated.dropDatabase();}
 });

@@ -28,23 +28,63 @@ export function createChatService(db,{now=Date.now,clerk}={}){
  async function device(user,id){const d=await devices.findOne({userId:user,deviceId:uuid(id)});if(!d)fail('device_required');if(identity){const pointer=await db.collection('chat_identity_versions').findOne({_id:user});if(!pointer||pointer.status!=='active'||pointer.version!==d.keyVersion)fail('identity_conflict');}return d;}
  async function hasWrap(epoch,user,id){const state=await states.findOne({_id:'main',epoch});if(state?.bootstrap?.toUserId===user&&state.bootstrap.toDeviceId===id)return state.bootstrap;return wraps.findOne({_id:digest(JSON.stringify([epoch,user,id]))});}
  function view(s,user,ws){return {room:'main',revision:s.state.revision,epoch:s.state.epoch,status:s.state.status,owner:s.state.owner,leaseUntil:s.state.leaseUntil,members:s.members.map(userId=>({userId,devices:s.directory.filter(d=>d.userId===userId).map(d=>({deviceId:d.deviceId,dhPublic:d.dhPublic,signPublic:d.signPublic,fingerprint:bundleFingerprint(userId,d)}))})),wraps:ws};}
- const cleanWrap=d=>({v:1,room:'main',revision:d.revision,epoch:d.epoch,senderUserId:d.senderUserId,deviceId:d.deviceId,toUserId:d.toUserId,toDeviceId:d.toDeviceId,salt:d.salt,iv:d.iv,ciphertext:d.ciphertext,signature:d.signature});
+ const cleanWrap=d=>({v:1,room:'main',revision:d.revision,epoch:d.epoch,senderUserId:d.senderUserId,deviceId:d.deviceId,toUserId:d.toUserId,toDeviceId:d.toDeviceId,salt:d.salt,iv:d.iv,ciphertext:d.ciphertext,signature:d.signature,...(d.senderDhPublic?{senderDhPublic:d.senderDhPublic,senderSignPublic:d.senderSignPublic}:{})});
  const cleanMessage=d=>({v:1,room:'main',revision:d.revision,epoch:d.epoch,senderUserId:d.senderUserId,deviceId:d.deviceId,id:d.id,ts:d.ts,iv:d.iv,ciphertext:d.ciphertext,signature:d.signature,senderSignPublic:d.senderSignPublic,serverTs:d.serverTs,cursor:d.cursor});
+ async function wrapViews(rows){
+  const cache=new Map();
+  return Promise.all(rows.map(async row=>{
+   const id=digest(JSON.stringify([row.senderUserId,row.deviceId]));
+   if(!cache.has(id))cache.set(id,(async()=>{
+    let pub=await db.collection('chat_public_keys').findOne({_id:id});
+    if(!pub)pub=await devices.findOne({userId:row.senderUserId,deviceId:row.deviceId});
+    if(!pub&&clerk){
+     const profile=await clerk.users.getUser(row.senderUserId);
+     pub=Object.values(profile.publicMetadata?.tabletalk||{}).find(k=>k.deviceId===row.deviceId);
+    }
+    return pub;
+   })());
+   const pub=await cache.get(id);
+   return cleanWrap({...row,...(pub?{senderDhPublic:pub.dhPublic,senderSignPublic:pub.signPublic}:{})});
+  }));
+ }
+ async function archivePublic(user,d){
+  await db.collection('chat_public_keys').updateOne({_id:digest(JSON.stringify([user,d.deviceId]))},{$setOnInsert:{userId:user,deviceId:d.deviceId,dhPublic:d.dhPublic,signPublic:d.signPublic}},{upsert:true});
+ }
  async function perform(user,event,p){await ready;text(user);await rate(user);const s=await snapshot(user);
-  if(event==='keys:get'){shape(p,['v']);if(!identity)fail('identity_unavailable');return identity.get(user);}
-  if(event==='keys:put'){
+  if(event==='keys:get'||event==='keys:put'){
    if(!identity)fail('identity_unavailable');
-   const result=await identity.put(user,p);
-   await devices.deleteMany({userId:user});
+   if(event==='keys:get')shape(p,['v']);
+   if(event==='keys:put'){
+    const existing=await devices.findOne({_id:p?.deviceId});
+    if(existing&&existing.userId!==user)fail('device_conflict');
+   }
+   await fence(s,user);
+   const result=event==='keys:get'?await identity.get(user):await identity.put(user,p);
    const d=result.identity;
-   await devices.insertOne({_id:d.deviceId,userId:user,deviceId:d.deviceId,dhPublic:d.dhPublic,signPublic:d.signPublic,keyVersion:d.keyVersion});
+   if(d){
+    await archivePublic(user,d);
+    // Repair directory publication after a lost response or a recovered Clerk write.
+    await devices.updateOne({_id:d.deviceId},{$setOnInsert:{userId:user,deviceId:d.deviceId,dhPublic:d.dhPublic,signPublic:d.signPublic,keyVersion:d.keyVersion}},{upsert:true});
+    await devices.deleteMany({userId:user,deviceId:{$ne:d.deviceId}});
+    const updated=await snapshot(user);
+    if(event==='keys:get'&&updated.state.revision!==s.state.revision)return {...result,directoryChanged:true};
+   }
    return result;
   }
-  if(event==='state'){shape(p,['v']);const ws=await wraps.find({toUserId:user,toDeviceId:{$in:s.directory.filter(d=>d.userId===user).map(d=>d.deviceId)}}).limit(512).toArray();if(s.state.bootstrap?.toUserId===user&&!ws.some(w=>w._id===s.state.bootstrap._id))ws.push(s.state.bootstrap);await fence(s,user);return view(s,user,ws.map(cleanWrap));}
+  if(event==='state'){
+   shape(p,['v'],['beforeWrap']);
+   if(p.beforeWrap!==undefined&&(typeof p.beforeWrap!=='string'||!/^\w{64}$/.test(p.beforeWrap)||!/^[a-f0-9]+$/.test(p.beforeWrap)))fail();
+   const rows=await wraps.find({toUserId:user,toDeviceId:{$in:s.directory.filter(d=>d.userId===user).map(d=>d.deviceId)},...(p.beforeWrap?{_id:{$gt:p.beforeWrap}}:{})}).sort({_id:1}).limit(513).toArray();
+   const ws=rows.slice(0,512),nextWrapCursor=rows.length>512?ws[ws.length-1]._id:null;
+   if(!p.beforeWrap&&s.state.bootstrap?.toUserId===user&&s.directory.some(d=>d.userId===user&&d.deviceId===s.state.bootstrap.toDeviceId)&&!ws.some(w=>w._id===s.state.bootstrap._id))ws.push(s.state.bootstrap);
+   await fence(s,user);
+   return {...view(s,user,await wrapViews(ws)),nextWrapCursor};
+  }
   if(event==='register'){
    shape(p,['v','deviceId','dhPublic','signPublic','signature']);uuid(p.deviceId);
    if(identity){const owned=(await identity.get(user)).identity;if(!owned||owned.deviceId!==p.deviceId||owned.dhPublic!==p.dhPublic||owned.signPublic!==p.signPublic)fail('identity_conflict');}await validateDevice(p);if(!await verify(p.signPublic,registerData(user,p),p.signature))fail('invalid_signature');
    const old=await devices.findOne({deviceId:p.deviceId});if(old&&(old.userId!==user||old.dhPublic!==p.dhPublic||old.signPublic!==p.signPublic))fail('device_conflict');
+   await archivePublic(user,p);
    if(!old){if(await devices.countDocuments({userId:user})>=8)fail('device_limit');await fence(s,user);await devices.insertOne({_id:p.deviceId,userId:user,deviceId:p.deviceId,dhPublic:p.dhPublic,signPublic:p.signPublic,...(identity?{keyVersion:(await identity.get(user)).identity.keyVersion}:{})});}
    return view(await snapshot(user),user,[]);
   }
@@ -70,7 +110,7 @@ export function createChatService(db,{now=Date.now,clerk}={}){
    await fence(s,user);
    const id=digest(JSON.stringify([p.epoch,p.toUserId,p.toDeviceId])),content=signedWrap(user,p),existing=await hasWrap(p.epoch,p.toUserId,p.toDeviceId);
    if(existing){if(existing.content!==content||existing.signature!==p.signature)fail('conflict');if(initial)await states.updateOne({_id:'main',revision:p.revision,epoch:p.epoch,status:'claimed',owner:s.state.owner},{$set:{status:'active',leaseUntil:0}});return {wrap:cleanWrap(existing)};}
-   const doc={_id:id,v:1,room:'main',revision:p.revision,epoch:p.epoch,senderUserId:user,deviceId:p.deviceId,toUserId:p.toUserId,toDeviceId:p.toDeviceId,salt:p.salt,iv:p.iv,ciphertext:p.ciphertext,signature:p.signature,content};
+   const doc={_id:id,v:1,room:'main',revision:p.revision,epoch:p.epoch,senderUserId:user,deviceId:p.deviceId,toUserId:p.toUserId,toDeviceId:p.toDeviceId,salt:p.salt,iv:p.iv,ciphertext:p.ciphertext,signature:p.signature,senderDhPublic:d.dhPublic,senderSignPublic:d.signPublic,content};
    if(initial){const activation=await states.updateOne({_id:'main',revision:p.revision,epoch:p.epoch,status:'claimed',owner:s.state.owner},{$set:{status:'active',leaseUntil:0,bootstrap:doc}});if(!activation.matchedCount)fail('stale_revision');}
    else await wraps.insertOne(doc);
    return {wrap:cleanWrap(doc)};

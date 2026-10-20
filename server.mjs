@@ -74,7 +74,7 @@ io.on("connection",socket=>{
     const result=await chat.handle(socket.data.identity.id,event,payload);
     if(socket.data.expires<=Date.now()){socket.disconnect(true);return;}
     ack({ok:true,...result});
-    if(["register","claim","wrap","send"].includes(event)){
+    if((["register","keys:put","claim","wrap","send"].includes(event)||result.directoryChanged===true)){
      // Generic coalesced hints contain no membership, ciphertext or wrapped keys.
      hintChatChanged();
     }
