@@ -7,7 +7,7 @@ import {parseTransferAmount,transferNote,transferIndexes,type Transfer} from "./
 import type {Identity,Room} from "./types";
 
 export const AIRDROP_PREVIEW_TTL_MS=5*60_000;
-type Preview={_id:string;owner:string;version:number;recipients:string[];amount:number;note:string;count:number;total:number;expiresAt:Date;fingerprint:string;consumedBy?:string};
+type Preview={_id:string;owner:string;recipients:string[];amount:number;note:string;count:number;total:number;expiresAt:Date;fingerprint:string;consumedBy?:string};
 type Receipt={_id:string;owner:string;fingerprint:string;previewId:string;count:number;total:number;amount:number;note:string;at:number};
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -15,7 +15,7 @@ let indexed:Db|undefined;
 async function indexes(d:Db){if(indexed===d)return;await transferIndexes(d);await d.collection("airdrop_previews").createIndex({expiresAt:1},{expireAfterSeconds:0});indexed=d;}
 function admin(who:Identity){ensure(who.admin===true,"Administrator access required.",403);}
 function recipients(r:Room){return r.members.filter(m=>m.approved&&!m.accessRevoked).map(m=>m.id).sort();}
-function binding(p:Omit<Preview,"fingerprint">){return hash(JSON.stringify([p.owner,p.version,p.recipients,p.amount,p.note,p.count,p.total,p.expiresAt.getTime()]));}
+function binding(p:Omit<Preview,"fingerprint">){return hash(JSON.stringify([p.owner,p.recipients,p.amount,p.note,p.count,p.total,p.expiresAt.getTime()]));}
 function view(p:Preview){return {previewId:p._id,count:p.count,total:p.total,amount:p.amount,note:p.note,expiresAt:p.expiresAt.getTime()};}
 function result(r:Receipt){return {id:r._id,previewId:r.previewId,count:r.count,total:r.total,amount:r.amount,note:r.note,at:r.at};}
 function supported(e:unknown):never{if((e as {code?:number}).code===20)throw new AppError("Airdrops require a MongoDB replica set. No money was issued.",503);throw e;}
@@ -26,7 +26,7 @@ export async function previewAirdrop(who:Identity,input:{amount:unknown;note?:un
   const r=await d.collection<Room>("rooms").findOne({_id:"main"},{session});ensure(r,"Room unavailable.",503);
   const ids=recipients(r),total=amount*ids.length;ensure(ids.length>0,"No eligible wallets.",409);ensure(new Set(ids).size===ids.length,"Invalid wallet membership.",503);ensure(Number.isSafeInteger(total)&&Number.isSafeInteger((r.issuance||0)+total)&&Number.isSafeInteger(totalChips(r)+total),"Airdrop exceeds the simulation limit.");
   for(const m of r.members.filter(m=>ids.includes(m.id)))ensure(Number.isSafeInteger(m.wallet+amount)&&Number.isSafeInteger((m.adjustments||0)+amount),"A wallet exceeds the simulation limit.");
-  const fields={_id:randomUUID(),owner:who.id,version:r.version,recipients:ids,amount,note,count:ids.length,total,expiresAt:new Date(Date.now()+AIRDROP_PREVIEW_TTL_MS)};
+  const fields={_id:randomUUID(),owner:who.id,recipients:ids,amount,note,count:ids.length,total,expiresAt:new Date(Date.now()+AIRDROP_PREVIEW_TTL_MS)};
   const p:Preview={...fields,fingerprint:binding(fields)};await d.collection<Preview>("airdrop_previews").insertOne(p,{session});return view(p);
  },{readConcern:{level:"snapshot"},writeConcern:{w:"majority"},readPreference:"primary"});}catch(e){supported(e);}finally{await session.endSession();}
 }
@@ -42,7 +42,8 @@ export async function confirmAirdrop(who:Identity,input:{previewId:string;reques
   const p=await previews.findOne({_id:input.previewId},{session});ensure(p&&p.owner===who.id,"Preview unavailable. Preview again.",409);
   ensure(!p.consumedBy,"This preview has already been confirmed.",409);ensure(p.expiresAt.getTime()>Date.now(),"Preview expired. Preview again.",409);ensure(p.fingerprint===binding(p),"Preview changed. Preview again.",409);
   const r=await rooms.findOne({_id:"main"},{session});ensure(r,"Room unavailable.",503);
-  ensure(r.version===p.version&&JSON.stringify(recipients(r))===JSON.stringify(p.recipients),"The room changed. Preview again before confirming.",409);
+  // Only eligible IDs bind membership. Market ticks and balances are not preview terms.
+  ensure(hash(JSON.stringify(recipients(r)))===hash(JSON.stringify(p.recipients)),"The room changed. Preview again before confirming.",409);
   const before=r.members.find(m=>m.id===who.id)?.wallet??0,at=Date.now();
   ensure(Number.isSafeInteger(p.total)&&p.total===p.amount*p.count&&Number.isSafeInteger((r.issuance||0)+p.total)&&Number.isSafeInteger(totalChips(r)+p.total),"Airdrop exceeds the simulation limit.");
   const records:(Transfer&{kind:"airdrop"})[]=[];
@@ -57,7 +58,9 @@ export async function confirmAirdrop(who:Identity,input:{previewId:string;reques
   const after=r.members.find(m=>m.id===who.id)?.wallet??0;for(const record of records)record.senderAfter=after;
   r.issuance=(r.issuance||0)+p.total;assertRoom(r);
   const {_id,...fields}=r;Reflect.deleteProperty(fields,"chatMutationLock");fields.version=r.version+1;
-  ensure((await rooms.updateOne({_id,version:p.version},{$set:fields,$unset:{chatMutationLock:""}},{session})).matchedCount,"The room changed. Preview again before confirming.",409);
+  // Fence the current transactional snapshot, not the old preview version. Concurrent
+  // room writes force a retry, which rechecks eligibility and uses fresh balances.
+  ensure((await rooms.updateOne({_id,version:r.version},{$set:fields,$unset:{chatMutationLock:""}},{session})).matchedCount,"The room changed. Preview again before confirming.",409);
   ensure((await previews.updateOne({_id:p._id,consumedBy:{$exists:false}},{$set:{consumedBy:id}},{session})).matchedCount,"This preview has already been confirmed.",409);
   await d.collection<Transfer&{kind:"airdrop"}>("transfers").insertMany(records,{session});
   const receipt:Receipt={_id:id,owner:who.id,fingerprint,previewId:p._id,count:p.count,total:p.total,amount:p.amount,note:p.note,at};await receipts.insertOne(receipt,{session});return result(receipt);
