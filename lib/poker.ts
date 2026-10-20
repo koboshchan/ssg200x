@@ -2,7 +2,7 @@ import {ACTION_TURN_MS} from "./turn-timer";
 import { randomInt, createHash } from "node:crypto";
 import {rouletteAssets} from "./roulette";
 import {blackjackTablesAssets} from "./blackjack";
-import solver from "pokersolver";
+import {showdownWinners} from "./poker-hand";
 import {assetsBook} from "./finance";
 import { ensure } from "./errors";
 import type { Room, Seat, Identity, Member, Action, Payout } from "./types";
@@ -111,12 +111,11 @@ export function showdown(r: Room, now: number) {
  end(r, payouts, now);
 }
 function award(r:Room,eligible:number[],amount:number,payouts:Payout[]) {
- const hands=eligible.map(i=>solver.Hand.solve([...r.seats[i]!.hole,...r.board]));
- const winners=solver.Hand.winners(hands);
- const winningSeats=eligible.filter((_,j)=>winners.includes(hands[j]));
+ const winners=showdownWinners(eligible.map(i=>r.seats[i]!.hole),r.board);
+ const winningSeats=eligible.filter((_,j)=>winners.some(w=>w.index===j));
  const clockwise=ordered(r,r.button,()=>true).filter(i=>winningSeats.includes(i));
  const share=Math.floor(amount/clockwise.length),remainder=amount%clockwise.length;
- clockwise.forEach((i,j)=>payouts.push({seat:i,amount:share+(j<remainder?1:0),description:hands[eligible.indexOf(i)].descr}));
+ clockwise.forEach((i,j)=>payouts.push({seat:i,amount:share+(j<remainder?1:0),description:winners.find(w=>w.index===eligible.indexOf(i))!.description}));
 }
 function advance(r: Room, after: number, now: number) {
  const alive = r.seats.filter(s => s && contenders(s));
