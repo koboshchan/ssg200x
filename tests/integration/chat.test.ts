@@ -170,6 +170,20 @@ test('committed bootstrap response loss survives addition; real account reset ex
   return result;
  }
  const owner=await identity('owner');await publish(owner,0);
+ const published=await isolated.collection('chat_states').findOne({_id:'main' as never});
+ const unchanged=await chat.handle(owner.user,'keys:get',{v:1});
+ assert.equal(unchanged.directoryChanged,undefined);
+ assert.equal((await isolated.collection('chat_states').findOne({_id:'main' as never}))!.revision,published!.revision);
+ // Simulate lost directory publication after the account pointer committed.
+ await isolated.collection('chat_devices').deleteMany({userId:owner.user});
+ await chat.handle(owner.user,'state',{v:1});
+ const missing=await isolated.collection('chat_states').findOne({_id:'main' as never});
+ assert.equal((await chat.handle(owner.user,'keys:get',{v:1})).directoryChanged,true);
+ const repaired=await isolated.collection('chat_states').findOne({_id:'main' as never});
+ assert.equal(repaired!.revision,missing!.revision+1);
+ assert.equal((await chat.handle(owner.user,'keys:get',{v:1})).directoryChanged,undefined);
+ assert.equal((await isolated.collection('chat_states').findOne({_id:'main' as never}))!.revision,repaired!.revision);
+
  let state=await chat.handle(owner.user,'state',{v:1});
  state=await chat.handle(owner.user,'claim',{v:1,revision:state.revision,epoch:state.epoch,deviceId:owner.deviceId});
  const self={v:1,room:'main',revision:state.revision,epoch:state.epoch,deviceId:owner.deviceId,toUserId:owner.user,toDeviceId:owner.deviceId,salt:rand(32),iv:rand(12),ciphertext:rand(48),signature:''};
