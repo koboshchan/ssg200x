@@ -14,7 +14,7 @@ export async function mutate<T>(fn: (r: Room)=>T | Promise<T>) {
   const result=await fn(next);
   assertRoom(next);
   const {_id,...fields}=next; Reflect.deleteProperty(fields,"chatMutationLock"); fields.version=previous.version+1;
-  if((await(await rooms()).updateOne({_id,version:previous.version,chatMutationLock:{$exists:false}},{$set:fields})).matchedCount) {
+  if((await(await rooms()).updateOne({_id,version:previous.version},{$set:fields,$unset:{chatMutationLock:""}})).matchedCount) {
    next.version=fields.version; await flushAudit(next).catch(()=>{}); return {room:next,result};
   }
  }

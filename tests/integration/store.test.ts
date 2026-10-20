@@ -111,3 +111,11 @@ test("manual site maintenance persists independently and records administrator a
  assert.equal(events.length,2);assert.equal(events[0].who,admin.id);
  assert.ok(events.some(e=>e.old===false&&e.new===true));assert.ok(events.some(e=>e.old===true&&e.new===false));
 });
+
+test("orphaned legacy chat lock never blocks gameplay or resurrects on room writes",async()=>{
+ await(await db()).collection("rooms").updateOne({_id:"main"} as never,{$set:{chatMutationLock:{token:"dead-worker"}}});
+ await mutate(r=>{r.siteMaintenance=false;});
+ assert.equal((await(await db()).collection("rooms").findOne({_id:"main"} as never))!.chatMutationLock,undefined);
+ await visit(admin);await tickRoom();assertRoom(await readRoom());
+});
+

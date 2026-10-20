@@ -91,6 +91,5 @@ export function createChatService(db,{now=Date.now,clerk}={}){
   }
   fail('unknown_event');
  }
- async function controlled(user,event,p){const token=randomUUID();const lock=await rooms.updateOne({_id:'main',chatMutationLock:{$exists:false}},{$set:{chatMutationLock:{token,acquiredAt:now()}}});if(!lock.matchedCount)fail('busy');try{return await perform(user,event,p);}finally{await rooms.updateOne({_id:'main','chatMutationLock.token':token},{$unset:{chatMutationLock:''}});}}
- return {handle:(user,event,p)=>serial(()=>controlled(user,event,p)),authorized:user=>serial(async()=>{await ready;await snapshot(user);return true;}),ready};
+ return {handle:(user,event,p)=>serial(()=>perform(user,event,p)),authorized:user=>serial(async()=>{await ready;await snapshot(user);return true;}),ready};
 }

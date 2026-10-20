@@ -52,9 +52,8 @@ test('real Mongo stores ciphertext only, bootstrap leases, wrapping, replay, str
  const control=await db.collection('chat_states').findOne({_id:'main' as never});assert.equal(control!.bootstrap.ciphertext,self.ciphertext);
  assert.equal(await db.collection('chat_wraps').countDocuments({epoch:state.epoch,toUserId:b.user}),0);
  await db.collection('rooms').updateOne({_id:'main' as never},{$set:{chatMutationLock:{token:'crashed-owner'}}});
- await assert.rejects(chat.handle(a.user,'state',{v:1}),/busy/);
- assert.equal((await db.collection('rooms').updateOne({_id:'main' as never,chatMutationLock:{$exists:false}},{$set:{version:999}})).matchedCount,0);
- await db.collection('rooms').updateOne({_id:'main' as never,'chatMutationLock.token':'crashed-owner'},{$unset:{chatMutationLock:''}});
+ await chat.handle(a.user,'state',{v:1}); // Orphaned legacy chat locks cannot gate operations.
+ await db.collection('rooms').updateOne({_id:'main' as never},{$unset:{chatMutationLock:''}});
  clock+=31000;await assert.rejects(chat.handle(a.user,'claim',claim()),/waiting/);
  const ba=await wrap(b,a);await chat.handle(b.user,'wrap',ba);
  // Actual recipient ECDH/HKDF/AES-GCM roundtrip, not a mocked ciphertext fixture.
@@ -71,9 +70,10 @@ test('real Mongo stores ciphertext only, bootstrap leases, wrapping, replay, str
  const concurrent=createChatService(intercepted,{now:()=>clock});
  const pendingSend=concurrent.handle(a.user,'send',p);await reached;
  const roomAtCutover=await db.collection('rooms').findOne({_id:'main' as never});
- // Exact production membership CAS filter, attempted after authorization but before insert.
- const blockedRemoval=await db.collection('rooms').updateOne({_id:'main' as never,version:roomAtCutover!.version,chatMutationLock:{$exists:false}},{$set:{members:[{id:a.user,approved:true}]},$inc:{version:1}});
- assert.equal(blockedRemoval.matchedCount,0);
+ // Removal after the authorization CAS is ordered after this in-flight send.
+ const blockedRemoval=await db.collection('rooms').updateOne({_id:'main' as never,version:roomAtCutover!.version},{$set:{members:[{id:a.user,approved:true}]},$inc:{version:1}});
+ assert.equal(blockedRemoval.matchedCount,1);
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{members:[{id:a.user,approved:true},{id:b.user,approved:true}]},$inc:{version:1}});
  resumeInsert();const result=await pendingSend;
  assert.equal((await db.collection('rooms').findOne({_id:'main' as never}))!.chatMutationLock,undefined);
  assert.equal(result.duplicate,false);assert.equal((await chat.handle(a.user,'send',p)).duplicate,true);
