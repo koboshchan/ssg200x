@@ -7,9 +7,9 @@ export function createIdentityStore(db,clerk){
  const keys=['v','expectedVersion','keyVersion','deviceId','dhPublic','signPublic','backup','signature'];
  function validateBackup(b){
   shape(b,['v','recoveryScheme','kdf','memoryKiB','iterations','parallelism','salt','iv','ciphertext']);
-  if(b.recoveryScheme!=='eff-large-6-v1'||b.kdf!=='argon2id'||b.memoryKiB!==65536||b.iterations!==3||b.parallelism!==1)fail('invalid_kdf');
+  if(b.recoveryScheme!=='bip39-english-6-v1'||b.kdf!=='argon2id'||b.memoryKiB!==65536||b.iterations!==3||b.parallelism!==1)fail('invalid_kdf');
   binary(b.salt,32);binary(b.iv,12);binary(b.ciphertext,128,3072);
-  return {v:1,recoveryScheme:'eff-large-6-v1',kdf:'argon2id',memoryKiB:65536,iterations:3,parallelism:1,salt:b.salt,iv:b.iv,ciphertext:b.ciphertext};
+  return {v:1,recoveryScheme:'bip39-english-6-v1',kdf:'argon2id',memoryKiB:65536,iterations:3,parallelism:1,salt:b.salt,iv:b.iv,ciphertext:b.ciphertext};
  }
  const signed=(user,p)=>canonical(['tabletalk',1,'identity',user,p.expectedVersion,p.keyVersion,p.deviceId,p.dhPublic,p.signPublic,p.backup.recoveryScheme,p.backup.kdf,p.backup.memoryKiB,p.backup.iterations,p.backup.parallelism,p.backup.salt,p.backup.iv,p.backup.ciphertext]);
  async function get(user){

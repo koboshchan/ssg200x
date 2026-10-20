@@ -94,11 +94,12 @@ test('account Clerk backup endpoints preserve metadata, validate bounds, own DTO
   if(ambiguous){ambiguous=false;throw Error('ambiguous write');}return profiles[u];
  }}};
  const store=createIdentityStore(db,clerk),a=await identity('user_a');
- const p={v:1,expectedVersion:0,keyVersion:1,deviceId:a.deviceId,dhPublic:a.registration.dhPublic,signPublic:a.registration.signPublic,backup:{v:1,recoveryScheme:'eff-large-6-v1',kdf:'argon2id',memoryKiB:65536,iterations:3,parallelism:1,salt:rand(32),iv:rand(12),ciphertext:rand(256)},signature:''};
+ const p={v:1,expectedVersion:0,keyVersion:1,deviceId:a.deviceId,dhPublic:a.registration.dhPublic,signPublic:a.registration.signPublic,backup:{v:1,recoveryScheme:'bip39-english-6-v1',kdf:'argon2id',memoryKiB:65536,iterations:3,parallelism:1,salt:rand(32),iv:rand(12),ciphertext:rand(256)},signature:''};
  p.signature=await a.signature(store.signed(a.user,p));
  assert.deepEqual(await store.get('user_b'),{identity:null});
  await assert.rejects(store.put(a.user,{...p,recoveryPhrase:'never accept secret'}),/malformed/);
  await assert.rejects(store.put(a.user,{...p,backup:{...p.backup,memoryKiB:9999999}}),/invalid_kdf/);
+ await assert.rejects(store.put(a.user,{...p,backup:{...p.backup,recoveryScheme:'eff-large-6-v1'}}),/invalid_kdf/);
  ambiguous=true;await assert.rejects(store.put(a.user,p),/identity_unavailable/);
  const result=await store.put(a.user,p);assert.equal(result.identity.keyVersion,1);
  assert.equal(profiles.user_a.privateMetadata.admin,true);assert.equal(profiles.user_a.privateMetadata.other,'private');assert.equal(profiles.user_a.publicMetadata.other,'keep');
