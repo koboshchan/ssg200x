@@ -59,8 +59,11 @@ test("random legal play across 500 hands preserves invariant after every action"
   const i=r.turn!,s=r.seats[i]!,l=legal(r,i)!;const choice=Math.random();
   if(choice<.13)act(r,s.userId,{type:"fold"},1000+steps*100);
   else if(choice>.80&&l.raiseOpen) {
-   const to=Math.min(l.maxTo,l.minTo+Math.floor(Math.random()*20)*100);
-   act(r,s.userId,{type:"raise",to},1000+steps*100);
+   // Odd-cent split pots can leave a non-dollar all-in bound. Generate only
+   // legal whole-dollar raises; do not change production fractional payouts.
+   const to=Math.min(Math.floor(l.maxTo/100)*100,Math.ceil(l.minTo/100)*100+Math.floor(Math.random()*20)*100);
+   if(to>=l.minTo&&to>r.currentBet)act(r,s.userId,{type:"raise",to},1000+steps*100);
+   else act(r,s.userId,{type:l.check?"check":"call"},1000+steps*100);
   }else act(r,s.userId,{type:l.check?"check":"call"},1000+steps*100);
   assertRoom(r);
  }
