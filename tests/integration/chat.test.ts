@@ -49,6 +49,12 @@ test('real Mongo stores ciphertext only, bootstrap leases, wrapping, replay, str
  await db.collection('chat_states').updateOne({_id:'main' as never},{$set:{status:'claimed',leaseUntil:clock-1}});
  await chat.handle(b.user,'wrap',self);
  state=await chat.handle(b.user,'state',{v:1});assert.equal(state.status,'active');
+ const control=await db.collection('chat_states').findOne({_id:'main' as never});assert.equal(control!.bootstrap.ciphertext,self.ciphertext);
+ assert.equal(await db.collection('chat_wraps').countDocuments({epoch:state.epoch,toUserId:b.user}),0);
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{chatMutationLock:{token:'crashed-owner'}}});
+ await assert.rejects(chat.handle(a.user,'state',{v:1}),/busy/);
+ assert.equal((await db.collection('rooms').updateOne({_id:'main' as never,chatMutationLock:{$exists:false}},{$set:{version:999}})).matchedCount,0);
+ await db.collection('rooms').updateOne({_id:'main' as never,'chatMutationLock.token':'crashed-owner'},{$unset:{chatMutationLock:''}});
  clock+=31000;await assert.rejects(chat.handle(a.user,'claim',claim()),/waiting/);
  const ba=await wrap(b,a);await chat.handle(b.user,'wrap',ba);
  // Actual recipient ECDH/HKDF/AES-GCM roundtrip, not a mocked ciphertext fixture.
