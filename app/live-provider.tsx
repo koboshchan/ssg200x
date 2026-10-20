@@ -21,8 +21,8 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
  const api=useMemo(()=>({subscribe(event:string,handler:(p:any)=>void){let set=listeners.current.get(event);if(!set){set=new Set();listeners.current.set(event,set);}set.add(handler);if(latest.current.has(event)&&event!=="market:update")handler(latest.current.get(event));return()=>{set!.delete(handler);};},emit(event:string,payload?:unknown){socketRef.current?.connected&&socketRef.current.emit(event,payload);},request(event:string,payload?:unknown){
    const socket=socketRef.current;
    if(!socket?.connected)return Promise.reject(new Error("disconnected"));
-   return new Promise<any>((resolve,reject)=>socket.timeout(15000).emit(event,payload,(err:Error|null,res:{ok:boolean;error?:string}|undefined)=>{
-    if(err||!res)reject(new Error("timeout"));else if(!res.ok)reject(new Error(res.error||"unavailable"));else resolve(res);
+   return new Promise<any>((resolve,reject)=>socket.timeout(15000).emit(event,payload,(err:Error|null,res:{ok:boolean;error?:string;retryAfter?:number;retryAfterUnit?:string;retryAfterMs?:number}|undefined)=>{
+    if(err||!res)reject(new Error("timeout"));else if(!res.ok)reject(Object.assign(new Error(res.error||"unavailable"),{retryAfter:res.retryAfter,retryAfterUnit:res.retryAfterUnit,retryAfterMs:res.retryAfterMs}));else resolve(res);
    }));
   }}),[]);
  useEffect(()=>{

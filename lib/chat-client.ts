@@ -1,3 +1,4 @@
+import {chatRequestBudget} from "./chat-request-budget";
 // TableTalk client state machine. Pure logic with injected transport and key store so the same code
 // runs in the browser (socket.io + IndexedDB) and in Node tests against the real chat service.
 import {createIdentity,newEpochKey,makeWrap,openMessage,openWrap,registerData,restoreIdentity,sealMessage,sha256Hex,signText,MAX_TEXT_BYTES,bundleFingerprint,type Identity,type ServerIdentity,type WireMessage,type WireWrap} from "./chat-crypto";
@@ -41,7 +42,9 @@ export class ChatClient{
  private ambiguous=new Set<string>();private sealed=new Map<string,SendPayload>();private historical=new Map<string,Device>();
  private closed=false;private hinted=false;private staleFailures=0;
  private opened=new Map<string,{key:CryptoKey;res:Awaited<ReturnType<typeof openMessage>>}>();private inflight=new Map<string,Promise<Awaited<ReturnType<typeof openMessage>>>>();private windowStart=0;private extra=0;
- constructor(private user:string,private request:Transport,private store:ChatStore,private now:()=>number=Date.now,private open:typeof openMessage=openMessage){}
+ constructor(private user:string,private transport:Transport,private store:ChatStore,private now:()=>number=Date.now,private open:typeof openMessage=openMessage,private budget=chatRequestBudget){}
+ private request:Transport=(event,payload)=>this.budget.request(this.user,event,payload,this.transport);
+ retrySync=()=>{this.budget.reset(this.user);return this.start();};
  subscribe=(fn:()=>void)=>{this.listeners.add(fn);return()=>{this.listeners.delete(fn);};};
  getSnapshot=()=>this.snap;
  private set(patch:Partial<Snapshot>){this.snap={...this.snap,...patch};this.listeners.forEach(l=>l());}
@@ -52,6 +55,9 @@ export class ChatClient{
  private syncing:Promise<void>|undefined;
  start=()=>{
   if(this.closed)return Promise.resolve();
+  const budget=this.budget.status(this.user);
+  if(budget.stopped){this.set({phase:"waiting",error:"sync_incomplete"});return Promise.resolve();}
+  if(budget.until>this.now()){this.later(budget.until-this.now());return Promise.resolve();}
   if(this.syncing)return this.syncing;
   const p=this.run(()=>this.sync()).finally(()=>{if(this.syncing===p)this.syncing=undefined;if(this.hinted&&!this.closed){this.hinted=false;clearTimeout(this.hintTimer);this.hint();}});
   this.syncing=p;return p;
@@ -90,6 +96,13 @@ export class ChatClient{
  }
  private fail(e:unknown){
   const code=codeOf(e);
+  if(code==="rate_limited"){
+   const rate=e as {exhausted?:boolean;retryAfterMs?:number};
+   this.set({phase:"waiting",error:rate.exhausted?"sync_incomplete":"rate_limited",historyIncomplete:true});
+   clearTimeout(this.timer);
+   if(!rate.exhausted)this.later(Math.max(1000,rate.retryAfterMs||15000));
+   return;
+  }
   if(code==="waiting")return this.set({phase:"waiting",error:null}),this.later(4000);
   if(code==="stale_revision"||code==="busy"||code==="rate_limited")return this.later(code==="rate_limited"?15000:Math.min(15000,800*2**Math.min(this.staleFailures++,5)));
   this.set({phase:"error",error:code});this.later(10000);
@@ -256,7 +269,7 @@ export class ChatClient{
   for(let n=0;;n++){
    try{res=await this.request("history",{v:1,epoch,deviceId:me.deviceId,...(before===undefined?{}:{before}),limit:PAGE}) as typeof res;break;}
    catch(e){
-    if(codeOf(e)!=="rate_limited"||this.closed)throw e;
+    if(codeOf(e)!=="rate_limited"||this.closed||(e as {retryAfterMs?:number}).retryAfterMs!==undefined)throw e;
     // Never retry earlier than the server asked; if that exceeds the bounded budget, exhaust instead.
     const srv=serverWait(e),wait=Math.max(srv??0,BACKOFF_MS*2**n);
     if(waited+wait>BUDGET_MS){this.retryHint=Math.max(srv??0,RESYNC_MS);throw e;}
@@ -283,6 +296,7 @@ export class ChatClient{
   }
   const missing=[...this.keys.keys()].some(k=>!this.cursors.has(k));
   await this.render();
+  if((exhausted as {exhausted?:boolean})?.exhausted){this.fail(exhausted);return false;}
   if(missing||exhausted){
    this.set({phase:"waiting",error:"history_incomplete",historyIncomplete:true});
    this.later(codeOf(exhausted)==="rate_limited"?this.retryHint:5000);

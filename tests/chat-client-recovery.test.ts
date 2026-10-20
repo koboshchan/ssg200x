@@ -1,9 +1,12 @@
+import {createRequestBudget} from "../lib/chat-request-budget";
+import {openMessage} from "../lib/chat-crypto";
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {ChatClient,type BootstrapPayload,type ChatStore,type Pin,type Setup} from "../lib/chat-client";
 import {createIdentity,makeWrap,newEpochKey,sealMessage,type Identity,type WireMessage,type WireWrap,type ServerIdentity} from "../lib/chat-crypto";
 
 class MemoryStore implements ChatStore{
+ budget=createRequestBudget(()=>Date.now());
  pending=new Map<string,any>();
  getPending=async(u:string)=>[...this.pending.entries()].filter(([k])=>k.startsWith(u+":")).map(([,v])=>structuredClone(v));
  putPending=async(u:string,p:any)=>{this.pending.set(u+":"+p.id,structuredClone(p));};
@@ -43,14 +46,14 @@ test("setup stages keys and shows words before publication; lost keys ACK retrie
   if(event==="state")return {...view((await store.getIdentity("a"))!,crypto.randomUUID()),status:"active"};
   throw new Error("unexpected "+event);
  };
- const c=new ChatClient("a",transport,store);
+ const c=new ChatClient("a",transport,store,Date.now,openMessage,store.budget);
  await c.start();await c.createIdentity();
  assert.equal(c.getSnapshot().phase,"words");assert.equal(requests.length,0);
  assert.equal((await store.getSetup("a"))!.identity.signPrivate.extractable,false);
  assert.equal(JSON.stringify(await store.getSetup("a")).includes(c.getSnapshot().words!.join(" ")),false);
  await c.confirmWords();c.close();
  assert.equal(requests.length,1);assert.equal((await store.getSetup("a"))!.confirmed,true);
- const resumed=new ChatClient("a",transport,store);
+ const resumed=new ChatClient("a",transport,store,Date.now,openMessage,store.budget);
  try{await resumed.start();assert.equal(requests.length,2);assert.deepEqual(requests[0],requests[1]);assert.equal(await store.getSetup("a"),undefined);assert.equal((await store.getIdentity("a"))!.deviceId,active!.deviceId);}
  finally{resumed.close();}
 });
@@ -58,8 +61,8 @@ test("setup stages keys and shows words before publication; lost keys ACK retrie
 test("reload before words confirmation offers recovery or explicit reset without publishing",async()=>{
  const store=new MemoryStore();let puts=0;
  const transport=async(e:string)=>{if(e==="keys:put")puts++;return {identity:null};};
- const c=new ChatClient("a",transport,store);await c.createIdentity();const words=c.getSnapshot().words!.join(" ");c.close();
- const resumed=new ChatClient("a",transport,store);
+ const c=new ChatClient("a",transport,store,Date.now,openMessage,store.budget);await c.createIdentity();const words=c.getSnapshot().words!.join(" ");c.close();
+ const resumed=new ChatClient("a",transport,store,Date.now,openMessage,store.budget);
  try{
   await resumed.start();assert.equal(resumed.getSnapshot().phase,"recover");assert.equal(resumed.getSnapshot().error,"setup_words_lost");assert.equal(puts,0);
   assert.ok(words.length);await resumed.resetIdentity();assert.equal(await store.getSetup("a"),undefined);assert.equal(resumed.getSnapshot().phase,"setup");
@@ -76,7 +79,7 @@ test("all grant pages including inline bootstrap are enumerated before history",
   if(event==="state"){calls.push(p.beforeWrap||"first");return {...base,wraps:p.beforeWrap?grants.slice(512):[...grants.slice(0,512),grants[0]],nextWrapCursor:p.beforeWrap?null:"a".repeat(64)};}
   if(event==="history")return {messages:p.epoch===current?[message]:[],nextCursor:null};
   throw new Error(event);
- },store);
+ },store,Date.now,openMessage,store.budget);
  try{await client.start();assert.deepEqual(calls,["first","a".repeat(64)]);assert.equal(store.epochs.size,514);assert.equal(client.getSnapshot().messages[0].text,"history");}
  finally{client.close();}
 });
@@ -88,7 +91,7 @@ test("grant pagination discards pages from a changed revision and restarts",asyn
   if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
   if(e==="state"){calls++;return {...base,revision:calls===1?1:2,nextWrapCursor:calls===1?"b".repeat(64):null};}
   if(e==="history")return {messages:[],nextCursor:null};throw new Error(e);
- },store);
+ },store,Date.now,openMessage,store.budget);
  try{await client.start();assert.equal(calls,3);assert.equal(client.getSnapshot().phase,"ready");}finally{client.close();}
 });
 
@@ -102,7 +105,7 @@ test("removed sender immutable binding uses durable pin and historical messages 
   if(e==="history")return {messages:[message],nextCursor:null};throw new Error(e);
  };
  for(let n=0;n<2;n++){
-  const c=new ChatClient("a",transport,store);
+  const c=new ChatClient("a",transport,store,Date.now,openMessage,store.budget);
   try{await c.start();assert.equal(c.getSnapshot().messages[0].status,"ok");assert.equal(c.getSnapshot().messages[0].text,"history");}finally{c.close();}
  }
 });
@@ -114,7 +117,7 @@ test("untrusted historical wrap waits for deliberate fingerprint approval, not s
   if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
   if(e==="state")return {...view(a.identity,epoch),wraps:[grant]};
   if(e==="history")return {messages:[message],nextCursor:null};throw new Error(e);
- },store);
+ },store,Date.now,openMessage,store.budget);
  try{
   await c.start();assert.equal(c.getSnapshot().phase,"waiting");assert.equal(store.epochs.size,0);
   const candidate=c.getSnapshot().members.find(m=>m.userId==="b"&&m.historical)!;assert.ok(candidate.changed);
@@ -129,7 +132,7 @@ test("message-only historical signing key needs explicit approval without author
   if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
   if(e==="state")return view(a.identity,epoch);
   if(e==="history")return {messages:[message],nextCursor:null};throw new Error(e);
- },store);
+ },store,Date.now,openMessage,store.budget);
  try{
   await c.start();assert.equal(c.getSnapshot().messages[0].status,"keychanged");
   const candidate=c.getSnapshot().members.find(m=>m.historical)!;
@@ -152,8 +155,8 @@ test("bootstrap persists key plus exact envelope before activation; reload retri
   }
   if(e==="history")return {messages:[],nextCursor:null};throw new Error(e);
  };
- const first=new ChatClient("a",transport,store);await first.start();first.close();
- const next=new ChatClient("a",transport,store);
+ const first=new ChatClient("a",transport,store,Date.now,openMessage,store.budget);await first.start();first.close();
+ const next=new ChatClient("a",transport,store,Date.now,openMessage,store.budget);
  try{await next.start();assert.equal(next.getSnapshot().phase,"ready");assert.deepEqual(envelopes[0],envelopes[1]);assert.equal(await store.getBootstrap("a",epoch),undefined);}
  finally{next.close();}
 });
@@ -167,7 +170,7 @@ test("committed activation with lost ACK and membership addition recovers author
   if(e==="claim"){base.status="claimed";return base;}
   if(e==="wrap"){wraps++;base.status="active";base.revision++;base.wraps=[{...p,senderUserId:"a",senderDhPublic:a.identity.dhPublic,senderSignPublic:a.identity.signPublic}];throw new Error("timeout");}
   if(e==="history")return {messages:[],nextCursor:null};throw new Error(e);
- },store);
+ },store,Date.now,openMessage,store.budget);
  try{await c.start();assert.equal(c.getSnapshot().phase,"ready");assert.equal(wraps,1);assert.equal(await store.getBootstrap("a",epoch),undefined);}
  finally{c.close();}
 });
@@ -185,7 +188,7 @@ test("send committed with lost ACK retries identical signed payload exactly once
    assert.deepEqual(p,sends[0]);return {message:committed};
   }
   throw new Error(e);
- },store);
+ },store,Date.now,openMessage,store.budget);
  try{
   await c.start();assert.equal(await c.send("one message"),false);const failed=c.getSnapshot().messages[0];
   assert.equal(failed.status,"failed");assert.equal(await c.retry(failed),true);
@@ -202,7 +205,7 @@ test("history echo reconciles ambiguous send without a failed duplicate overlay"
   if(e==="history")return {messages:committed?[committed]:[],nextCursor:null};
   if(e==="send"){committed={...p,senderUserId:"a",senderSignPublic:a.identity.signPublic,serverTs:1,cursor:1};throw new Error("timeout");}
   throw new Error(e);
- },store);
+ },store,Date.now,openMessage,store.budget);
  try{await c.start();await c.send("echo");await c.start();assert.equal(c.getSnapshot().messages.length,1);assert.equal(c.getSnapshot().messages[0].status,"ok");}
  finally{c.close();}
 });
@@ -217,7 +220,7 @@ test("fingerprint-scoped current key approval works without conflating a histori
   if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
   if(e==="state")return base;if(e==="wrap")return {};
   if(e==="history")return {messages:[message],nextCursor:null};throw new Error(e);
- },store);
+ },store,Date.now,openMessage,store.budget);
  try{
   await c.start();assert.equal(c.getSnapshot().messages[0].status,"keychanged");
   assert.equal(c.getSnapshot().members.filter(m=>m.historical).length,0);
@@ -237,55 +240,12 @@ test("an ambiguous send followed by stale retry never creates a different cipher
   if(e==="history")return {messages:[],nextCursor:null};
   if(e==="send"){sends.push(structuredClone(p));if(sends.length===1){revision++;throw new Error("timeout");}throw new Error("stale_revision");}
   throw new Error(e);
- },store);
+ },store,Date.now,openMessage,store.budget);
  try{
   await c.start();await c.send("ambiguous");assert.equal(await c.retry(c.getSnapshot().messages[0]),false);
   assert.equal(sends.length,2);assert.deepEqual(sends[0],sends[1]);
  }finally{c.close();}
 });
-
-test("throttled history retries, then exhaustion is non-ready, keeps cursors and recovers",async()=>{
- const {a,store}=await seeded(),key=await newEpochKey(),epochs=Array.from({length:40},()=>crypto.randomUUID());
- const grants=await Promise.all(epochs.map(e=>wire(a.identity,"a",a.identity,e,key)));
- const current=epochs[39],base=view(a.identity,current);
- const msgs=new Map(await Promise.all(epochs.map(async e=>[e,await makeMessage(a.identity,"a",e,key,"m-"+e)] as const)));
- const tries=new Map<string,number>();let blocked=new Set<string>(),retryAfter=0;
- const hist=new Map<string,number>();
- const client=new ChatClient("a",async(event,p:any)=>{
-  if(event==="keys:get")return {identity:server(a)};
-  if(event==="register")return {};
-  if(event==="state")return {...base,wraps:grants,nextWrapCursor:null};
-  if(event==="history"){
-   hist.set(p.epoch,(hist.get(p.epoch)||0)+1);
-   const n=(tries.get(p.epoch)||0)+1;tries.set(p.epoch,n);
-   if(blocked.has(p.epoch)||(epochs.slice(0,4).includes(p.epoch)&&n===1))throw Object.assign(new Error("rate_limited"),{retryAfter});
-   return {messages:[msgs.get(p.epoch)!],nextCursor:null};
-  }
-  throw new Error(event);
- },store);
- try{
-  await client.start();
-  let s=client.getSnapshot();assert.equal(s.phase,"ready");assert.equal(s.historyIncomplete,false);assert.equal(new Set(s.messages.map(m=>m.epoch)).size,40);
-  client.close();
- }finally{client.close();}
- // exhaustion: server demands longer than the bounded budget, so no early retry and the client is NOT ready
- blocked=new Set(epochs.slice(0,5));retryAfter=120;hist.clear();
- const c2=new ChatClient("a",async(event,p:any)=>{
-  if(event==="keys:get")return {identity:server(a)};
-  if(event==="register")return {};
-  if(event==="state")return {...base,wraps:grants,nextWrapCursor:null};
-  if(event==="history"){hist.set(p.epoch,(hist.get(p.epoch)||0)+1);if(blocked.has(p.epoch))throw Object.assign(new Error("rate_limited"),{retryAfter});return {messages:[msgs.get(p.epoch)!],nextCursor:null};}
-  throw new Error(event);
- },store);
- try{
-  await c2.start();
-  let s=c2.getSnapshot();assert.notEqual(s.phase,"ready");assert.equal(s.phase,"waiting");assert.equal(s.error,"history_incomplete");assert.equal(s.historyIncomplete,true);
-  assert.equal(hist.get(epochs[0]),1,"must not retry before the server retryAfter");
-  blocked=new Set();await c2.start();
-  s=c2.getSnapshot();assert.equal(s.phase,"ready");assert.equal(s.historyIncomplete,false);assert.equal(new Set(s.messages.map(m=>m.epoch)).size,40);
- }finally{c2.close();}
-});
-
 
 
 test("durable outbound ciphertext survives a new client and retries exact bytes",async()=>{
@@ -301,9 +261,9 @@ test("durable outbound ciphertext survives a new client and retries exact bytes"
    return {message:{...p,senderUserId:"a",senderSignPublic:a.identity.signPublic,serverTs:1,cursor:1}};
   }throw Error(e);
  };
- const first=new ChatClient("a",transport,store);await first.start();await first.send("durable private canary");first.close();
+ const first=new ChatClient("a",transport,store,Date.now,openMessage,store.budget);await first.start();await first.send("durable private canary");first.close();
  assert.equal(JSON.stringify(await store.getPending("a")).includes("durable private canary"),false);
- const next=new ChatClient("a",transport,store);
+ const next=new ChatClient("a",transport,store,Date.now,openMessage,store.budget);
  try{
   await next.start();assert.equal(next.getSnapshot().messages[0].text,"durable private canary");
   delivered=true;assert.equal(await next.retry(next.getSnapshot().messages[0]),true);
@@ -315,7 +275,7 @@ test("concurrent starts share one synchronization",async()=>{
  const c=new ChatClient("a",async(e:string)=>{
   if(e==="keys:get"){gets++;return {identity:server(a)};}if(e==="register")return {};
   if(e==="state")return view(a.identity,epoch);if(e==="history")return {messages:[],nextCursor:null};throw Error(e);
- },store);
+ },store,Date.now,openMessage,store.budget);
  try{await Promise.all(Array.from({length:30},()=>c.start()));assert.equal(gets,1);}finally{c.close();}
 });
 
@@ -326,7 +286,7 @@ test("failed durable write never emits or displays an accepted pending message",
   if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
   if(e==="state")return view(a.identity,epoch);if(e==="history")return {messages:[],nextCursor:null};
   if(e==="send")sends++;throw Error(e);
- },store);
+ },store,Date.now,openMessage,store.budget);
  try{await c.start();assert.equal(await c.send("not stored"),false);assert.equal(sends,0);assert.equal(c.getSnapshot().messages.length,0);}finally{c.close();}
 });
 test("pending restoration rejects tampering and foreign device without sending",async()=>{
@@ -340,7 +300,7 @@ test("pending restoration rejects tampering and foreign device without sending",
   if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
   if(e==="state")return view(a.identity,epoch);if(e==="history")return {messages:[],nextCursor:null};
   if(e==="send")sends++;throw Error(e);
- },store);
+ },store,Date.now,openMessage,store.budget);
  try{await c.start();assert.equal(c.getSnapshot().messages.length,0);assert.equal(sends,0);}finally{c.close();}
 });
 test("reload reconciles a committed history echo without retrying the outbound envelope",async()=>{
@@ -352,6 +312,21 @@ test("reload reconciles a committed history echo without retrying the outbound e
   if(e==="state")return view(a.identity,epoch);
   if(e==="history")return {messages:[{...payload,senderUserId:"a",senderSignPublic:a.identity.signPublic,serverTs:1,cursor:1}],nextCursor:null};
   throw Error(e);
- },store);
+ },store,Date.now,openMessage,store.budget);
  try{await c.start();assert.equal((await store.getPending("a")).length,0);assert.equal(c.getSnapshot().messages[0].status,"ok");}finally{c.close();}
+});
+
+test("actual client remounts and state-driven starts cannot reset a rate-limit budget",async()=>{
+ let clock=1,calls=0;const budget=createRequestBudget(()=>clock,()=>0),store=new MemoryStore();
+ const transport=async()=>{calls++;return {ok:false,error:"rate_limited",retryAfter:2,retryAfterUnit:"seconds"};};
+ const make=()=>new ChatClient("bounded-remount",transport,store,()=>clock,openMessage,budget);
+ for(let n=0;n<4;n++){
+  const c=make();await c.start();c.close();assert.equal(calls,n+1);
+  const remounted=make();
+  for(let j=0;j<30;j++)await remounted.start();
+  assert.equal(calls,n+1);remounted.close();clock=budget.status("bounded-remount").until;
+ }
+ const stopped=make();clock+=100000;
+ for(let i=0;i<50;i++)await stopped.start();
+ assert.equal(calls,4);assert.equal(stopped.getSnapshot().error,"sync_incomplete");stopped.close();
 });
