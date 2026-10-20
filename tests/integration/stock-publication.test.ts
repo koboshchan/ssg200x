@@ -1,3 +1,4 @@
+import {candleUpdate,candleRead} from "../../lib/candles";
 import {test,after} from "node:test";
 import assert from "node:assert/strict";
 import {db,readRoom,closeDatabase} from "../../lib/db";
@@ -9,15 +10,17 @@ test("existing worker lease fences stock publication without changing funds or u
  const database=await db();await database.dropDatabase();await readRoom();
  const workers=database.collection<{_id:string;owner:string;until:number}>("workers");
  await workers.insertOne({_id:"coinbase-feed",owner:"old",until:Date.now()+15000});
- await mutateStockPublication("old",room=>{room.quotes={SPCX:{micro:150_000_000,at:Date.now()}};});
+ const at=Date.now();await candleUpdate({});
+ await mutateStockPublication("old",room=>{room.quotes={SPCX:{micro:150_000_000,at}};},session=>candleUpdate({SPCX:{micro:150_000_000,at}},session));
+ const initialCandles=await candleRead("SPCX","1m",at-60000,at+60000);assert.equal(initialCandles.length,1);assert.equal(initialCandles[0].source,"alpaca-iex");
  const before=await readRoom();
  await workers.updateOne({_id:"coinbase-feed"},{$set:{owner:"new",until:Date.now()+15000}});
- await assert.rejects(mutateStockPublication("old",room=>{room.house=999999;room.quotes={};}),/lease revoked/i);
- assert.deepEqual(await readRoom(),before);
+ await assert.rejects(mutateStockPublication("old",room=>{room.house=999999;room.quotes={};},session=>candleUpdate({SPCX:{micro:999_000_000,at:at+1}},session)),/lease revoked/i);
+ assert.deepEqual(await readRoom(),before);assert.deepEqual(await candleRead("SPCX","1m",at-60000,at+60000),initialCandles);
  await workers.updateOne({_id:"coinbase-feed"},{$set:{until:Date.now()-1}});
  await assert.rejects(mutateStockPublication("new",room=>{room.house=123;}),/lease revoked/i);
- assert.deepEqual(await readRoom(),before);
+ assert.deepEqual(await readRoom(),before);assert.deepEqual(await candleRead("SPCX","1m",at-60000,at+60000),initialCandles);
  await workers.updateOne({_id:"coinbase-feed"},{$set:{until:Date.now()+15000}});
  await assert.rejects(mutateStockPublication("new",()=>{throw Error("fixture abort");}),/fixture abort/);
- assert.deepEqual(await readRoom(),before);
+ assert.deepEqual(await readRoom(),before);assert.deepEqual(await candleRead("SPCX","1m",at-60000,at+60000),initialCandles);
 });

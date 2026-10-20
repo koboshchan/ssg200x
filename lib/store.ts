@@ -70,7 +70,7 @@ export const requestId = randomUUID;
  * Mongo replica-set support is required; uncertainty never falls back to an
  * unfenced write. Ordinary mutations/payments retain their existing behavior.
  */
-export async function mutateStockPublication(owner:string,fn:(room:Room)=>void){
+export async function mutateStockPublication(owner:string,fn:(room:Room)=>void,candles?: (session:import("mongodb").ClientSession)=>Promise<void>){
  const database=await db(),session=database.client.startSession();
  try{
   await session.withTransaction(async()=>{
@@ -86,6 +86,7 @@ export async function mutateStockPublication(owner:string,fn:(room:Room)=>void){
    const {_id,...fields}=next;fields.version=previous.version+1;
    const result=await c.updateOne({_id,version:previous.version},{$set:fields},{session});
    ensure(result.matchedCount===1,"Stock room changed.",409);
+   if(candles)await candles(session);
    // withTransaction retries conflicts from takeover/renewal, rechecking owner.
    ensure(Date.now()<now+1000,"Stock publication expired.",503);
   },{readConcern:{level:"snapshot"},writeConcern:{w:"majority"}});

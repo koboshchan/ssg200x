@@ -40,11 +40,12 @@ export function startPriceWorker(){
   instrumentStatus:()=>({halt:"unknown",corporateActionsReconciled:false}),
   publish:async(states,tick)=>{
    if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Stock lease unavailable");
+   if(tick)await candleUpdate({});
    await mutateStockPublication(owner,room=>{
     if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Stock lease revoked");
     const quotes=tick?{[tick.symbol]:{micro:Math.round(tick.price*1e6),at:tick.timestamp}}:{};
     applyMarketTick(room,quotes,Date.now(),states);
-   });
+   },tick?session=>candleUpdate({[tick.symbol]:{micro:Math.round(tick.price*1e6),at:tick.timestamp}},session):undefined);
   },
  });
  async function step(){
