@@ -7,7 +7,9 @@ const ids:Identity[]=Array.from({length:6},(_,i)=>({id:'special-'+i,name:'Player
 type Game=Room&{blackjack:BlackjackState};
 function setup(hands:string[][],dealer:string[],tail:string[]=[],bet=102){
  const r=freshRoom() as Game;
- for(let i=0;i<hands.length;i++){register(r,ids[i],0);act(r,ids[i],{type:'join',seat:i},0);act(r,ids[i],{type:'bet',amount:bet},0);}
+ for(let i=0;i<hands.length;i++){register(r,ids[i],0);act(r,ids[i],{type:'join',seat:i},0);act(r,ids[i],{type:'bet',amount:100},0);
+  // Historical fractional wagers must still settle exactly after the input restriction.
+  r.members[i].wallet-=bet-100;r.blackjack.seats[i]!.bet=bet;}
  const order=[...hands.map(h=>h[0]),dealer[0],...hands.map(h=>h[1]),dealer[1],...tail];
  r.blackjack.shoe=[...Array(180).fill('2s'),...order.reverse()];
  return r;
