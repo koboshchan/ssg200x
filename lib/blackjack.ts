@@ -3,7 +3,7 @@ import {randomInt} from 'node:crypto';
 import {ensure} from './errors';
 import type {Room,Identity} from './types';
 
-// Six-deck S17, blackjack 3:2. One split only; split aces receive one card,
+// Six-deck S17; initial Black 78 > blackjack, both paying 3:2; five-card Charlie pays 1:1. One split only; split aces receive one card,
 // no resplit, no insurance/surrender. Double any initial two cards (including splits).
 export type BlackjackHand={cards:string[];bet:number;done:boolean;split:boolean;payout:number;result?:string};
 export const BLACKJACK_IDLE_MS=300_000;
@@ -20,7 +20,15 @@ export function blackjackValue(cards:string[]):number{let v=0,a=0;for(const c of
 function state(r:BRoom):BlackjackState{return r.blackjack??= {phase:'betting',seats:Array(6).fill(null),dealer:[],shoe:[],turn:null,hand:0,deadline:null,round:0,revealed:false};}
 function member(r:BRoom,id:string){const m=r.members.find(m=>m.id===id);ensure(m,'Unknown member.',403);return m;}
 function draw(b:BlackjackState){ensure(b.shoe.length,'Blackjack shoe exhausted.',500);return b.shoe.pop()!;}
-const natural=(h:BlackjackHand)=>!h.split&&h.cards.length===2&&blackjackValue(h.cards)===21;
+// Only the original two-card deal qualifies. Split hands never gain a tier.
+export function blackjackTier(cards:string[],split=false):number{
+ if(split||cards.length!==2)return 0;
+ const ranks=cards.map(c=>c[0]).sort().join('');
+ if(ranks==='78'&&cards.every(c=>c[1]==='s'||c[1]==='c'))return 2;
+ return blackjackValue(cards)===21?1:0;
+}
+const charlie=(h:BlackjackHand)=>h.cards.length===5&&blackjackValue(h.cards)<=21;
+const tierName=(tier:number):string|null=>[null,'Blackjack','Black 78'][tier]??null;
 export function blackjackAssets(r:Room):number{const b=(r as BRoom).blackjack;if(!b)return 0;return b.seats.reduce((n,s)=>n+(s?(b.phase==='betting'?s.bet:b.phase==='playing'?s.hands.reduce((v,h)=>v+h.bet,0):0):0),0);}
 // Only open betting time consumes this budget. Persist the paused remainder so
 // a long hand, settlement break, disconnect or restart cannot steal betting time.
@@ -45,13 +53,18 @@ export function blackjackNeedsTick(b:BlackjackState,now:number):boolean{
 }
 function settle(r:BRoom,b:BlackjackState,now:number){
  b.revealed=true;
- const dealerNatural=b.dealer.length===2&&blackjackValue(b.dealer)===21;
- const needDealer=b.seats.some(s=>s?.hands.some(h=>blackjackValue(h.cards)<=21&&!natural(h)));
- if(!dealerNatural&&needDealer)while(blackjackValue(b.dealer)<17)b.dealer.push(draw(b));
+ // Capture the dealer's INITIAL tier before any S17 draws. A drawn 21 is normal.
+ const dealerTier=blackjackTier(b.dealer);
+ const needDealer=b.seats.some(s=>s?.hands.some(h=>blackjackValue(h.cards)<=21&&!blackjackTier(h.cards,h.split)&&!charlie(h)));
+ if(!dealerTier&&needDealer)while(blackjackValue(b.dealer)<17)b.dealer.push(draw(b));
  const dv=blackjackValue(b.dealer);
- for(const s of b.seats){if(!s)continue;for(const h of s.hands){const v=blackjackValue(h.cards);let p=0;
- if(v>21)h.result='bust';else if(dealerNatural){p=natural(h)?h.bet:0;h.result=p?'push':'lose';}
- else if(natural(h)){p=h.bet*5/2;h.result='blackjack';}
+ for(const s of b.seats){if(!s)continue;for(const h of s.hands){const v=blackjackValue(h.cards),tier=blackjackTier(h.cards,h.split);let p=0;
+ if(tier||dealerTier){
+  if(tier===dealerTier){p=h.bet;h.result='push';}
+  else if(tier>dealerTier){p=h.bet*5/2;h.result=tier===1?'blackjack':'special';}
+  else h.result='lose';
+ }else if(v>21)h.result='bust';
+ else if(charlie(h)){p=h.bet*2;h.result='charlie';}
  else if(dv>21||v>dv){p=h.bet*2;h.result='win';}else if(v===dv){p=h.bet;h.result='push';}else h.result='lose';
  member(r,s.userId).wallet+=p;r.house=(r.house??0)+h.bet-p;h.payout=p;h.done=true;
  }}
@@ -64,8 +77,8 @@ function deal(r:BRoom,b:BlackjackState,now:number){
  b.phase='playing';idleClocks(b,now);b.round++;b.revealed=false;b.dealer=[];
  for(const s of b.seats)if(s)s.hands=s.bet?[{cards:[],bet:s.bet,done:false,split:false,payout:0}]:[];
  for(let k=0;k<2;k++){for(const s of b.seats)if(s?.hands.length)s.hands[0].cards.push(draw(b));b.dealer.push(draw(b));}
- for(const s of b.seats)if(s?.hands[0]&&natural(s.hands[0]))s.hands[0].done=true;
- if(blackjackValue(b.dealer)===21)settle(r,b,now);else advance(r,b,now);
+ for(const s of b.seats)if(s?.hands[0]&&blackjackTier(s.hands[0].cards,s.hands[0].split)>0)s.hands[0].done=true;
+ if(blackjackTier(b.dealer)>0)settle(r,b,now);else advance(r,b,now);
 }
 export function blackjackTick(r:Room,now:number):void{const b=(r as BRoom).blackjack;if(!b)return;
  idleClocks(b,now);expireIdle(b,now);
@@ -90,7 +103,7 @@ export function blackjackAction(r:Room,who:Identity,action:BlackjackAction,now:n
  if(action.type==='bet'){ensure(b.phase==='betting','Betting is closed.');ensure(Number.isSafeInteger(action.amount)&&action.amount>=100&&action.amount<=100_000&&action.amount%2===0,'Bet must be even cents between 100 and 100000.');const diff=action.amount-s.bet;ensure(m.wallet>=diff,'Insufficient funds.');m.wallet-=diff;s.bet=action.amount;s.idleRemaining=BLACKJACK_IDLE_MS;s.idleDeadline=now+BLACKJACK_IDLE_MS;if(b.deadline===null)b.deadline=now+BET_MS;return;}
  ensure(b.phase==='playing'&&b.turn===i,'Not your turn.');const h=s.hands[b.hand];ensure(h&&!h.done,'Hand already complete.');
  if(action.type==='stand')h.done=true;
- else if(action.type==='hit'){h.cards.push(draw(b));if(blackjackValue(h.cards)>=21)h.done=true;}
+ else if(action.type==='hit'){h.cards.push(draw(b));if(blackjackValue(h.cards)>=21||charlie(h))h.done=true;}
  else if(action.type==='double'){ensure(h.cards.length===2,'Double requires two cards.');ensure(m.wallet>=h.bet,'Insufficient funds.');m.wallet-=h.bet;h.bet*=2;h.cards.push(draw(b));h.done=true;}
  else if(action.type==='split'){ensure(s.hands.length===1&&h.cards.length===2&&h.cards[0][0]===h.cards[1][0],'Split requires a matching pair; maximum two hands.');ensure(m.wallet>=h.bet,'Insufficient funds.');m.wallet-=h.bet;const c=h.cards.pop()!;h.split=true;const other:BlackjackHand={cards:[c],bet:h.bet,done:false,split:true,payout:0};h.cards.push(draw(b));other.cards.push(draw(b));s.hands.push(other);if(c[0]==='A'){h.done=true;other.done=true;}else{h.done=blackjackValue(h.cards)===21;other.done=blackjackValue(other.cards)===21;}}
  else ensure(false,'Invalid blackjack action.');
@@ -98,7 +111,7 @@ export function blackjackAction(r:Room,who:Identity,action:BlackjackAction,now:n
 }
 export function blackjackPublic(r:Room,who:Identity){const b=(r as BRoom).blackjack;if(!b)return null;
  const me=r.members.find(m=>m.id===who.id),mine=b.seats.findIndex(s=>s?.userId===who.id);
- return {phase:b.phase,round:b.round,deadline:b.deadline,turn:b.turn,hand:b.hand,dealer:b.dealer.map((c,i)=>i===0||b.revealed?c:'??'),dealerTotal:b.revealed?blackjackValue(b.dealer):null,seats:b.seats.map(s=>{if(!s)return null;const m=r.members.find(m=>m.id===s.userId);return {publicId:m?.publicId,name:m?.name,bet:s.bet,leaveAfter:s.leaveAfter,idleDeadline:b.phase==='betting'&&s.bet===0?(s.idleDeadline??null):null,hands:s.hands.map(h=>({...h,cards:[...h.cards],total:blackjackValue(h.cards)}))};}),mySeat:mine,canAct:!!me&&b.phase==='playing'&&b.turn===mine&&mine>=0};
+ return {phase:b.phase,round:b.round,deadline:b.deadline,turn:b.turn,hand:b.hand,dealer:b.dealer.map((c,i)=>i===0||b.revealed?c:'??'),dealerTotal:b.revealed?blackjackValue(b.dealer):null,dealerHandName:b.revealed?tierName(blackjackTier(b.dealer)):null,seats:b.seats.map(s=>{if(!s)return null;const m=r.members.find(m=>m.id===s.userId);return {publicId:m?.publicId,name:m?.name,bet:s.bet,leaveAfter:s.leaveAfter,idleDeadline:b.phase==='betting'&&s.bet===0?(s.idleDeadline??null):null,hands:s.hands.map(h=>({...h,cards:[...h.cards],total:blackjackValue(h.cards),handName:tierName(blackjackTier(h.cards,h.split))??(charlie(h)?'Charlie':null)}))};}),mySeat:mine,canAct:!!me&&b.phase==='playing'&&b.turn===mine&&mine>=0};
 }
 
 export const BLACKJACK_TABLE_IDS=['lounge','salon','terrace'] as const;
@@ -118,7 +131,7 @@ export function blackjackTablesAction(r:Room,who:Identity,action:BlackjackTables
 export function blackjackTablesTick(r:Room,now:number):void{const rr=r as TablesRoom;for(const id of BLACKJACK_TABLE_IDS){if(!rr.blackjackTables?.tables[id])continue;const scoped=tableRoom(rr,id);blackjackTick(scoped,now);saveTable(rr,id,scoped);}}
 export function blackjackTablesPublic(r:Room,who:Identity){const rr=r as TablesRoom,m=r.members.find(m=>m.id===who.id);
  return {tables:BLACKJACK_TABLE_IDS.map(id=>{const scoped=tableRoom(rr,id);state(scoped);const b=scoped.blackjack!,p=blackjackPublic(scoped,who)!;const s=p.mySeat<0?null:b.seats[p.mySeat],h=s?.hands[b.hand];const can=p.canAct&&!!h&&!h.done;
- return {id,phase:p.phase,round:p.round,deadline:p.deadline,turn:p.turn===null?null:{seat:p.turn,hand:p.hand},dealer:{cards:p.dealer.map(c=>c==='??'?'?':c)},dealerTotal:p.dealerTotal,minBet:100,maxBet:100_000,seats:p.seats.map((s,i)=>s?{...s,isYou:i===p.mySeat}:null),mySeat:p.mySeat,legal:{hit:can,stand:can,double:can&&h!.cards.length===2&&(m?.wallet??0)>=h!.bet,split:can&&s!.hands.length===1&&h!.cards.length===2&&h!.cards[0][0]===h!.cards[1][0]&&(m?.wallet??0)>=h!.bet}};
+ return {id,phase:p.phase,round:p.round,deadline:p.deadline,turn:p.turn===null?null:{seat:p.turn,hand:p.hand},dealer:{cards:p.dealer.map(c=>c==='??'?'?':c)},dealerTotal:p.dealerTotal,dealerHandName:p.dealerHandName,minBet:100,maxBet:100_000,seats:p.seats.map((s,i)=>s?{...s,isYou:i===p.mySeat}:null),mySeat:p.mySeat,legal:{hit:can,stand:can,double:can&&h!.cards.length===2&&(m?.wallet??0)>=h!.bet,split:can&&s!.hands.length===1&&h!.cards.length===2&&h!.cards[0][0]===h!.cards[1][0]&&(m?.wallet??0)>=h!.bet}};
  })};
 }
 
