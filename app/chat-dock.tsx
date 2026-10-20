@@ -6,9 +6,9 @@ import {ChatClient,type ChatMessage,type Snapshot} from "@/lib/chat-client";
 import {indexedDbStore} from "@/lib/chat-store";
 import {MAX_TEXT_BYTES} from "@/lib/chat-crypto";
 
-const errorText:Record<string,string>={wrong_words:"Those words don't match. Check the order and spelling.",bad_words:"Enter exactly six words from the list.",disconnected:"Not connected. Try again in a moment.",timeout:"The server didn't answer in time.",rate_limited:"Slow down a little.",busy:"The server is busy. Trying again.",identity_conflict:"Your keys changed on another device. Reload to continue.",forbidden:"Chat is only open to approved members."};
+const errorText:Record<string,string>={setup_words_lost:"Setup was interrupted. Enter the six words you saved, or reset your chat keys below.",wrong_words:"Those words don't match. Check the order and spelling.",bad_words:"Enter exactly six words from the list.",disconnected:"Not connected. Try again in a moment.",timeout:"The server didn't answer in time.",rate_limited:"Slow down a little.",busy:"The server is busy. Trying again.",identity_conflict:"Your keys changed on another device. Reload to continue.",forbidden:"Chat is only open to approved members."};
 const friendly=(code:string|null)=>code?errorText[code]||"Chat is unavailable right now.":null;
-const group=(f:string)=>(f.slice(0,20).match(/.{1,5}/g)||[]).join(" ");
+const group=(f:string)=>(f.match(/.{1,5}/g)||[]).join(" ");
 const time=(ts:number)=>new Date(ts).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
 const idle:Snapshot={phase:"loading",error:null,words:null,messages:[],members:[],hasMore:false,busy:false};
 
@@ -16,7 +16,8 @@ export default function ChatDock(){
  const {user,isLoaded}=useUser(),live=useLive(),userId=user?.id;
  const [client,setClient]=useState<ChatClient|null>(null);
  const [open,setOpen]=useState(false),[names,setNames]=useState<Record<string,string>>({}),[seen,setSeen]=useState<number|null>(null);
- const [preferencesReady,setPreferencesReady]=useState(false);
+ const [preferencesUser,setPreferencesUser]=useState<string|null>(null);
+ const preferencesReady=preferencesUser===userId;
  useEffect(()=>{
   if(!isLoaded||!userId)return;
   const c=new ChatClient(userId,live.request,indexedDbStore());
@@ -26,7 +27,7 @@ export default function ChatDock(){
   if(!userId)return;
   const key="tabletalk:"+userId;
   try{const saved=localStorage.getItem(key+":open");setOpen(saved==="1"||(saved===null&&window.innerWidth>=1280));const n=Number(localStorage.getItem(key+":seen"));setSeen(n>0?n:null);}catch{setOpen(window.innerWidth>=1280);setSeen(null);}
-  setPreferencesReady(true);
+  setPreferencesUser(userId);
  },[userId]);
  useEffect(()=>{
   if(!preferencesReady||!userId)return;
