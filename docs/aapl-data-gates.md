@@ -45,3 +45,47 @@ SPCX was added only after identity and IEX support verification. Nasdaq's offici
 The incidental wallet-nav change included in earlier commit 07a9e86 was reviewed and confirmed correct by its owning payment worker. It is preserved without rewriting history.
 
 Six configured and subscription-acknowledged instruments does not mean six fresh executable marks. SPCX has exactly the same execution rules as the other five. Closed-hours stale or incomplete quotes never remove an instrument from the configured pool. The exact observed SPCX quote (timestamp 2026-10-19T20:00:02.387842451Z, bid 141.74, ask 0, bid exchange V, blank ask exchange) is a regression fixture: it emits no executable tick and does not disconnect or delist SPCX. Crossed quotes, missing exchanges and even valid quotes cannot become executable marks through this trade-only adapter. Future quote-based execution would need explicit fresh regular-session, positive noncrossed two-sided quote validation before use, not reinterpretation as trade events.
+
+## Integrated source and remaining execution evidence (2026-10-19)
+
+The six-equity runtime, trading union, API/UI/status transport, chart selector,
+existing-lease publication transaction and financial guards are implemented.
+Coinbase SYMBOLS remains exactly BTC/ETH/BNB/XRP/SOL/LTC. The chart selector does
+not imply stock candle ingestion is finished. lib/candles.ts remains outside this
+change until its backfill owner releases the committed file.
+
+Alpaca's official real-time stock documentation describes a distinct statuses
+subscription and T=s events, with symbol, timestamp, tape, status code and reason.
+UTP H/P mean halt/pause, Q is quotation resumption (not trading resumption), and T
+is trading resumption. CTA 2/3 mean halt/resume. Reasons include corporate actions
+(N for CTA, M1 for UTP). The documentation says availability depends on subscription;
+it does not establish this account's IEX status entitlement, an initial status
+snapshot, replay after disconnect, or proof that silence means no halt.
+Trade/quote acknowledgments therefore do not establish usable status coverage.
+A fresh regular trade, including condition @, must never clear unknown status.
+
+Source: https://docs.alpaca.markets/us/docs/real-time-stock-pricing-data
+
+The current corporate actions endpoint is GET
+https://data.alpaca.markets/v1/corporate-actions. Its data_quality=all option includes
+early/incomplete records; the default complete filter can omit them. Responses
+are paginated across all symbols, not per symbol. The documentation explicitly
+warns that ingestion/processing can be delayed and gives no creation-time
+guarantee. An empty successful response is not proof that no action exists.
+Merely receiving a resume event also cannot reconcile an outstanding split,
+merger, name change, or preserved account claim. No reconciliation state is
+automatically cleared from trade arrival or a successful HTTP response.
+
+Source: https://docs.alpaca.markets/us/reference/corporateactions-1
+
+Consequently instrument halt and corporate-action reconciliation remain unknown
+in the runtime until authoritative per-symbol evidence and reconciliation are
+actually integrated and tested. UI discovery, subscription acknowledgment and
+guard fixtures are not a claim that live stock orders are usable. The current
+implementation deliberately retains positions, margin and triggers while blocked.
+
+The parent coordinates one final frozen current-source build after stock and
+chat sources stabilize. No second Next build or production deployment is part of
+this work. Focused compilation and 112 tests passed; the real isolated Mongo
+replica-set publication test also passed. These are not a substitute for that
+final combined build or authenticated browser QA.
