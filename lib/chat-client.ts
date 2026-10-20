@@ -23,8 +23,9 @@ export type Snapshot={phase:Phase;error:string|null;words:string[]|null;messages
 type Device={deviceId:string;dhPublic:string;signPublic:string;fingerprint:string};
 type View={revision:number;epoch:string;status:"unclaimed"|"claimed"|"active";owner:{userId:string;deviceId:string}|null;leaseUntil:number;members:{userId:string;devices:Device[]}[];wraps?:WireWrap[];nextWrapCursor?:string|null};
 const codeOf=(e:unknown)=>e instanceof Error?e.message:"unavailable";
-const PAGE=50,HISTORY_TRIES=4,BACKOFF_MS=500,MAX_WAIT_MS=8000;
-const retryMs=(e:unknown,n:number)=>{const r=(e as {retryAfter?:number})?.retryAfter;const base=typeof r==="number"&&r>=0?(r<=120?r*1000:r):BACKOFF_MS*2**n;return Math.min(MAX_WAIT_MS,base);};
+const PAGE=50,BACKOFF_MS=500,BUDGET_MS=30000,RESYNC_MS=15000;
+/** Server-mandated wait in ms (retryAfter is seconds when small, else ms); absent means unspecified. */
+const serverWait=(e:unknown)=>{const r=(e as {retryAfter?:number})?.retryAfter;return typeof r==="number"&&r>=0?(r<=120?r*1000:r):undefined;};
 const sleep=(ms:number)=>new Promise<void>(r=>setTimeout(r,ms));
 export const RENDER_CAP=500,RENDER_TRIM=400,OPEN_CACHE_MAX=600;
 
@@ -51,7 +52,7 @@ export class ChatClient{
  private later(ms:number){clearTimeout(this.timer);if(!this.closed)this.timer=setTimeout(()=>{void this.start();},ms);}
 
  private clearSession(){
-  this.keys.clear();this.attempted.clear();this.cursors.clear();this.missed.clear();this.raw.clear();this.local.clear();this.sealed.clear();this.ambiguous.clear();this.opened.clear();this.inflight.clear();this.windowStart=0;this.extra=0;
+  this.keys.clear();this.attempted.clear();this.cursors.clear();this.raw.clear();this.local.clear();this.sealed.clear();this.ambiguous.clear();this.opened.clear();this.inflight.clear();this.windowStart=0;this.extra=0;
   this.lastView=undefined;this.set({messages:[],hasMore:false,historyIncomplete:false});
  }
  private async sync(){
@@ -101,7 +102,7 @@ export class ChatClient{
   if(view.status!=="active"||!have()){this.set({phase:"waiting",error:null});this.later(3000);return;}
   this.lastView=view;
   await this.distribute(me,view);
-  await this.refresh(me,view);
+  if(!await this.refresh(me,view))return;
   this.set({phase:"ready",error:null});
  }
  /** Enumerate retained grants, discarding mixed-revision pages rather than merging stale state. */
@@ -224,33 +225,43 @@ export class ChatClient{
   }
  }
  private async fetchPage(me:Identity,epoch:string,before?:number){
-  let res!:{messages:WireMessage[];nextCursor:number|null};
+  let res!:{messages:WireMessage[];nextCursor:number|null};let waited=0;
   for(let n=0;;n++){
    try{res=await this.request("history",{v:1,epoch,deviceId:me.deviceId,...(before===undefined?{}:{before}),limit:PAGE}) as typeof res;break;}
-   catch(e){if(codeOf(e)!=="rate_limited"||n+1>=HISTORY_TRIES||this.closed)throw e;await sleep(retryMs(e,n));}
+   catch(e){
+    if(codeOf(e)!=="rate_limited"||this.closed)throw e;
+    // Never retry earlier than the server asked; if that exceeds the bounded budget, exhaust instead.
+    const srv=serverWait(e),wait=Math.max(srv??0,BACKOFF_MS*2**n);
+    if(waited+wait>BUDGET_MS){this.retryHint=Math.max(srv??0,RESYNC_MS);throw e;}
+    waited+=wait;await sleep(wait);
+   }
   }
   for(const m of res.messages)this.raw.set(m.epoch+":"+m.senderUserId+":"+m.id,m);
   return res.nextCursor;
  }
- private missed=new Set<string>();
+ private retryHint=RESYNC_MS;
  private async refresh(me:Identity,view:View){
-  const missed=new Set(this.missed);let throttled=false;
+  let exhausted:unknown;
   for(const epoch of this.keys.keys()){
    if(this.cursors.has(epoch)&&epoch!==view.epoch)continue;
    try{
     const next=await this.fetchPage(me,epoch);
     if(!this.cursors.has(epoch))this.cursors.set(epoch,next);
-    missed.delete(epoch);
    }catch(e){
     if(epoch===view.epoch)throw e;
-    // Never skip silently: no cursor is stored, so the next sync refetches this epoch.
-    missed.add(epoch);throttled=throttled||codeOf(e)==="rate_limited";
+    // Never skip silently. No cursor is stored for this epoch so a later sync refetches it. Stop the pass
+    // on throttling instead of hammering the limiter.
+    exhausted=e;if(codeOf(e)==="rate_limited")break;
    }
   }
-  this.missed=missed;
+  const missing=[...this.keys.keys()].some(k=>!this.cursors.has(k));
   await this.render();
-  this.set({historyIncomplete:missed.size>0});
-  if(missed.size>0)this.later(throttled?15000:5000);
+  if(missing||exhausted){
+   this.set({phase:"waiting",error:"history_incomplete",historyIncomplete:true});
+   this.later(codeOf(exhausted)==="rate_limited"?this.retryHint:5000);
+   return false;
+  }
+  this.set({historyIncomplete:false});return true;
  }
  async loadMore(){
   return this.run(async()=>{
