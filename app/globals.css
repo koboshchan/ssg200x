@@ -63,3 +63,14 @@ body>footer{display:flex;justify-content:space-between;gap:12px;margin-left:max(
 .cached-chart .chart-shell table{margin:0;width:auto}
 
 .public-leaderboard{max-width:1100px}.public-leaderboard h1{font-size:clamp(32px,5vw,49px);font-weight:500;letter-spacing:-1px;margin:0 0 12px}.leaderboard-player{display:flex;align-items:center;gap:12px;overflow-wrap:anywhere}.leaderboard-player .avatar{width:32px;height:32px;font-size:12px}.leaderboard-worth{font-variant-numeric:tabular-nums;white-space:nowrap}.public-leaderboard table th:last-child,.public-leaderboard table td:last-child{text-align:right}.public-leaderboard table th:nth-child(2){padding-inline:12px}
+/* Shared form controls: one themed rule set so no page hardcodes light colours. */
+:where(input:not([type=radio]):not([type=checkbox]),select,textarea){color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;font:inherit;color-scheme:light dark}
+.order-ticket input,.order-ticket select{background:var(--surface-2);border:1px solid var(--line);color:var(--ink);border-radius:10px}
+.input-wrap input,.raise-input input{background:transparent;border:0;color:var(--ink)}
+select{appearance:none;-webkit-appearance:none;padding-right:34px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238e8e93' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;background-size:12px 8px}
+select option{background:var(--surface);color:var(--ink)}
+input::placeholder,textarea::placeholder{color:color-mix(in srgb,var(--ink) 52%,transparent);opacity:1}
+input:disabled,select:disabled{opacity:.6;cursor:not-allowed}
+input[type=radio],input[type=checkbox]{accent-color:var(--blue)}
+.input-wrap:focus-within,.raise-input:focus-within{border-color:var(--blue)}
+.order-ticket input:focus-visible,.order-ticket select:focus-visible{border-color:var(--blue)}
