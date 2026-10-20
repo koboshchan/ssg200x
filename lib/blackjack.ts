@@ -1,3 +1,4 @@
+import {isWholeCasinoAmount} from "./casino-amount";
 import {ACTION_TURN_MS} from './turn-timer';
 import {randomInt} from 'node:crypto';
 import {ensure} from './errors';
@@ -100,7 +101,7 @@ export function blackjackAction(r:Room,who:Identity,action:BlackjackAction,now:n
  if(action.type==='join'){ensure(!s,'Already seated.');ensure(Number.isInteger(action.seat)&&action.seat>=0&&action.seat<6,'Invalid seat.');ensure(!b.seats[action.seat],'Seat occupied.');b.seats[action.seat]={userId:who.id,bet:0,hands:[],leaveAfter:false,idleRemaining:BLACKJACK_IDLE_MS,idleDeadline:b.phase==='betting'?now+BLACKJACK_IDLE_MS:null};return;}
  ensure(s,'Take a blackjack seat first.');
  if(action.type==='leave'){if(b.phase==='playing'&&s.hands.length){s.leaveAfter=true;for(const h of s.hands)h.done=true;if(b.turn===i)advance(rr,b,now);}else{if(b.phase==='betting')m.wallet+=s.bet;b.seats[i]=null;if(b.phase==='betting'&&!b.seats.some(x=>x&&x.bet))b.deadline=null;}return;}
- if(action.type==='bet'){ensure(b.phase==='betting','Betting is closed.');ensure(Number.isSafeInteger(action.amount)&&action.amount>=100&&action.amount<=100_000&&action.amount%2===0,'Bet must be even cents between 100 and 100000.');const diff=action.amount-s.bet;ensure(m.wallet>=diff,'Insufficient funds.');m.wallet-=diff;s.bet=action.amount;s.idleRemaining=BLACKJACK_IDLE_MS;s.idleDeadline=now+BLACKJACK_IDLE_MS;if(b.deadline===null)b.deadline=now+BET_MS;return;}
+ if(action.type==='bet'){ensure(b.phase==='betting','Betting is closed.');ensure(isWholeCasinoAmount(action.amount)&&action.amount>=100&&action.amount<=100_000,'Bet must be whole dollars between $1 and $1,000.');const diff=action.amount-s.bet;ensure(m.wallet>=diff,'Insufficient funds.');m.wallet-=diff;s.bet=action.amount;s.idleRemaining=BLACKJACK_IDLE_MS;s.idleDeadline=now+BLACKJACK_IDLE_MS;if(b.deadline===null)b.deadline=now+BET_MS;return;}
  ensure(b.phase==='playing'&&b.turn===i,'Not your turn.');const h=s.hands[b.hand];ensure(h&&!h.done,'Hand already complete.');
  if(action.type==='stand')h.done=true;
  else if(action.type==='hit'){h.cards.push(draw(b));if(blackjackValue(h.cards)>=21||charlie(h))h.done=true;}

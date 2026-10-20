@@ -1,3 +1,4 @@
+import {rouletteBetSchema as bet} from "@/lib/casino-schemas";
 import {DELISTED_SYMBOLS,TRADING_SYMBOLS} from "@/lib/market-shared";
 import {randomUUID} from "node:crypto";
 import {z} from "zod";
@@ -13,7 +14,6 @@ import {audit} from "@/lib/audit";
 import {financeAuditSnapshot} from "@/lib/finance-audit";
 const base={requestId:z.string().uuid(),requestAt:z.number().int()};
 const money=z.number().int().min(100).max(100_000_000),symbol=z.enum(TRADING_SYMBOLS);
-const bet=z.object({kind:z.enum(["straight","red","black","odd","even","low","high","dozen","column"]),pick:z.number().int().min(0).max(36).optional(),amount:z.number().int().min(100).max(100_000)}).strict();
 const triggerPrice=z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const triggerMode=z.enum(["price","pnl"]);
 const openTriggers={triggerInputMode:triggerMode.optional(),takeProfit:triggerPrice.optional(),stopLoss:triggerPrice.optional(),takeProfitPnl:triggerPrice.optional(),stopLossPnl:triggerPrice.optional()};

@@ -1,3 +1,4 @@
+import {isWholeCasinoAmount} from "./casino-amount";
 import {isStockSymbol} from "./stock-config";
 import {stockExecutionPolicy,type StockExecutionState} from "./stock-policy";
 import {randomInt,randomUUID} from "node:crypto";
@@ -116,6 +117,7 @@ export function payout(b:Bet,n:number){
 export function spin(r:Room,who:Identity,bets:Bet[],n=randomInt(37),id:string=randomUUID(),now=Date.now()){
  const m=portfolio(register(r,who));
  ensure(bets.length>=1&&bets.length<=20,"Choose 1–20 bets.");
+ ensure(bets.every(b=>isWholeCasinoAmount(b.amount)),"Bets must be whole dollars.");
  const returned=bets.reduce((sum,b)=>sum+payout(b,n),0),stake=bets.reduce((sum,b)=>sum+b.amount,0);
  ensure(stake<=100_000&&m.wallet>=stake,"Not enough cash or total bet over $1,000.");
  ensure(!m.spins![0]||now-m.spins![0].at>=1500,"Wait a moment before spinning again.",429);
