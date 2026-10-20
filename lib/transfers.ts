@@ -1,4 +1,4 @@
-import {createHash,randomInt} from "node:crypto";
+import {createHash,randomInt,randomUUID} from "node:crypto";
 import {wordlist} from "@scure/bip39/wordlists/english.js";
 import type {Db} from "mongodb";
 import {db} from "./db";
@@ -7,38 +7,40 @@ import {assertRoom} from "./poker";
 import type {Identity,Room} from "./types";
 
 export const CODE_TTL_MS=10*60_000;
-type ReceiveCode={_id:string;hash:string;expiresAt:Date};
+type ReceiveCode={_id:string;hash:string;generation:string;expiresAt:Date};
 export type Transfer={_id:string;sender:string;recipient:string;senderName:string;recipientName:string;amount:number;note:string;at:number;fingerprint:string;senderBefore:number;senderAfter:number;recipientBefore:number;recipientAfter:number};
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
+const codeHash=(code:string)=>hash("ssg200x.receive-code.v1\0"+code);
+const words=new Set(wordlist);
 export function parseTransferAmount(input:unknown){
  ensure(typeof input==="string"&&/^(?:0|[1-9]\d{0,9})(?:\.\d{1,2})?$/.test(input),"Enter a plain dollar amount with at most two decimal places.");
  const [whole,fraction=""]=input.split(".");const amount=Number(BigInt(whole)*100n+BigInt(fraction.padEnd(2,"0")));
  ensure(Number.isSafeInteger(amount)&&amount>0&&amount<=100_000_000,"Send $0.01–$1,000,000.");return amount;
 }
-export function normalizeReceiveCode(input:unknown){ensure(typeof input==="string"&&input.length<=100,"Enter the three-word receive code.");const code=input.trim().toLowerCase().replace(/\s+/g," ");ensure(/^[a-z]+ [a-z]+ [a-z]+$/.test(code),"Enter the three-word receive code.");return code;}
+export function normalizeReceiveCode(input:unknown){ensure(typeof input==="string"&&input.length<=100,"Enter the three-word receive code.");const code=input.trim().toLowerCase().replace(/\s+/g," ");ensure(/^[a-z]+ [a-z]+ [a-z]+$/.test(code)&&code.split(" ").every(w=>words.has(w)),"Enter the three-word receive code.");return code;}
 export function transferNote(input:unknown){ensure(input===undefined||typeof input==="string","Invalid note.");const note=(input??"").trim();ensure(note.length<=160&&!/[\u0000-\u001f\u007f<>]/.test(note),"Use a plain-text note of at most 160 characters.");return note;}
 let indexed:Db|undefined;
 export async function transferIndexes(d:Db){if(indexed===d)return;await Promise.all([d.collection("transfer_codes").createIndex({hash:1},{unique:true}),d.collection("transfer_codes").createIndex({expiresAt:1},{expireAfterSeconds:0}),d.collection("transfers").createIndex({sender:1,at:-1}),d.collection("transfers").createIndex({recipient:1,at:-1}),d.collection("transfers").createIndex({at:-1})]);indexed=d;}
 function member(r:Room,id:string){const m=r.members.find(m=>m.id===id);ensure(m?.approved&&!m.accessRevoked,"Player unavailable.",403);return m;}
 export async function createReceiveCode(who:Identity,database?:Db){const d=database??await db();await transferIndexes(d);const r=await d.collection<Room>("rooms").findOne({_id:"main"});ensure(r,"Room unavailable.",503);member(r,who.id);
- for(let i=0;i<5;i++){const code=Array.from({length:3},()=>wordlist[randomInt(wordlist.length)]).join(" "),expiresAt=new Date(Date.now()+CODE_TTL_MS);try{await d.collection<ReceiveCode>("transfer_codes").updateOne({_id:who.id},{$set:{hash:hash(code),expiresAt}},{upsert:true});return {code,expiresAt:expiresAt.getTime()};}catch(e){if((e as {code?:number}).code!==11000)throw e;}}
+ for(let i=0;i<5;i++){const code=Array.from({length:3},()=>wordlist[randomInt(wordlist.length)]).join(" "),expiresAt=new Date(Date.now()+CODE_TTL_MS);try{await d.collection<ReceiveCode>("transfer_codes").updateOne({_id:who.id},{$set:{hash:codeHash(code),generation:randomUUID(),expiresAt}},{upsert:true});return {code,expiresAt:expiresAt.getTime()};}catch(e){if((e as {code?:number}).code!==11000)throw e;}}
  throw new AppError("Could not create a receive code. Try again.",503);
 }
-export async function resolveReceiveCode(who:Identity,input:unknown,database?:Db){const d=database??await db(),code=normalizeReceiveCode(input);const entry=await d.collection<ReceiveCode>("transfer_codes").findOne({hash:hash(code),expiresAt:{$gt:new Date()}});ensure(entry,"Code expired or unavailable.",404);ensure(entry._id!==who.id,"You cannot send to yourself.");const r=await d.collection<Room>("rooms").findOne({_id:"main"});ensure(r,"Room unavailable.",503);member(r,who.id);const recipient=member(r,entry._id);return {name:recipient.name,publicId:recipient.publicId,expiresAt:entry.expiresAt.getTime()};}
+export async function resolveReceiveCode(who:Identity,input:unknown,database?:Db){const d=database??await db(),code=normalizeReceiveCode(input);const entry=await d.collection<ReceiveCode>("transfer_codes").findOne({hash:codeHash(code),expiresAt:{$gt:new Date()}});ensure(entry,"Code expired or unavailable.",404);ensure(entry._id!==who.id,"You cannot send to yourself.");const r=await d.collection<Room>("rooms").findOne({_id:"main"});ensure(r,"Room unavailable.",503);member(r,who.id);const recipient=member(r,entry._id);return {name:recipient.name,publicId:recipient.publicId,expiresAt:entry.expiresAt.getTime()};}
 class RoomChanged extends Error{}
 export async function sendTransfer(who:Identity,input:{code:unknown;amount:unknown;note?:unknown;requestId:string;recipient:string},database?:Db){
  const d=database??await db(),code=normalizeReceiveCode(input.code),amount=parseTransferAmount(input.amount),note=transferNote(input.note);
  ensure(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.requestId),"Invalid request key.");
  ensure(typeof input.recipient==="string"&&input.recipient.length>0&&input.recipient.length<=256,"Confirm the recipient first.");
  await transferIndexes(d);
- const id=hash(who.id+"\0"+input.requestId),fingerprint=hash(JSON.stringify([code,amount,note,input.recipient]));
+ const id=hash(who.id+"\0"+input.requestId),fingerprint=hash(JSON.stringify([codeHash(code),amount,note,input.recipient]));
  const transfers=d.collection<Transfer>("transfers"),codes=d.collection<ReceiveCode>("transfer_codes"),rooms=d.collection<Room>("rooms");
  for(let attempt=0;attempt<12;attempt++){
  const session=d.client.startSession();
  try{return await session.withTransaction(async()=>{
   const existing=await transfers.findOne({_id:id},{session});
   if(existing){ensure(existing.sender===who.id&&existing.fingerprint===fingerprint,"Request key was already used for a different transfer.",409);return transferView(existing,who);}
-  const entry=await codes.findOne({hash:hash(code),expiresAt:{$gt:new Date()}},{session});ensure(entry,"Code expired or unavailable.",409);ensure(entry._id!==who.id,"You cannot send to yourself.");
+  const entry=await codes.findOne({hash:codeHash(code),expiresAt:{$gt:new Date()}},{session});ensure(entry,"Code expired or unavailable.",409);ensure(entry._id!==who.id,"You cannot send to yourself.");
   const r=await rooms.findOne({_id:"main"},{session});ensure(r,"Room unavailable.",503);
   const sender=member(r,who.id),recipient=member(r,entry._id);ensure(recipient.publicId===input.recipient,"Recipient changed. Confirm again.",409);
   // Wallet is already cash-only: opening margin, buying assets and poker/roulette/blackjack buy-ins debit it immediately.
@@ -51,7 +53,7 @@ export async function sendTransfer(who:Identity,input:{code:unknown;amount:unkno
   // Same room/version CAS as all trade and poker writers. Their stale writes cannot overwrite this transaction.
   const {_id,...fields}=r;Reflect.deleteProperty(fields,"chatMutationLock");fields.version=r.version+1;
   if(!(await rooms.updateOne({_id,version:r.version},{$set:fields,$unset:{chatMutationLock:""}},{session})).matchedCount)throw new RoomChanged();
-  ensure((await codes.deleteOne({_id:entry._id,hash:entry.hash},{session})).deletedCount,"Code changed. Confirm again.",409);
+  ensure((await codes.deleteOne({_id:entry._id,hash:entry.hash,generation:entry.generation},{session})).deletedCount,"Code changed. Confirm again.",409);
   await transfers.insertOne(record,{session});return transferView(record,who);
  },{readConcern:{level:"snapshot"},writeConcern:{w:"majority"},readPreference:"primary"});}
  catch(e){if(e instanceof RoomChanged)continue;if((e as {code?:number}).code===11000){const existing=await transfers.findOne({_id:id});if(existing){ensure(existing.fingerprint===fingerprint,"Request key was already used for a different transfer.",409);return transferView(existing,who);}}if((e as {code?:number}).code===20)throw new AppError("Transfers require a MongoDB replica set. No money was moved.",503);throw e;}

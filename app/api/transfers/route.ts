@@ -1,3 +1,7 @@
+import {clerkClient} from "@clerk/nextjs/server";
+import {limitTransferGuess} from "@/lib/transfer-rate-limit";
+import {db} from "@/lib/db";
+import type {Room} from "@/lib/types";
 import {z} from "zod";
 import {endpoint,parse} from "@/lib/api";
 import {rateLimit} from "@/lib/store";
@@ -11,6 +15,15 @@ export const GET=(request:Request)=>endpoint(request,async who=>({transfers:awai
 export const POST=(request:Request)=>endpoint(request,async who=>{
  const input=await parse(request,schema);await rateLimit("transfers:"+who.id,input.action==="resolve"?10:20);
  if(input.action==="code")return createReceiveCode(who);
- if(input.action==="resolve")return resolveReceiveCode(who,input.code);
+ if(input.action==="resolve"){
+  await limitTransferGuess(request,who.id);
+  const preview=await resolveReceiveCode(who,input.code);
+  const r=await(await db()).collection<Room>("rooms").findOne({_id:"main"});
+  const recipient=r?.members.find(m=>m.publicId===preview.publicId);
+  let avatar:string|null=null;
+  if(recipient){try{const user=await(await clerkClient()).users.getUser(recipient.id);const url=new URL(user.imageUrl);if(url.protocol==="https:"&&url.hostname==="img.clerk.com")avatar=url.href;}catch{}}
+  return {...preview,avatar};
+ }
+ await limitTransferGuess(request,who.id);
  return {transfer:await sendTransfer(who,input)};
 });
