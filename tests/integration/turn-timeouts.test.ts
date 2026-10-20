@@ -28,8 +28,32 @@ test("Mongo CAS timeout/action race has one outcome and conserves the forfeited 
  ]);
  const next=await readRoom();assertRoom(next);assert.equal(next.members[i].wallet,wallet);
  if(next.seats[i]){assert.equal(next.deadline,deadline-1+100000);assert.equal(next.seats[i]!.bet,500);}
- else{assert.equal(next.pokerBonus,19500);assert.deepEqual(next.pokerDead,[500]);assert.equal(result[0].status,"rejected");}
+ else{assert.equal(next.pokerBonus,r.seats[i]!.stack);assert.deepEqual(next.pokerDead,[r.seats[i]!.committed]);assert.equal(result[0].status,"rejected");}
  assert.equal(next.handNumber,1);
+});
+test("forced CAS conflicts recheck deadline/action in both commit orders",async()=>{
+ for(const timeoutFirst of [true,false]){
+  await(await db()).dropDatabase();
+  const now=Date.now(),before=await poker(now),deadline=before.deadline!,i=before.turn!;
+  let entered!:()=>void,release!:()=>void,first=true;
+  const reading=new Promise<void>(resolve=>{entered=resolve;});
+  const gate=new Promise<void>(resolve=>{release=resolve;});
+  const delayed=mutate(async r=>{
+   if(first){first=false;entered();await gate;}
+   if(timeoutFirst){ensure(r.deadline===deadline,"Turn changed",409);act(r,user(i).id,{type:"call"},deadline-1);}
+   else tick(r,deadline);
+  });
+  // Attach rejection handler before intentionally losing the CAS.
+  const outcome=delayed.then(()=>true,()=>false);
+  await reading;
+  if(timeoutFirst)await mutate(r=>tick(r,deadline));
+  else await mutate(r=>act(r,user(i).id,{type:"call"},deadline-1));
+  release();
+  assert.equal(await outcome,!timeoutFirst);
+  const after=await readRoom();assertRoom(after);
+  if(timeoutFirst){assert.equal(after.seats[i],null);assert.equal(after.pokerBonus,before.seats[i]!.stack);}
+  else{assert.ok(after.seats[i]);assert.equal(after.deadline,deadline-1+100000);assert.equal(after.pokerBonus,0);}
+ }
 });
 test("actual poker request just before expiry survives concurrent timer; boundary request cannot dodge kick",async()=>{
  const original=Date.now,base=original();
