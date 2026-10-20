@@ -124,7 +124,7 @@ test('real Mongo stores ciphertext only, bootstrap leases, wrapping, replay, str
  await assert.rejects(chat.handle(a.user,'state',{v:1}),/rate_limited/);
 });
 
-test('account Clerk backup endpoints preserve metadata, validate bounds, own DTO and CAS reset version',async()=>{
+test('account Clerk backup endpoints preserve metadata, validate bounds, own DTO and immutable first setup',async()=>{
  // @ts-expect-error runtime module
  const {createIdentityStore}=await import('../../runtime/chat-identity.mjs');
  const profiles:any={user_a:{publicMetadata:{other:'keep'},privateMetadata:{admin:true,other:'private'}},user_b:{publicMetadata:{},privateMetadata:{secret:'never return'}}};
@@ -148,12 +148,13 @@ test('account Clerk backup endpoints preserve metadata, validate bounds, own DTO
  assert.equal(JSON.stringify(result).includes('admin'),false);assert.equal(JSON.stringify(result).includes('private'),false);
  assert.deepEqual(await store.put(a.user,p),result);
  const reused={...p,expectedVersion:1,keyVersion:2};reused.signature=await a.signature(store.signed(a.user,reused));
- await assert.rejects(store.put(a.user,reused),/identity_conflict/);
+ await assert.rejects(store.put(a.user,reused),/identity_exists/);
  const replacement=await identity(a.user);
  const next={...p,deviceId:replacement.deviceId,dhPublic:replacement.registration.dhPublic,signPublic:replacement.registration.signPublic,expectedVersion:1,keyVersion:2};next.signature=await replacement.signature(store.signed(a.user,next));
- const results=await Promise.allSettled([store.put(a.user,next),store.put(a.user,next)]);assert.ok(results.some(x=>x.status==='fulfilled'));
- assert.equal((await store.put(a.user,next)).identity.keyVersion,2);
- assert.equal((await store.get(a.user)).identity.keyVersion,2);
+ const preserved=structuredClone(profiles.user_a);
+ const results=await Promise.allSettled([store.put(a.user,next),store.put(a.user,next)]);assert.ok(results.every(x=>x.status==='rejected'&&/identity_exists/.test(String(x.reason))));
+ assert.deepEqual(profiles.user_a,preserved);
+ assert.equal((await store.get(a.user)).identity.keyVersion,1);
  const b=await identity('user_b'),lost={...p,deviceId:b.deviceId,dhPublic:b.registration.dhPublic,signPublic:b.registration.signPublic};
  lost.signature=await b.signature(store.signed(b.user,lost));
  failBefore=true;await assert.rejects(store.put(b.user,lost),/identity_unavailable/);
@@ -161,7 +162,7 @@ test('account Clerk backup endpoints preserve metadata, validate bounds, own DTO
  assert.equal((await store.put(b.user,lost)).identity.deviceId,b.deviceId);
 });
 
-test('committed bootstrap response loss survives addition; real account reset excludes old self grant without rotating',async()=>{
+test('committed bootstrap response loss survives addition; rejected account reset retains self grant and history',async()=>{
  const isolated=client.db(process.env.MONGODB_DB+'_identity_flow');
  try{
  const profiles:any={};
@@ -208,17 +209,19 @@ test('committed bootstrap response loss survives addition; real account reset ex
  const restored=await chat.handle(owner.user,'state',{v:1});
  assert.equal(restored.status,'active');assert.equal(restored.epoch,state.epoch);
  assert.ok(restored.wraps.some((w:any)=>w.ciphertext===self.ciphertext));
- const replacement=await identity(owner.user);await publish(replacement,1);
+ const replacement=await identity(owner.user);await assert.rejects(publish(replacement,1),/identity_exists/);
  const reset=await chat.handle(owner.user,'state',{v:1});
- assert.equal(reset.epoch,state.epoch);assert.ok(reset.revision>restored.revision);
- assert.equal(reset.wraps.length,0);
- await assert.rejects(chat.handle(owner.user,'history',{v:1,epoch:state.epoch,deviceId:replacement.deviceId}),/waiting/);
+ assert.equal(reset.epoch,state.epoch);assert.equal(reset.revision,restored.revision);
+ assert.ok(reset.wraps.some((w:any)=>w.ciphertext===self.ciphertext));
+ assert.equal((await chat.handle(owner.user,'keys:get',{v:1})).identity.deviceId,owner.deviceId);
+ assert.deepEqual((await chat.handle(owner.user,'history',{v:1,epoch:state.epoch,deviceId:owner.deviceId})).messages,[]);
+ await assert.rejects(chat.handle(owner.user,'history',{v:1,epoch:state.epoch,deviceId:replacement.deviceId}),/device_required/);
  // Removal and explicit re-admission before the next snapshot still fences the epoch.
  await isolated.collection('rooms').updateOne({_id:'main' as never},{$inc:{version:1,chatRemovalVersion:1}});
  assert.notEqual((await chat.handle(owner.user,'state',{v:1})).epoch,state.epoch);
  // Retrieval pagination uses the exact production digest schema, not hex fixtures.
- const grants=Array.from({length:1025},()=>{const epoch=randomUUID();return {...self,_id:digest(JSON.stringify([epoch,owner.user,replacement.deviceId])) as never,senderUserId:owner.user,toDeviceId:replacement.deviceId,epoch,senderDhPublic:owner.registration.dhPublic,senderSignPublic:owner.registration.signPublic};});
- const excluded=Array.from({length:20},(_,i)=>{const epoch=randomUUID(),toUserId=i%2?'added':owner.user,toDeviceId=i%2?added.deviceId:owner.deviceId;return {...self,_id:digest(JSON.stringify([epoch,toUserId,toDeviceId])) as never,senderUserId:owner.user,toUserId,toDeviceId,epoch};});
+ const grants=Array.from({length:1025},()=>{const epoch=randomUUID();return {...self,_id:digest(JSON.stringify([epoch,owner.user,owner.deviceId])) as never,senderUserId:owner.user,toDeviceId:owner.deviceId,epoch,senderDhPublic:owner.registration.dhPublic,senderSignPublic:owner.registration.signPublic};});
+ const excluded=Array.from({length:20},(_,i)=>{const epoch=randomUUID(),toUserId=i%2?'added':owner.user,toDeviceId=i%2?added.deviceId:replacement.deviceId;return {...self,_id:digest(JSON.stringify([epoch,toUserId,toDeviceId])) as never,senderUserId:owner.user,toUserId,toDeviceId,epoch};});
  await isolated.collection('chat_wraps').insertMany([...grants,...excluded]);
  for(const beforeWrap of ['', 'a'.repeat(64), 'a'.repeat(42), 'a'.repeat(44), 'a'.repeat(42)+'=', 'a'.repeat(42)+'B', 7, null, {}, 'a'.repeat(10000)]){
   await assert.rejects(chat.handle(owner.user,'state',{v:1,beforeWrap}),/malformed/);
@@ -235,11 +238,13 @@ test('committed bootstrap response loss survives addition; real account reset ex
   }
   beforeWrap=page.nextWrapCursor;
  }while(beforeWrap);
- assert.deepEqual(sizes,[512,512,1]);
- assert.equal(new Set(received).size,1025);
- assert.deepEqual(received,grants.slice().sort((a,b)=>String(a._id)<String(b._id)?-1:1).map(w=>w.epoch));
+ const retained={epoch:state.epoch,_id:digest(JSON.stringify([state.epoch,owner.user,owner.deviceId]))};
+ const expected=[...grants,retained];
+ assert.deepEqual(sizes,[512,512,2]);
+ assert.equal(new Set(received).size,1026);
+ assert.deepEqual(received,expected.slice().sort((a,b)=>String(a._id)<String(b._id)?-1:1).map(w=>w.epoch));
  assert.equal(received.some(epoch=>excluded.some(w=>w.epoch===epoch)),false);
- const final=await chat.handle(owner.user,'state',{v:1,beforeWrap:grants.map(w=>String(w._id)).sort().at(-1)});
+ const final=await chat.handle(owner.user,'state',{v:1,beforeWrap:expected.map(w=>String(w._id)).sort().at(-1)});
  assert.deepEqual(final.wraps,[]);assert.equal(final.nextWrapCursor,null);
  await assert.rejects(chat.handle('intruder','state',{v:1,beforeWrap:cursors[0]}),/forbidden/);
 
