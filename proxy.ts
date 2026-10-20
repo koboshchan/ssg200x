@@ -1,4 +1,4 @@
-import { clerkMiddleware, currentUser } from "@clerk/nextjs/server";
+import { clerkMiddleware, clerkClient } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest, type NextFetchEvent } from "next/server";
 import { clerkKeys } from "@/lib/clerk-env";
 const publicPages = new Set(["/", "/leaderboard", "/privacy", "/terms"]);
@@ -11,7 +11,9 @@ const clerk = clerkMiddleware(async (auth, req) => {
     ? NextResponse.json({ error: "Sign in with Google." }, { status: 401 })
     : NextResponse.redirect(new URL("/", req.url));
   if (path === "/players" || path.startsWith("/players/") || path === "/admin" || path.startsWith("/admin/")) {
-    const user = await currentUser();
+    // Middleware has not forwarded Clerk request headers yet. currentUser() calls the App Router
+    // auth() helper, which cannot see this callback session. Use the verified callback ID instead.
+    const user = await (await clerkClient()).users.getUser(userId);
     if (user?.privateMetadata?.admin !== true) return new NextResponse("Not found", { status: 404 });
   }
 }, () => {
