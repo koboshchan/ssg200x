@@ -39,7 +39,8 @@ test("closed history is private in full and market snapshots and survives market
  const r=setup(),other={...who,id:"other",email:"other@test",admin:false};register(r,other);
  closePosition(r,who,"position",1000);
  const own=publicRoom(r,who),foreign=publicRoom(r,other),ownMarket=marketPayload(r,who.id,1000),foreignMarket=marketPayload(r,other.id,1000);
- assert.deepEqual(own.closedPositions,r.members[0].closedPositions);assert.deepEqual(ownMarket.closedPositions,own.closedPositions);
+ const wire=r.members[0].closedPositions!.map(({margin:_,...p})=>p);
+ assert.deepEqual(own.closedPositions,wire);assert.deepEqual(ownMarket.closedPositions,own.closedPositions);
  assert.deepEqual(foreign.closedPositions,[]);assert.deepEqual(foreignMarket.closedPositions,[]);
  assert.equal(JSON.stringify(foreign).includes('"id":"position"'),false);
  assert.equal(JSON.stringify(foreignMarket).includes('"id":"position"'),false);
