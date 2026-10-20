@@ -29,6 +29,12 @@ test("signed-in leaderboard uses shared authenticated shell including chat",()=>
  assert.match(root,/<RoomClient configured=\{configured\(\)\}>\{children\}<\/RoomClient>/);
 });
 
+test("chat omits the Security keys disclosure without removing changed-key approval warnings",()=>{
+ assert.doesNotMatch(ui,/<details[^>]*className="chat-safety"|<summary>Security keys<\/summary>/);
+ assert.match(ui,/changed=snap.members.filter\(m=>m.changed\)/);
+ assert.match(ui,/client.trust\(m.userId,m.fingerprint\)/);
+ assert.match(ui,/Hidden: sent with an untrusted key/);
+});
 test("failed own messages offer plain Remove and Retry, never a posted-message delete control",()=>{
  assert.match(ui,/m.mine&&m.status==="failed"&&<small className="chat-error">Not sent\./);
  assert.match(ui,/<button type="button" onClick=\{\(\)=>client.retry\(m\)\}>Retry<\/button>/);

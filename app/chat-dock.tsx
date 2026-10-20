@@ -93,7 +93,6 @@ function Room({snap,client,names}:{snap:Snapshot;client:ChatClient;names:Record<
    {snap.messages.length===0&&snap.phase==="ready"&&<p className="chat-note">No messages yet.</p>}
    {snap.messages.map(m=><Bubble key={m.key} m={m} who={nameOf(m.publicId,m.mine)} client={client}/>)}
   </div>
-  <details className="chat-safety"><summary>Security keys</summary>{snap.members.map(m=><p key={m.userId+":"+m.fingerprint}><span>{nameOf(m.publicId,m.mine)}</span><code>{m.fingerprint?group(m.fingerprint):"no key yet"}</code></p>)}<small>Compare these with each person on another channel to be sure no one is impersonating them.</small></details>
   <form className="chat-compose" onSubmit={e=>{e.preventDefault();submit();}}>
    <label className="sr-only" htmlFor="chat-input">Message</label>
    <textarea id="chat-input" rows={1} value={text} disabled={snap.phase!=="ready"} placeholder={snap.phase==="ready"?"Message":"Locked until the key arrives"} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();submit();}}}/>
