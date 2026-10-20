@@ -10,13 +10,13 @@ export function createChatService(db,{now=Date.now,clerk}={}){
  const ready=Promise.all([messages.createIndex({epoch:1,senderUserId:1,id:1},{unique:true}),messages.createIndex({epoch:1,cursor:-1}),devices.createIndex({userId:1,deviceId:1},{unique:true}),rates.createIndex({expiresAt:1},{expireAfterSeconds:0})]);
  async function rate(user){const minute=Math.floor(now()/60000),id=user+':'+minute;await rates.updateOne({_id:id},{$setOnInsert:{count:0,expiresAt:new Date(now()+180000)}},{upsert:true});if(!(await rates.updateOne({_id:id,count:{$lt:120}},{$inc:{count:1}})).matchedCount)fail('rate_limited');}
  async function snapshot(user){
-  const room=await rooms.findOne({_id:'main'});const members=(room?.members||[]).filter(m=>m.approved===true).map(m=>m.id).sort();
+  const room=await rooms.findOne({_id:'main'});const members=(room?.members||[]).filter(m=>m.approved===true&&!m.accessRevoked).map(m=>m.id).sort();
   if(!members.includes(user))fail('forbidden');
   const directory=await devices.find({userId:{$in:members}},{projection:{_id:0,userId:1,deviceId:1,dhPublic:1,signPublic:1}}).sort({userId:1,deviceId:1}).limit(4096).toArray();
   const fingerprint=digest(JSON.stringify([members,directory]));
   let state=await states.findOne({_id:'main'});
-  if(!state){await states.updateOne({_id:'main'},{$setOnInsert:{revision:1,epoch:randomUUID(),fingerprint,status:'unclaimed',owner:null,leaseUntil:0,counter:0,members,directory}},{upsert:true});state=await states.findOne({_id:'main'});}
-  if(state.fingerprint!==fingerprint){const removed=(state.members||[]).some(u=>!members.includes(u));const rotate=removed;if(rotate&&state.bootstrap)await wraps.updateOne({_id:state.bootstrap._id},{$setOnInsert:state.bootstrap},{upsert:true});const changed=await states.updateOne({_id:'main',revision:state.revision,fingerprint:state.fingerprint},{$set:{fingerprint,members,directory,...(rotate?{epoch:randomUUID(),status:'unclaimed',owner:null,leaseUntil:0,counter:0,bootstrap:null}:{})},$inc:{revision:1}});if(!changed.matchedCount)fail('stale_revision');state=await states.findOne({_id:'main'});}
+  if(!state){await states.updateOne({_id:'main'},{$setOnInsert:{revision:1,epoch:randomUUID(),fingerprint,status:'unclaimed',owner:null,leaseUntil:0,counter:0,removalVersion:room.chatRemovalVersion||0,members,directory}},{upsert:true});state=await states.findOne({_id:'main'});}
+  if(state.fingerprint!==fingerprint||(state.removalVersion||0)!==(room.chatRemovalVersion||0)){const removed=(state.members||[]).some(u=>!members.includes(u));const rotate=removed||(state.removalVersion||0)!==(room.chatRemovalVersion||0);if(rotate&&state.bootstrap)await wraps.updateOne({_id:state.bootstrap._id},{$setOnInsert:state.bootstrap},{upsert:true});const changed=await states.updateOne({_id:'main',revision:state.revision,fingerprint:state.fingerprint},{$set:{fingerprint,members,directory,removalVersion:room.chatRemovalVersion||0,...(rotate?{epoch:randomUUID(),status:'unclaimed',owner:null,leaseUntil:0,counter:0,bootstrap:null}:{})},$inc:{revision:1}});if(!changed.matchedCount)fail('stale_revision');state=await states.findOne({_id:'main'});}
   return {room,members,directory,state};
  }
  async function fence(s,user){

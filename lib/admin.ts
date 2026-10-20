@@ -40,3 +40,14 @@ export function goLiveNow(r:Room,who:Identity){
  audit(r,who,"backfill-go-live","global",{manual:r.siteMaintenance===true,background:r.backfillInBackground===true},{manual:false,background:true});
  r.siteMaintenance=false;r.backfillInBackground=true;
 }
+
+// Keep the member ledger and historical ownership; never delete the denial.
+export function setMemberAccess(r:Room,who:Identity,publicId:string,allowed:boolean){
+ ensure(who.admin,"Administrator access required.",403);
+ const member=r.members.find(m=>m.publicId===publicId);
+ ensure(member,"Account not found.",404);
+ ensure(member.id!==who.id,"Cannot revoke your own access.",409);
+ if(!allowed&&!member.accessRevoked)r.chatRemovalVersion=(r.chatRemovalVersion||0)+1;
+ audit(r,who,"member-access",publicId,!member.accessRevoked,allowed);
+ member.accessRevoked=!allowed;member.approved=allowed;
+}

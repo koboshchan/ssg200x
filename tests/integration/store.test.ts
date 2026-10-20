@@ -119,3 +119,17 @@ test("orphaned legacy chat lock never blocks gameplay or resurrects on room writ
  await visit(admin);await tickRoom();assertRoom(await readRoom());
 });
 
+test("admin removal survives visits and move registration, with explicit admin restoration",async()=>{
+ const {setMemberAccess}=await import("../../lib/admin");
+ const target=player(91);await visit(target);
+ const publicId=(await readRoom()).members.find(m=>m.id===target.id)!.publicId;
+ const before=(await readRoom()).chatRemovalVersion||0;
+ await mutate(r=>setMemberAccess(r,admin,publicId,false));
+ await assert.rejects(visit(target),/revoked/);
+ await assert.rejects(move(target,{type:"join",seat:5,buyIn:10000},randomUUID(),0,null,Date.now()),/revoked/);
+ assert.equal((await readRoom()).chatRemovalVersion,before+1);
+ await mutate(r=>setMemberAccess(r,admin,publicId,false));
+ assert.equal((await readRoom()).chatRemovalVersion,before+1);
+ await mutate(r=>setMemberAccess(r,admin,publicId,true));
+ assert.equal((await visit(target)).members.find(m=>m.id===target.id)!.approved,true);
+});

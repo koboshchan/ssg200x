@@ -19,7 +19,7 @@ export function register(r: Room, who: Identity, now = Date.now()): Member {
   ensure(r.members.length < MAX_MEMBERS, "This private room is full.", 409);
   m = { id: who.id, publicId: createHash("sha256").update(who.id).digest("hex").slice(0,16), name: who.name.slice(0,32) || "Player", email: who.email, approved: true, wallet: 100_000, joined: now };
   r.members.push(m);
- } else m.approved = true;
+ } else { ensure(!m.accessRevoked,"Room access revoked.",403); m.approved = true; }
  return m;
 }
 export function seatOf(r: Room, id: string) { return r.seats.findIndex(s => s?.userId === id); }
