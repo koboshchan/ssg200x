@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {createRequestBudget,MAX_FAILURES,retryDelay} from "../lib/chat-request-budget";
 test("fake clock sustained structured ACK rate limit stops at exactly four network attempts",async()=>{
  let clock=1,calls=0;const b=createRequestBudget(()=>clock,()=>.5);
- const transport=async()=>{calls++;return {ok:false,error:"rate_limited"};};
+ const transport=async()=>{calls++;return {ok:false,error:"rate_limited",retryAfterMs:0};};
  for(let i=0;i<MAX_FAILURES;i++){
   await assert.rejects(b.request("a","keys:get",{},transport),/rate_limited/);
   const delay=b.status("a").until-clock,base=1000*2**i;
@@ -34,4 +34,18 @@ test("one in-flight transport across owners and unrelated accounts remain isolat
  await assert.rejects(b.request("a","keys:get",{},t),/busy/);assert.equal(calls,1);
  assert.deepEqual(await b.request("other","keys:get",{},async()=>({ok:true})),{ok:true});
  finish({ok:true});await first;assert.equal(b.status("a").flight,undefined);
+});
+test("legacy shared limiter saturation waits out minute before setup or send can consume another attempt",async()=>{
+ let clock=60001,calls=0;const b=createRequestBudget(()=>clock,()=>0);
+ const blocked=async()=>{calls++;return {ok:false,error:"rate_limited"};};
+ await assert.rejects(b.request("a","keys:get",{},blocked));
+ assert.equal(b.status("a").until,120250);
+ for(const event of ["keys:get","state","history","send"]){
+  for(let n=0;n<40;n++)await assert.rejects(b.request("a",event,{},blocked));
+ }
+ assert.equal(calls,1);clock=120249;
+ await assert.rejects(b.request("a","send",{},blocked));assert.equal(calls,1);
+ clock=120250;
+ assert.deepEqual(await b.request("a","send",{id:"exact"},async()=>{calls++;return {ok:true};}),{ok:true});
+ assert.equal(calls,2);
 });

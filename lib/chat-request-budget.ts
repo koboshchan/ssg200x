@@ -29,7 +29,10 @@ export function createRequestBudget(now=Date.now,random=Math.random){
      if((e as Error)?.message==="rate_limited"){
       b.failures++;
       const x=e as {retryAfter?:unknown;retryAfterUnit?:unknown;retryAfterMs?:number};
-      const mandated=x.retryAfterMs===undefined?retryDelay(x.retryAfter,x.retryAfterUnit):retryDelay(x.retryAfterMs,"ms");
+      const explicit=x.retryAfterMs!==undefined||x.retryAfter!==undefined;
+      // All operations share a fixed one-minute server bucket. Older ACKs omit retryAfter.
+      // Wait to its next boundary rather than spending all four attempts inside the same bucket.
+      const mandated=explicit?(x.retryAfterMs===undefined?retryDelay(x.retryAfter,x.retryAfterUnit):retryDelay(x.retryAfterMs,"ms")):60000-(now()%60000)+250;
       const base=Math.min(30000,1000*2**(b.failures-1));
       b.until=now()+Math.max(mandated,base+Math.floor(random()*base*.25));
       b.stopped=b.failures>=MAX_FAILURES;

@@ -333,7 +333,7 @@ test("actual client remounts and state-driven starts cannot reset a rate-limit b
 
 test("rapid socket reconnects preserve account exponential attempts and terminal stop",async()=>{
  let clock=1,calls=0;const budget=createRequestBudget(()=>clock,()=>0),store=new MemoryStore();
- const transport=async()=>{calls++;return {ok:false,error:"rate_limited"};};
+ const transport=async()=>{calls++;return {ok:false,error:"rate_limited",retryAfterMs:0};};
  const c=new ChatClient("rapid",transport,store,()=>clock,openMessage,budget);
  for(let attempt=0;attempt<4;attempt++){
   await c.reconnect();

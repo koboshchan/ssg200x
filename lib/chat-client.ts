@@ -73,7 +73,7 @@ export class ChatClient{
   const p=this.run(()=>this.sync()).finally(()=>{if(this.syncing===p)this.syncing=undefined;if(this.hinted&&!this.closed){this.hinted=false;clearTimeout(this.hintTimer);this.hint();}});
   this.syncing=p;return p;
  };
- private later(ms:number){clearTimeout(this.timer);if(!this.closed)this.timer=setTimeout(()=>{void this.start();},ms);}
+ private later(ms:number){clearTimeout(this.timer);if(!this.closed)this.timer=setTimeout(()=>{void this.reconnect();},ms);}
 
  private clearSession(){
   this.keys.clear();this.attempted.clear();this.cursors.clear();this.raw.clear();this.local.clear();this.sealed.clear();this.ambiguous.clear();this.opened.clear();this.inflight.clear();this.windowStart=0;this.extra=0;
@@ -400,6 +400,7 @@ export class ChatClient{
       await this.store.putPending(this.user,updated);this.sealed.set(id,updated);continue;
      }
      if([...this.raw.values()].some(m=>m.senderUserId===this.user&&m.id===id)){this.local.delete(lk);this.sealed.delete(id);this.ambiguous.delete(id);await this.render();return true;}
+     if(code==="rate_limited")this.fail(e);
      if(this.sealed.has(id))this.ambiguous.add(id);
      break;
     }
