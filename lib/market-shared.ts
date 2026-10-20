@@ -5,6 +5,7 @@ export const SYMBOLS=MARKET_CONFIG.symbols;
 export const DELISTED_SYMBOLS=["ZEC","HYPE","DOGE","LINK","ADA","NEAR","XLM","BCH","UNI","AVAX","SUI","HBAR","TAO","SHIB"] as const;
 export const TRADING_SYMBOLS=[...SYMBOLS,...STOCK_SYMBOLS] as const;
 export type Symbol=typeof SYMBOLS[number]|typeof DELISTED_SYMBOLS[number]|StockSymbol;
+export function isTradingSymbol(symbol:string){return (TRADING_SYMBOLS as readonly string[]).includes(symbol);}
 export function isActiveSymbol(symbol:string){return (SYMBOLS as readonly string[]).includes(symbol)||isStockSymbol(symbol);}
 export function isDelistedSymbol(symbol:string){return (DELISTED_SYMBOLS as readonly string[]).includes(symbol);}
 export const RED=new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);

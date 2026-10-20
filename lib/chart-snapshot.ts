@@ -1,8 +1,8 @@
 import {candleRead,GRANULARITIES,type Granularity} from "./candles";
-import {SYMBOLS} from "./market-shared";
+import {TRADING_SYMBOLS} from "./market-shared";
 export type ChartSelection={symbol:string;granularity:Granularity};
 export function chartSelection(symbol:unknown,granularity:unknown):ChartSelection|null{
- return typeof symbol==="string"&&(SYMBOLS as readonly string[]).includes(symbol)&&typeof granularity==="string"&&Object.hasOwn(GRANULARITIES,granularity)?{symbol,granularity:granularity as Granularity}:null;
+ return typeof symbol==="string"&&(TRADING_SYMBOLS as readonly string[]).includes(symbol)&&typeof granularity==="string"&&Object.hasOwn(GRANULARITIES,granularity)?{symbol,granularity:granularity as Granularity}:null;
 }
 /** At most 120 keys (20 symbols x 6 intervals), one shared Mongo read per 2s.
  * Socket subscribers only read our stored candles. No upstream history fetch.
