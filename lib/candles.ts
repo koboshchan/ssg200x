@@ -360,11 +360,11 @@ export async function backfillSpace() {
 async function archiveProgress() {
  const space=await backfillSpace();
  const {jobs}=await collections();
- const counts=await jobs.aggregate<{_id:string;count:number}>([{$group:{_id:"$status",count:{$sum:1}}}]).toArray();
+ const counts=await jobs.aggregate<{_id:string;count:number}>([{$match:{kind:"monthly",source:{$ne:"coinbase"}}},{$group:{_id:"$status",count:{$sum:1}}}]).toArray();
  const count=(status:string)=>counts.find(c=>c._id===status)?.count||0;
  const pending=count("pending"),done=count("done"),missing=count("missing");
  const enabled=process.env.CANDLE_BACKFILL_DISABLED!=="1";
- return {enabled,status:!enabled?"disabled":space.blocked?"blocked":pending?"pending":done+missing?"complete":"not-started",...space,pending,done,missing,total:pending+done+missing,etaSeconds:null,etaReason:"Archive throughput has not been measured",symbols:await jobs.aggregate([{$group:{_id:{symbol:"$symbol",status:"$status"},count:{$sum:1}}}]).toArray()};
+ return {enabled,status:!enabled?"disabled":space.blocked?"blocked":pending?"pending":done+missing?"complete":"not-started",...space,pending,done,missing,total:pending+done+missing,etaSeconds:null,etaReason:"Archive throughput has not been measured",symbols:await jobs.aggregate([{$match:{kind:"monthly",source:{$ne:"coinbase"}}},{$group:{_id:{symbol:"$symbol",status:"$status"},count:{$sum:1}}}]).toArray()};
 }
 
 export function historyPlan(now=Date.now()):Coverage[] {
@@ -407,7 +407,7 @@ async function historyProgress(){
   const daysDone=dayKeys.filter(day=>{const entries=days.filter(j=>j.from<(day+1)*DAY&&j.to>day*DAY);return entries.length===monthJobs.filter(j=>j.from<(day+1)*DAY&&j.to>day*DAY).length&&entries.length>0&&entries.every(j=>j.status==="done"||j.status==="missing");}).length;
   const finished=(list:typeof rows)=>list.filter(j=>j.status==="done"||j.status==="missing").length;
   const elapsed=state?.startedAt?Math.max(0,Date.now()-state.startedAt)/1000:0;
-  return {symbol,done,total,percent:total?Math.round(100*done/total):0,unavailable:rows.some(j=>j.status==="missing"),monthsDone:finished(months),monthsTotal:planned.filter(j=>j.symbol===symbol&&j.kind==="monthly").length,daysDone,daysTotal:dayKeys.length,currentSource:finished(months)<12?"Binance USDT reference archives":"Coinbase USD current-month/incremental",etaSeconds:space.blocked||!done||!elapsed?null:Math.ceil((total-done)*elapsed/done)};
+  return {symbol,done,total,percent:total?Math.round(100*done/total):0,unavailable:rows.some(j=>j.status==="missing"),monthsDownloaded:months.filter(j=>j.status==="done").length,monthsMissing:months.filter(j=>j.status==="missing").length,monthsDone:finished(months),monthsTotal:planned.filter(j=>j.symbol===symbol&&j.kind==="monthly").length,daysDone,daysTotal:dayKeys.length,currentSource:finished(months)<12?"Binance USDT reference archives":"Coinbase USD current-month/incremental",etaSeconds:space.blocked||!done||!elapsed?null:Math.ceil((total-done)*elapsed/done)};
  });
  const done=symbols.reduce((n,s)=>n+s.done,0),total=planned.length;
  return {source:"Binance USDT prior 12 months; Coinbase USD current month and live/incremental",window:state?{from:archivePlan(state.anchor)[0].from,to:state.anchor,completeMonths:12}:null,status:space.blocked?"blocked":!state?.seeded||state.version!==2?"initializing":done<total||!state.currentMonthComplete?"running":total?"complete":"initializing",...space,symbols,overall:{done,total,percent:total?Math.round(100*done/total):0,etaSeconds:space.blocked||!done||!state?.startedAt?null:Math.ceil((total-done)*Math.max(0,Date.now()-state.startedAt)/1000/done)},etaKind:"Observed completed-job throughput since initialization; missing archives explicitly unavailable"};

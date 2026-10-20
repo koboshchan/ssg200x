@@ -3,7 +3,7 @@ import {createContext,useContext,useEffect,useMemo,useRef,useState} from "react"
 import {useAuth} from "@clerk/nextjs";
 import type {Socket} from "socket.io-client";
 export type MaintenanceStatus={admin:boolean;active:boolean;blocked:boolean;manual:boolean;backfill:boolean;background?:boolean};
-export type HistoryStatus={status:string;reason?:string;source:string;overall:{done:number;total:number;percent:number;etaSeconds:number|null};symbols:{symbol:string;done:number;total:number;percent:number;unavailable:boolean;monthsDone:number;monthsTotal:number;daysDone:number;daysTotal:number;currentSource:string;etaSeconds:number|null}[]};
+export type HistoryStatus={status:string;reason?:string;source:string;overall:{done:number;total:number;percent:number;etaSeconds:number|null};symbols:{symbol:string;done:number;total:number;percent:number;unavailable:boolean;monthsDownloaded:number;monthsMissing:number;monthsDone:number;monthsTotal:number;daysDone:number;daysTotal:number;currentSource:string;etaSeconds:number|null}[]};
 export type Connection="connecting"|"connected"|"disconnected";
 /* Server contract (one authenticated socket.io websocket, auth:{token} = fresh Clerk session token):
    room:state PublicRoom, market:update MarketSnapshot, maintenance:state MaintenanceStatus, history:state HistoryStatus (admins).

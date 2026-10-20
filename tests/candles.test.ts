@@ -86,6 +86,14 @@ test("Mongo persistence, out-of-order snapshots, partial-import retry, leases an
  globalThis.fetch=(async()=>new Response("missing",{status:404})) as typeof fetch;
  await backfillStep();
  assert.equal((await database.collection<{_id:string;status?:string}>("candle_backfill").findOne({_id:missing._id}))?.status,"missing");
+ const reported=await backfillProgress();
+ assert.equal(reported.archive.total,240);
+ assert.equal(reported.archive.missing,1);
+ const hype=reported.history.symbols.find(s=>s.symbol==="HYPE")!;
+ assert.equal(hype.monthsDownloaded,11);assert.equal(hype.monthsMissing,1);
+ assert.equal(hype.monthsDone,12);
+ assert.ok(reported.history.overall.total>reported.archive.total);
+
  // Complete archive jobs, then exercise a real current-month worker page twice.
  await database.collection("candle_backfill").updateMany({},{$set:{status:"done"}});
  const bootstrap=await database.collection<{_id:string;anchor:number}>("candle_history_state").findOne({_id:"archive-12-month-v1"});
