@@ -49,3 +49,22 @@ test("real Socket.IO connected clients get each distinct event, disconnected and
   assert.equal(aa.length,2);assert.equal(bb.length,3);
  }finally{a.close();b.close();await io.close();http.close();}
 });
+
+import {readFileSync} from "node:fs";
+test("provider keeps airdrop notifications out of cached state and leaves reconnect handling intact",()=>{
+ const source=readFileSync(new URL("../app/live-provider.tsx",import.meta.url),"utf8");
+ assert.match(source,/if\(event!==AIRDROP_EVENT\)latest.current.set/);
+ assert.match(source,/socket.on\(AIRDROP_EVENT,\(p:unknown\)=>airdropReceiver.current\?\.\(p\)\)/);
+ assert.match(source,/airdropReceiver.current\?\?=createAirdropReceiver/);
+ assert.doesNotMatch(source,/airdropReceiver.current\s*=\s*null/);
+ assert.match(source,/socket.on\("connect",\(\)=>\{receiver.clear\(\);latest.current.clear\(\)/);
+ assert.match(source,/socket.on\("chat:changed"/);
+});
+test("only the secret internal HTTP path can announce, not a client socket event",()=>{
+ const source=readFileSync(new URL("../server.mjs",import.meta.url),"utf8");
+ assert.match(source,/request.url!=="\/internal-airdrop"/);
+ assert.match(source,/timingSafeEqual\(a,b\)/);
+ assert.match(source,/Buffer.byteLength\(body\)>256/);
+ assert.match(source,/await announceAirdrop\(id\)/);
+ assert.doesNotMatch(source,/socket.on\(["']airdrop/);
+});
