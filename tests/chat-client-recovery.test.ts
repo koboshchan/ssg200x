@@ -4,6 +4,11 @@ import {ChatClient,type BootstrapPayload,type ChatStore,type Pin,type Setup} fro
 import {createIdentity,makeWrap,newEpochKey,sealMessage,type Identity,type WireMessage,type WireWrap,type ServerIdentity} from "../lib/chat-crypto";
 
 class MemoryStore implements ChatStore{
+ pending=new Map<string,any>();
+ getPending=async(u:string)=>[...this.pending.entries()].filter(([k])=>k.startsWith(u+":")).map(([,v])=>structuredClone(v));
+ putPending=async(u:string,p:any)=>{this.pending.set(u+":"+p.id,structuredClone(p));};
+ deletePending=async(u:string,id:string)=>{this.pending.delete(u+":"+id);};
+
  identities=new Map<string,Identity>();epochs=new Map<string,CryptoKey>();pins=new Map<string,Pin>();setups=new Map<string,Setup>();bootstraps=new Map<string,BootstrapPayload>();
  getIdentity=async(u:string)=>this.identities.get(u);
  putIdentity=async(u:string,i:Identity)=>{this.identities.set(u,i);};
@@ -281,3 +286,72 @@ test("throttled history retries, then exhaustion is non-ready, keeps cursors and
  }finally{c2.close();}
 });
 
+
+
+test("durable outbound ciphertext survives a new client and retries exact bytes",async()=>{
+ const {a,store}=await seeded(),epoch=crypto.randomUUID(),key=await newEpochKey();await store.putEpoch("a",epoch,key);
+ const sends:any[]=[];let delivered=false;
+ const transport=async(e:string,p:any):Promise<any>=>{
+  if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
+  if(e==="state")return view(a.identity,epoch);
+  if(e==="history")return {messages:[],nextCursor:null};
+  if(e==="send"){
+   assert.deepEqual((await store.getPending("a"))[0],p);
+   sends.push(structuredClone(p));if(!delivered)throw Error("timeout");
+   return {message:{...p,senderUserId:"a",senderSignPublic:a.identity.signPublic,serverTs:1,cursor:1}};
+  }throw Error(e);
+ };
+ const first=new ChatClient("a",transport,store);await first.start();await first.send("durable private canary");first.close();
+ assert.equal(JSON.stringify(await store.getPending("a")).includes("durable private canary"),false);
+ const next=new ChatClient("a",transport,store);
+ try{
+  await next.start();assert.equal(next.getSnapshot().messages[0].text,"durable private canary");
+  delivered=true;assert.equal(await next.retry(next.getSnapshot().messages[0]),true);
+  assert.deepEqual(sends[0],sends[1]);assert.equal((await store.getPending("a")).length,0);
+ }finally{next.close();}
+});
+test("concurrent starts share one synchronization",async()=>{
+ const {a,store}=await seeded(),epoch=crypto.randomUUID(),key=await newEpochKey();await store.putEpoch("a",epoch,key);let gets=0;
+ const c=new ChatClient("a",async(e:string)=>{
+  if(e==="keys:get"){gets++;return {identity:server(a)};}if(e==="register")return {};
+  if(e==="state")return view(a.identity,epoch);if(e==="history")return {messages:[],nextCursor:null};throw Error(e);
+ },store);
+ try{await Promise.all(Array.from({length:30},()=>c.start()));assert.equal(gets,1);}finally{c.close();}
+});
+
+test("failed durable write never emits or displays an accepted pending message",async()=>{
+ const {a,store}=await seeded(),epoch=crypto.randomUUID(),key=await newEpochKey();await store.putEpoch("a",epoch,key);let sends=0;
+ store.putPending=async()=>{throw Error("quota");};
+ const c=new ChatClient("a",async(e:string)=>{
+  if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
+  if(e==="state")return view(a.identity,epoch);if(e==="history")return {messages:[],nextCursor:null};
+  if(e==="send")sends++;throw Error(e);
+ },store);
+ try{await c.start();assert.equal(await c.send("not stored"),false);assert.equal(sends,0);assert.equal(c.getSnapshot().messages.length,0);}finally{c.close();}
+});
+test("pending restoration rejects tampering and foreign device without sending",async()=>{
+ const {a,store}=await seeded(),epoch=crypto.randomUUID(),key=await newEpochKey();await store.putEpoch("a",epoch,key);
+ const good=await sealMessage(a.identity,"a",{revision:1,epoch,id:crypto.randomUUID(),ts:Date.now()},"verified",key);
+ const foreign=await createIdentity("a",1);
+ await store.putPending("a",{...good,id:crypto.randomUUID()});
+ await store.putPending("a",await sealMessage(foreign.identity,"a",{revision:1,epoch,id:crypto.randomUUID(),ts:Date.now()},"foreign",key));
+ await store.putPending("other",good);let sends=0;
+ const c=new ChatClient("a",async(e:string)=>{
+  if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
+  if(e==="state")return view(a.identity,epoch);if(e==="history")return {messages:[],nextCursor:null};
+  if(e==="send")sends++;throw Error(e);
+ },store);
+ try{await c.start();assert.equal(c.getSnapshot().messages.length,0);assert.equal(sends,0);}finally{c.close();}
+});
+test("reload reconciles a committed history echo without retrying the outbound envelope",async()=>{
+ const {a,store}=await seeded(),epoch=crypto.randomUUID(),key=await newEpochKey();await store.putEpoch("a",epoch,key);
+ const payload=await sealMessage(a.identity,"a",{revision:1,epoch,id:crypto.randomUUID(),ts:Date.now()},"committed",key);
+ await store.putPending("a",payload);
+ const c=new ChatClient("a",async(e:string)=>{
+  if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
+  if(e==="state")return view(a.identity,epoch);
+  if(e==="history")return {messages:[{...payload,senderUserId:"a",senderSignPublic:a.identity.signPublic,serverTs:1,cursor:1}],nextCursor:null};
+  throw Error(e);
+ },store);
+ try{await c.start();assert.equal((await store.getPending("a")).length,0);assert.equal(c.getSnapshot().messages[0].status,"ok");}finally{c.close();}
+});

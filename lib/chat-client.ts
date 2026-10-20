@@ -8,6 +8,7 @@ export type Setup={identity:Identity;body:Awaited<ReturnType<typeof createIdenti
 export type SendPayload=Awaited<ReturnType<typeof sealMessage>>;
 export type BootstrapPayload=Awaited<ReturnType<typeof makeWrap>>;
 export interface ChatStore{
+ getPending(user:string):Promise<SendPayload[]>;putPending(user:string,payload:SendPayload):Promise<void>;deletePending(user:string,id:string):Promise<void>;
  getIdentity(user:string):Promise<Identity|undefined>;putIdentity(user:string,identity:Identity):Promise<void>;clearIdentity(user:string):Promise<void>;
  getEpoch(user:string,epoch:string):Promise<CryptoKey|undefined>;putEpoch(user:string,epoch:string,key:CryptoKey):Promise<void>;
  getSetup(user:string):Promise<Setup|undefined>;putSetup(user:string,setup:Setup):Promise<void>;clearSetup(user:string):Promise<void>;
@@ -38,7 +39,7 @@ export class ChatClient{
  private raw=new Map<string,WireMessage>();private local=new Map<string,ChatMessage>();private shown=new Map<string,ChatMessage>();
  private changed=new Map<string,Device>();private publicIds=new Map<string,string>();private pins=new Map<string,Pin>();private lastView:View|undefined;
  private ambiguous=new Set<string>();private sealed=new Map<string,SendPayload>();private historical=new Map<string,Device>();
- private closed=false;
+ private closed=false;private hinted=false;private staleFailures=0;
  private opened=new Map<string,{key:CryptoKey;res:Awaited<ReturnType<typeof openMessage>>}>();private inflight=new Map<string,Promise<Awaited<ReturnType<typeof openMessage>>>>();private windowStart=0;private extra=0;
  constructor(private user:string,private request:Transport,private store:ChatStore,private now:()=>number=Date.now,private open:typeof openMessage=openMessage){}
  subscribe=(fn:()=>void)=>{this.listeners.add(fn);return()=>{this.listeners.delete(fn);};};
@@ -47,8 +48,14 @@ export class ChatClient{
  private run<T>(fn:()=>Promise<T>):Promise<T>{const next=this.chain.then(fn,fn);this.chain=next.catch(()=>{});return next;}
  close(){this.closed=true;clearTimeout(this.timer);clearTimeout(this.hintTimer);}
  /** Call on connect and whenever the server emits chat:changed (payload-free hint). */
- hint(){clearTimeout(this.hintTimer);this.hintTimer=setTimeout(()=>{void this.start();},150);}
- start=()=>this.run(()=>this.sync());
+ hint(){if(this.closed)return;this.hinted=true;clearTimeout(this.hintTimer);this.hintTimer=setTimeout(()=>{if(this.syncing)return;this.hinted=false;void this.start();},150);}
+ private syncing:Promise<void>|undefined;
+ start=()=>{
+  if(this.closed)return Promise.resolve();
+  if(this.syncing)return this.syncing;
+  const p=this.run(()=>this.sync()).finally(()=>{if(this.syncing===p)this.syncing=undefined;if(this.hinted&&!this.closed){this.hinted=false;clearTimeout(this.hintTimer);this.hint();}});
+  this.syncing=p;return p;
+ };
  private later(ms:number){clearTimeout(this.timer);if(!this.closed)this.timer=setTimeout(()=>{void this.start();},ms);}
 
  private clearSession(){
@@ -84,7 +91,7 @@ export class ChatClient{
  private fail(e:unknown){
   const code=codeOf(e);
   if(code==="waiting")return this.set({phase:"waiting",error:null}),this.later(4000);
-  if(code==="stale_revision"||code==="busy"||code==="rate_limited")return this.later(code==="rate_limited"?15000:800);
+  if(code==="stale_revision"||code==="busy"||code==="rate_limited")return this.later(code==="rate_limited"?15000:Math.min(15000,800*2**Math.min(this.staleFailures++,5)));
   this.set({phase:"error",error:code});this.later(10000);
  }
  private async converge(me:Identity){
@@ -103,7 +110,27 @@ export class ChatClient{
   this.lastView=view;
   await this.distribute(me,view);
   if(!await this.refresh(me,view))return;
+  clearTimeout(this.timer);this.staleFailures=0;
+  await this.restorePending(me);
   this.set({phase:"ready",error:null});
+ }
+ /** Only authenticated ciphertext is restored; plaintext stays in session memory. */
+ private async restorePending(me:Identity){
+  for(const p of await this.store.getPending(this.user)){
+   if(p.deviceId!==me.deviceId||p.room!=="main")continue;
+   if([...this.raw.values()].some(m=>m.senderUserId===this.user&&m.id===p.id)){
+    await this.store.deletePending(this.user,p.id);continue;
+   }
+   const key=this.keys.get(p.epoch);if(!key)continue;
+   const m:WireMessage={...p,senderUserId:this.user,senderSignPublic:me.signPublic,serverTs:p.ts,cursor:Number.MAX_SAFE_INTEGER};
+   let opened:Awaited<ReturnType<typeof openMessage>>;
+   try{opened=await this.open(m,key);}catch{continue;}
+   if(!opened.ok)continue;
+   this.sealed.set(p.id,p);this.ambiguous.add(p.id);
+   const k=p.epoch+":"+this.user+":"+p.id;
+   if(!this.local.has(k))this.local.set(k,{key:k,id:p.id,senderUserId:this.user,publicId:this.publicIds.get(this.user)||"",mine:true,ts:p.ts,serverTs:p.ts,cursor:Number.MAX_SAFE_INTEGER,epoch:p.epoch,text:opened.text,status:"failed"});
+  }
+  await this.render();
  }
  /** Enumerate retained grants, discarding mixed-revision pages rather than merging stale state. */
  private async readView():Promise<View>{
@@ -303,7 +330,7 @@ export class ChatClient{
    out.set(k,{key:k,id:m.id,senderUserId:m.senderUserId,publicId:this.publicIds.get(m.senderUserId)||"",mine,ts:m.ts,serverTs:m.serverTs,cursor:m.cursor,epoch:m.epoch,text,status});
   }
   for(const [k,m] of this.local){
-   if([...this.raw.values()].some(r=>r.senderUserId===this.user&&r.id===m.id)){this.local.delete(k);this.sealed.delete(m.id);this.ambiguous.delete(m.id);}
+   if([...this.raw.values()].some(r=>r.senderUserId===this.user&&r.id===m.id)){await this.store.deletePending(this.user,m.id);this.local.delete(k);this.sealed.delete(m.id);this.ambiguous.delete(m.id);}
    else out.set(k,m);
   }
   const sorted=[...out.values()].sort((a,b)=>a.serverTs-b.serverTs||a.cursor-b.cursor||a.ts-b.ts);
@@ -315,17 +342,28 @@ export class ChatClient{
  }
  async send(text:string,retryId?:string):Promise<boolean>{
   const body=text.trim(),me=this.identity;
-  if(!body||new TextEncoder().encode(body).length>MAX_TEXT_BYTES||!this.lastView||!me||this.snap.phase!=="ready")return false;
+  if(this.closed||!body||new TextEncoder().encode(body).length>MAX_TEXT_BYTES||!this.lastView||!me||this.snap.phase!=="ready")return false;
   const id=retryId||crypto.randomUUID(),lk=this.lastView.epoch+":"+this.user+":"+id;
+  // Commit the exact signed envelope before acknowledging a pending send to the UI.
+  try{
+   if(!this.sealed.has(id)){
+    const key=this.keys.get(this.lastView.epoch);if(!key)return false;
+    const payload=await sealMessage(me,this.user,{revision:this.lastView.revision,epoch:this.lastView.epoch,id,ts:this.now()},body,key);
+    await this.store.putPending(this.user,payload);this.sealed.set(id,payload);
+   }
+  }catch{this.set({error:"local_storage"});return false;}
+  if(this.closed)return false;
   this.local.set(lk,{key:lk,id,senderUserId:this.user,publicId:this.publicIds.get(this.user)||"",mine:true,ts:this.now(),serverTs:this.now(),cursor:Number.MAX_SAFE_INTEGER,epoch:this.lastView.epoch,text:body,status:"pending"});
   await this.render();
   return this.run(async()=>{
+   if(this.closed)return false;
    for(let attempt=0;attempt<2;attempt++){
     try{
      const cur=this.lastView!,key=this.keys.get(cur.epoch);if(!key)throw new Error("waiting");
      let sealed=this.sealed.get(id);
      if(!sealed){sealed=await sealMessage(me,this.user,{revision:cur.revision,epoch:cur.epoch,id,ts:this.now()},body,key);this.sealed.set(id,sealed);}
      const res=await this.request("send",sealed) as {message:WireMessage};
+     await this.store.deletePending(this.user,id);
      this.raw.set(res.message.epoch+":"+res.message.senderUserId+":"+res.message.id,res.message);
      for(const [k,m] of this.local)if(m.id===id)this.local.delete(k);this.sealed.delete(id);this.ambiguous.delete(id);await this.render();return true;
     }catch(e){
@@ -337,7 +375,10 @@ export class ChatClient{
       if([...this.raw.values()].some(m=>m.senderUserId===this.user&&m.id===id)){this.local.delete(lk);this.sealed.delete(id);this.ambiguous.delete(id);await this.render();return true;}
       // A stale response to a later retry does NOT establish that the first attempt failed.
       if(this.ambiguous.has(id))break;
-      this.sealed.delete(id);continue;
+      const cur=this.lastView!,key=this.keys.get(cur.epoch);
+      if(!key)break;
+      const updated=await sealMessage(me,this.user,{revision:cur.revision,epoch:cur.epoch,id,ts:this.now()},body,key);
+      await this.store.putPending(this.user,updated);this.sealed.set(id,updated);continue;
      }
      if([...this.raw.values()].some(m=>m.senderUserId===this.user&&m.id===id)){this.local.delete(lk);this.sealed.delete(id);this.ambiguous.delete(id);await this.render();return true;}
      if(this.sealed.has(id))this.ambiguous.add(id);
@@ -349,7 +390,7 @@ export class ChatClient{
   });
  }
  retry(m:ChatMessage){return m.text?this.send(m.text,m.id):false;}
- dismiss(m:ChatMessage){this.sealed.delete(m.id);this.ambiguous.delete(m.id);this.local.delete(m.key);return this.render();}
+ async dismiss(m:ChatMessage){await this.store.deletePending(this.user,m.id);this.sealed.delete(m.id);this.ambiguous.delete(m.id);this.local.delete(m.key);return this.render();}
  /** Stage keys locally; never publish before the recovery words have been saved. */
  async createIdentity(){
   return this.run(async()=>{

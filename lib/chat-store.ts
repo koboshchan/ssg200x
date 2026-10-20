@@ -1,7 +1,7 @@
 // TableTalk IndexedDB. Recovery words and plaintext messages are never persisted.
 // Identity keys and the local epoch KEK are nonextractable CryptoKeys. Epoch bytes are AES-GCM
 // sealed at rest; temporary extractable working keys exist only to share an authorized grant.
-import type {BootstrapPayload,ChatStore,Pin,Setup} from "./chat-client";
+import type {SendPayload,BootstrapPayload,ChatStore,Pin,Setup} from "./chat-client";
 import {b64,unb64,importEpochKey,randomBytes,sealLocalRecord,openLocalRecord,type LocalSealed,type Identity} from "./chat-crypto";
 const DB="ssg200x-tabletalk",STORE="kv";
 function open():Promise<IDBDatabase>{
@@ -46,6 +46,14 @@ async function seal(u:string,e:string,k:CryptoKey):Promise<Sealed>{
 }
 export function indexedDbStore():ChatStore{
  const store:ChatStore={
+  async getPending(u){
+   const rows:SendPayload[]=[];
+   await tx("readonly",s=>{const r=s.openCursor();r.onsuccess=()=>{const c=r.result;if(!c)return;if(typeof c.key==="string"&&c.key.startsWith("pending:"+u+":"))rows.push(c.value);c.continue();};return undefined;});
+   return rows;
+  },
+  putPending:(u,p)=>put("pending:"+u+":"+p.id,p),
+  deletePending:(u,id)=>del("pending:"+u+":"+id),
+
   getIdentity:u=>get<Identity>("identity:"+u),
   putIdentity:(u,i)=>put("identity:"+u,i),
   async clearIdentity(u){
@@ -54,7 +62,7 @@ export function indexedDbStore():ChatStore{
     s.delete("identity:"+u);
     const r=s.openCursor();
     r.onsuccess=()=>{const c=r.result;if(!c)return;
-     if(typeof c.key==="string"&&(c.key.startsWith("epoch:"+u+":")||c.key.startsWith("bootstrap:"+u+":")))c.delete();
+     if(typeof c.key==="string"&&(c.key.startsWith("epoch:"+u+":")||c.key.startsWith("bootstrap:"+u+":")||c.key.startsWith("pending:"+u+":")))c.delete();
      c.continue();
     };
     return undefined;
