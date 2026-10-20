@@ -33,7 +33,11 @@ test('all actions are SHA pinned and builds cache without baking private Clerk k
  assert.match(workflow,/::error::Set the repository Actions secret/);
  assert.doesNotMatch(workflow,/CLERK_SECRET_KEY|sk_live_|pk_test_/);
  const dockerfile=readFileSync('Dockerfile','utf8');
- assert.equal((dockerfile.match(/^FROM /gm)||[]).length,3);
+ assert.equal((dockerfile.match(/^FROM /gm)||[]).length,4);
+ assert.match(dockerfile,/FROM deps AS production-deps/);
+ assert.match(dockerfile,/npm prune --omit=dev --ignore-scripts/);
+ assert.match(dockerfile,/COPY --from=production-deps --chown=node:node \/app\/node_modules/);
+ assert.match(dockerfile,/socket\.io.*@clerk\/backend.*mongodb/);
  assert.doesNotMatch(dockerfile,/CLERK_SECRET_KEY/);
 });
 test('GHCR compose override removes builds and preserves isolated Mongo and runtime settings',()=>{
