@@ -1,3 +1,5 @@
+import {timingSafeEqual} from "node:crypto";
+import {createAirdropBroadcaster} from "./runtime/airdrop-events.mjs";
 import {emitState,STATE_STREAMS} from "./runtime/state-stream.mjs";
 import {sessionGuard} from "./runtime/chat-session.mjs";
 import {createChatService} from "./runtime/chat-service.mjs";
@@ -19,7 +21,21 @@ const dev=process.argv.includes("--dev");
 const config=dev?undefined:JSON.parse(readFileSync(new URL("./.next/required-server-files.json",import.meta.url))).config;
 const app=next({dev,hostname,port,conf:config,webpack:true});
 await app.prepare();
-const server=createServer(app.getRequestHandler());
+const nextHandler=app.getRequestHandler();
+const server=createServer(async(request,response)=>{
+ if(request.url!=="/internal-airdrop"){nextHandler(request,response);return;}
+ response.setHeader("Cache-Control","no-store");
+ const supplied=request.headers["x-internal-live-secret"],secret=process.env.INTERNAL_LIVE_SECRET;
+ const a=Buffer.from(typeof supplied==="string"?supplied:""),b=Buffer.from(secret);
+ if(request.method!=="POST"||a.length!==b.length||!timingSafeEqual(a,b)){response.writeHead(401).end();return;}
+ let body="";
+ try{
+  for await(const chunk of request){body+=chunk;if(Buffer.byteLength(body)>256){response.writeHead(413).end();return;}}
+  const {id}=JSON.parse(body);
+  if(typeof id!=="string"||!/^[a-f0-9]{64}$/.test(id)){response.writeHead(400).end();return;}
+  await announceAirdrop(id);response.writeHead(204).end();
+ }catch{response.writeHead(503).end();}
+});
 const io=new Server(server,{cors:{origin:process.env.APP_ORIGIN,credentials:true},maxHttpBufferSize:CHAT_MAX_PAYLOAD,transports:["websocket"]});
 const clerk=createClerkClient({secretKey:process.env.CLERK_SECRET_KEY});
 io.use(async(socket,next)=>{
@@ -36,6 +52,7 @@ const client=new MongoClient(process.env.MONGODB_URI,{serverSelectionTimeoutMS:5
 const collection=client.db(process.env.MONGODB_DB||"pokerroom").collection("rooms");
 const chat=createChatService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
 await chat.ready;
+const announceAirdrop=createAirdropBroadcaster(io,client.db(process.env.MONGODB_DB||"pokerroom").collection("airdrop_receipts"));
 const checkChatSession=sessionGuard(clerk);
 let hintTimer;
 function hintChatChanged(){if(hintTimer)return;hintTimer=setTimeout(()=>{hintTimer=null;io.emit("chat:changed",{v:1});},100);hintTimer.unref();}

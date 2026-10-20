@@ -1,3 +1,4 @@
+import {notifyCommittedAirdrop} from "./airdrop-notification";
 import {createHash,randomUUID} from "node:crypto";
 import type {Db} from "mongodb";
 import {db} from "./db";
@@ -37,8 +38,8 @@ export async function confirmAirdrop(who:Identity,input:{previewId:string;reques
  const id=hash("ssg200x.airdrop.v1\0"+input.requestId),fingerprint=hash(JSON.stringify([who.id,input.previewId]));
  const receipts=d.collection<Receipt>("airdrop_receipts"),previews=d.collection<Preview>("airdrop_previews"),rooms=d.collection<Room>("rooms");
  const session=d.client.startSession();
- try{return await session.withTransaction(async()=>{
-  const existing=await receipts.findOne({_id:id},{session});if(existing){ensure(existing.owner===who.id&&existing.fingerprint===fingerprint,"Request key was already used for a different airdrop.",409);return result(existing);}
+ try{const committed=await session.withTransaction(async()=>{
+  const existing=await receipts.findOne({_id:id},{session});if(existing){ensure(existing.owner===who.id&&existing.fingerprint===fingerprint,"Request key was already used for a different airdrop.",409);return {receipt:result(existing),created:false};}
   const p=await previews.findOne({_id:input.previewId},{session});ensure(p&&p.owner===who.id,"Preview unavailable. Preview again.",409);
   ensure(!p.consumedBy,"This preview has already been confirmed.",409);ensure(p.expiresAt.getTime()>Date.now(),"Preview expired. Preview again.",409);ensure(p.fingerprint===binding(p),"Preview changed. Preview again.",409);
   const r=await rooms.findOne({_id:"main"},{session});ensure(r,"Room unavailable.",503);
@@ -63,8 +64,11 @@ export async function confirmAirdrop(who:Identity,input:{previewId:string;reques
   ensure((await rooms.updateOne({_id,version:r.version},{$set:fields,$unset:{chatMutationLock:""}},{session})).matchedCount,"The room changed. Preview again before confirming.",409);
   ensure((await previews.updateOne({_id:p._id,consumedBy:{$exists:false}},{$set:{consumedBy:id}},{session})).matchedCount,"This preview has already been confirmed.",409);
   await d.collection<Transfer&{kind:"airdrop"}>("transfers").insertMany(records,{session});
-  const receipt:Receipt={_id:id,owner:who.id,fingerprint,previewId:p._id,count:p.count,total:p.total,amount:p.amount,note:p.note,at};await receipts.insertOne(receipt,{session});return result(receipt);
- },{readConcern:{level:"snapshot"},writeConcern:{w:"majority"},readPreference:"primary"});}
+  const receipt:Receipt={_id:id,owner:who.id,fingerprint,previewId:p._id,count:p.count,total:p.total,amount:p.amount,note:p.note,at};await receipts.insertOne(receipt,{session});return {receipt:result(receipt),created:true};
+ },{readConcern:{level:"snapshot"},writeConcern:{w:"majority"},readPreference:"primary"});
+  if(committed?.created)await notifyCommittedAirdrop(committed.receipt.id);
+  return committed?.receipt;
+ }
  catch(e){if((e as {code?:number}).code===11000){const existing=await receipts.findOne({_id:id});if(existing){ensure(existing.owner===who.id&&existing.fingerprint===fingerprint,"Request key was already used for a different airdrop.",409);return result(existing);}}supported(e);}
  finally{await session.endSession();}
 }
