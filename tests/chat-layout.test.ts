@@ -24,5 +24,7 @@ test("progress paint is contained below the sticky navigation",()=>{
 });
 test("signed-in leaderboard uses shared authenticated shell including chat",()=>{
  const page=readFileSync("app/leaderboard/page.tsx","utf8");
- assert.match(page,/if\(who\)return <RoomClient configured>/);
+ assert.doesNotMatch(page,/RoomClient|LiveProvider|ChatDock/);
+ const root=readFileSync("app/layout.tsx","utf8");
+ assert.match(root,/<RoomClient configured=\{configured\(\)\}>\{children\}<\/RoomClient>/);
 });

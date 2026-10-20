@@ -8,8 +8,8 @@ const clerk = clerkMiddleware(async (auth, req) => {
 });
 export default function proxy(request: NextRequest, event: NextFetchEvent) {
   // /leaderboard stays public: clerkMiddleware below only reads the session so the page can show the
-  // signed-in nav, and the page never blocks anonymous visitors. It is not behind the maintenance gate
-  // (that lives in the (room) layout) and unconfigured Clerk falls through to NextResponse.next().
+  // shared root shell can show signed-in nav, and anonymous visitors remain public. The root shell
+  // excludes public routes from maintenance; unconfigured Clerk falls through to NextResponse.next().
   // Independently authenticated with a per-process secret, never Clerk cookies.
   if(request.nextUrl.pathname==="/api/internal-live")return NextResponse.next();
   const key = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;

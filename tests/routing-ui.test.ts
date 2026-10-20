@@ -9,5 +9,5 @@ test("every section has a route page under one shared layout",()=>{
 test("navbar links replace segmented tabs, players admin-only, gear to settings",()=>{
  assert.ok(!room.includes('role="tablist"'));
  assert.match(room,/href:"\/players"[^}]*admin:true/);assert.ok(room.includes('href="/settings"'));assert.ok(room.includes('aria-current={on?"page":undefined}'));
- assert.equal((room.match(/<LiveProvider>/g)||[]).length,1);
+ assert.equal((room.match(/<LiveProvider key=\{user\.id\}>/g)||[]).length,1);
 });

@@ -58,7 +58,9 @@ test("public page reads the Clerk session without gating, stays outside maintena
  assert.match(proxy,/startsWith\("\/api\/"\)/);
  assert.match(proxy,/return clerk\(request, event\)/);
  assert.doesNotMatch(page,/LiveProvider|MaintenanceGate|useUser|publicId|dangerouslySetInnerHTML/);
- assert.match(page,/if\(who\)return <RoomClient configured>\{main\}<\/RoomClient>;/);
+ assert.doesNotMatch(page,/RoomClient|currentUser|privateMetadata/);
+ assert.match(read("app/layout.tsx"),/<RoomClient configured=\{configured\(\)\}>/);
+ assert.match(client,/isPublicPage\(path\)/);
  assert.doesNotMatch(page,/\.email|privateMetadata\.(?!admin)/);
  assert.match(store,/findOne\(\{_id:"main"\}/);assert.match(store,/cachedLeaderboard/);
  assert.doesNotMatch(store,/await (readRoom|visit|mutate)|updateOne|insertOne|clerk/);

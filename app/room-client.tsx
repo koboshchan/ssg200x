@@ -1,5 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 const Markets=dynamic(()=>import("./finance-client").then(m=>m.Markets));
 const Blackjack=dynamic(()=>import("./blackjack-client"));
 const Roulette=dynamic(()=>import("./roulette-client"));
@@ -21,15 +22,17 @@ function Card({value,small=false}:{value:string;small?:boolean}){
 }
 export const routes=[{href:"/poker",label:"Poker",tab:"table"},{href:"/blackjack",label:"Blackjack",tab:"blackjack"},{href:"/roulette",label:"Roulette",tab:"roulette"},{href:"/markets",label:"Markets",tab:"markets"},{href:"/wallet",label:"Wallet",tab:"wallet"},{href:"/leaderboard",label:"Leaderboard",tab:"standings"},{href:"/players",label:"Players",tab:"access",admin:true}] as const;
 export default function RoomClient({configured,children}:{configured:boolean;children?:React.ReactNode}){
- return configured?<Authenticated>{children}</Authenticated>:<Shell><Landing setup/></Shell>;
+ const path=usePathname();
+ return configured?<Authenticated>{children}</Authenticated>:<Shell>{isPublicPage(path)?children:<Landing setup/>}</Shell>;
 }
+function isPublicPage(path:string|null){return path==="/leaderboard"||path==="/privacy"||path==="/terms";}
 function Authenticated({children}:{children?:React.ReactNode}){
- const {isLoaded,isSignedIn}=useUser(),router=useRouter(),path=usePathname();
+ const {isLoaded,isSignedIn,user}=useUser(),router=useRouter(),path=usePathname();
  const signedOut=isLoaded&&!isSignedIn;
  useEffect(()=>{if(isLoaded&&isSignedIn&&path==="/")router.replace("/poker");},[isLoaded,isSignedIn,path,router]);
- useEffect(()=>{if(signedOut&&path!=="/")router.replace("/");},[signedOut,path,router]);
+ useEffect(()=>{if(signedOut&&path!=="/"&&!isPublicPage(path))router.replace("/");},[signedOut,path,router]);
  const opening=!isLoaded||(isSignedIn&&path==="/");
- return isSignedIn?<LiveProvider><SignedInShell>{opening?<p className="loading" role="status">Opening the room…</p>:<MaintenanceGate>{children}</MaintenanceGate>}</SignedInShell></LiveProvider>:<Shell>{opening?<p className="loading" role="status">Opening the room…</p>:<Landing/>}</Shell>;
+ return isSignedIn?<LiveProvider key={user.id}><SignedInShell>{opening?<p className="loading" role="status">Opening the room…</p>:isPublicPage(path)?children:<MaintenanceGate>{children}</MaintenanceGate>}</SignedInShell></LiveProvider>:<Shell>{opening?<p className="loading" role="status">Opening the room…</p>:isPublicPage(path)?children:<Landing/>}</Shell>;
 }
 function SignedInShell({children}:{children:React.ReactNode}){
  const {maintenance}=useLive();
@@ -38,10 +41,10 @@ function SignedInShell({children}:{children:React.ReactNode}){
 }
 export function Shell({children,account,signedIn=false,admin=false}:{children:React.ReactNode;account?:React.ReactNode;signedIn?:boolean;admin?:boolean}){
  const path=usePathname()||"";
- return <><header className="mast"><a className="wordmark" href={signedIn?"/poker":"/"} aria-label="ssg200x home">ssg200x</a>{signedIn?<nav className="nav-links" aria-label="Sections">{routes.filter(r=>!("admin" in r&&r.admin)||admin).map(r=>{const on=path===r.href||path.startsWith(r.href+"/");return <a key={r.href} href={r.href} aria-current={on?"page":undefined}>{r.label}</a>;})}</nav>:<nav className="nav-links" aria-label="Sections"><a href="/leaderboard">Leaderboard</a></nav>}<div className="header-right">{signedIn?<a className="gear" href="/settings" aria-label="Settings" aria-current={path==="/settings"?"page":undefined}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg></a>:<span className="private-label">Private table</span>}{account}</div></header>{children}<footer><span>ssg200x</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span></footer></>;
+ return <><header className="mast"><Link className="wordmark" href={signedIn?"/poker":"/"} aria-label="ssg200x home">ssg200x</Link>{signedIn?<nav className="nav-links" aria-label="Sections">{routes.filter(r=>!("admin" in r&&r.admin)||admin).map(r=>{const on=path===r.href||path.startsWith(r.href+"/");return <Link key={r.href} href={r.href} aria-current={on?"page":undefined}>{r.label}</Link>;})}</nav>:<nav className="nav-links" aria-label="Sections"><Link href="/leaderboard">Leaderboard</Link></nav>}<div className="header-right">{signedIn?<Link className="gear" href="/settings" aria-label="Settings" aria-current={path==="/settings"?"page":undefined}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg></Link>:<span className="private-label">Private table</span>}{account}</div></header>{children}<footer><span>ssg200x</span><span><Link href="/privacy">Privacy</Link> · <Link href="/terms">Terms</Link></span></footer></>;
 }
 function Landing({setup=false}:{setup?:boolean}){
- return <main className="landing"><section><h1>Poker with friends.</h1><p className="intro">No-limit hold’em with play money. Everyone starts with $1,000 and a seat at the table.</p>{setup?<p className="setup" role="status">The table is being set. Clerk keys are needed before sign-in opens.</p>:<SignInButton mode="modal"><button className="primary google"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.8 12.2c0-.7-.1-1.4-.2-2.1H12v4h5.5a4.7 4.7 0 0 1-2 3.1v2.6h3.3c1.9-1.8 3-4.4 3-7.6ZM12 22c2.7 0 5-.9 6.7-2.5l-3.3-2.6c-.9.6-2.1.9-3.4.9-2.6 0-4.8-1.8-5.6-4.1H3v2.7A10 10 0 0 0 12 22ZM6.4 13.7a6 6 0 0 1 0-3.4V7.6H3a10 10 0 0 0 0 8.8l3.4-2.7ZM12 6.2c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.7 9.7 0 0 0 12 2a10 10 0 0 0-9 5.6l3.4 2.7A6 6 0 0 1 12 6.2Z"/></svg>Continue with Google</button></SignInButton>}<p className="fine"><a href="/leaderboard">View the public leaderboard</a></p></section></main>;
+ return <main className="landing"><section><h1>Poker with friends.</h1><p className="intro">No-limit hold’em with play money. Everyone starts with $1,000 and a seat at the table.</p>{setup?<p className="setup" role="status">The table is being set. Clerk keys are needed before sign-in opens.</p>:<SignInButton mode="modal"><button className="primary google"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.8 12.2c0-.7-.1-1.4-.2-2.1H12v4h5.5a4.7 4.7 0 0 1-2 3.1v2.6h3.3c1.9-1.8 3-4.4 3-7.6ZM12 22c2.7 0 5-.9 6.7-2.5l-3.3-2.6c-.9.6-2.1.9-3.4.9-2.6 0-4.8-1.8-5.6-4.1H3v2.7A10 10 0 0 0 12 22ZM6.4 13.7a6 6 0 0 1 0-3.4V7.6H3a10 10 0 0 0 0 8.8l3.4-2.7ZM12 6.2c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.7 9.7 0 0 0 12 2a10 10 0 0 0-9 5.6l3.4 2.7A6 6 0 0 1 12 6.2Z"/></svg>Continue with Google</button></SignInButton>}<p className="fine"><Link href="/leaderboard">View the public leaderboard</Link></p></section></main>;
 }
 
 type Member={publicId:string;name:string;email:string;wallet?:number};
