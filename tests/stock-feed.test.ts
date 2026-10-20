@@ -74,3 +74,20 @@ test("partial pooled subscription is not ready",()=>{
   s.message([{T:"subscription",trades:["AAPL"],quotes:["AAPL"]}]);
   assert.equal(s.closed,true);assert.equal(h.states.includes("subscribed"),false);
 });
+test("SPCX zero-ask stale quote never becomes executable or removes configured subscription",()=>{
+  const h=setup(),s=h.connect();
+  s.message([{T:"q",S:"SPCX",t:"2026-10-19T20:00:02.387842451Z",bp:141.74,ap:0,bx:"V",ax:" "}]);
+  assert.equal(h.ticks.length,0);
+  assert.equal(s.closed,false);
+  for(const quote of [
+    {bp:150,ap:149,bx:"V",ax:"V"},
+    {bp:149,ap:150,bx:"",ax:""},
+    {bp:149,ap:150,bx:"V",ax:"V"},
+  ])s.message([{T:"q",S:"SPCX",t:"2026-10-19T14:59:59.900Z",...quote}]);
+  // Quotes are diagnostic only, including valid ones. Only a validated trade
+  // can enter execution policy; SPCX has the same rule as all other stocks.
+  assert.equal(h.ticks.length,0);
+  s.message([h.print({S:"SPCX"})]);
+  assert.equal(h.ticks.length,1);assert.equal(h.ticks[0].symbol,"SPCX");
+  h.feed.stop();
+});
