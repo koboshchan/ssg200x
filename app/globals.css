@@ -74,3 +74,15 @@ input:disabled,select:disabled{opacity:.6;cursor:not-allowed}
 input[type=radio],input[type=checkbox]{accent-color:var(--blue)}
 .input-wrap:focus-within,.raise-input:focus-within{border-color:var(--blue)}
 .order-ticket input:focus-visible,.order-ticket select:focus-visible{border-color:var(--blue)}
+/* Neutral gray palette: no olive, cream or amber tints in controls. */
+:root{--surface-2:#f0f0f0;--line:#d4d4d4;--muted:#6b6b6b}
+@media(prefers-color-scheme:dark){:root{--surface:#1c1c1c;--surface-2:#2a2a2a;--ink:#f2f2f2;--muted:#a0a0a0;--line:#3d3d3d;--nav:rgba(28,28,28,.72);--seg:rgba(255,255,255,.1)}}
+button:hover{background:var(--surface-2);border-color:var(--line)}
+.error{background:color-mix(in srgb,var(--red) 14%,var(--surface));border-color:color-mix(in srgb,var(--red) 40%,var(--line));color:var(--red)}
+/* Trade page: order form, holdings and open positions share the right column. */
+.order-ticket small{display:block;margin:6px 0 0;line-height:1.5}
+.trade-side{min-width:0;display:flex;flex-direction:column;gap:28px}
+.side-positions{border-left:1px solid var(--line);padding-left:25px;min-width:0}
+.side-positions h3{font-size:15px;font-weight:500;margin:0 0 14px}.side-positions h3:not(:first-child){margin-top:26px}
+@media(min-width:1000px){.market-grid{grid-template-columns:minmax(0,1fr) 380px}}
+@media(min-width:561px){.side-positions .table-scroll{overflow:visible}.side-positions table{min-width:0;margin:0;display:block}.side-positions thead{display:none}.side-positions tbody{display:grid;gap:10px}.side-positions tr{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;padding:12px;background:var(--surface);border-radius:12px;border:1px solid var(--line)}.side-positions tr>*{padding:0;border:0;font-size:13px;min-width:0}.side-positions tr>th{grid-column:1/-1;font-weight:600}.side-positions td[data-label]:before{content:attr(data-label);display:block;font-size:11px;color:var(--muted)}.side-positions tr>td:not([data-label]){grid-column:1/-1}.side-positions tr>td:last-child{text-align:right}}
