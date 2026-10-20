@@ -59,9 +59,9 @@ test("room:state initial connection and reconnect always get their own private s
  const events:[string,ReturnType<typeof publicRoom>][]=[];
  const socket={data:{version:r.version as number|undefined},emit:(event:string,payload:ReturnType<typeof publicRoom>)=>events.push([event,payload])};
  const data={maintenance:{blocked:false},room:publicRoom(r,alice)};
- emitRoomState(socket,data,true);assert.equal(events.length,1);assert.equal(events[0][0],"room:state");assert.deepEqual(events[0][1].holdings,[]);
+ emitRoomState(socket,data,true);assert.equal(events.length,1);assert.equal(events[0][0],"room:state");assert.deepEqual((events[0][1] as any).data.holdings,[]);
  emitRoomState(socket,data);assert.equal(events.length,1);
- emitRoomState(socket,{...data,room:publicRoom(r,bob)},true);assert.equal(events.length,2);assert.equal(events[1][1].holdings[0].units,42);
+ emitRoomState(socket,{...data,room:publicRoom(r,bob)},true);assert.equal(events.length,2);assert.equal((events[1][1] as any).data.holdings[0].units,42);
  emitRoomState(socket,{...data,maintenance:{blocked:true}},true);assert.equal(events.length,2);assert.equal(socket.data.version,undefined);
  emitRoomState(socket,data);assert.equal(events.length,3);
 });

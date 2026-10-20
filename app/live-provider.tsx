@@ -1,10 +1,12 @@
 "use client";
 import {createContext,useContext,useEffect,useMemo,useRef,useState} from "react";
 import {useAuth} from "@clerk/nextjs";
+import {createStateReceiver,STATE_STREAMS} from "../runtime/state-stream.mjs";
 import type {Socket} from "socket.io-client";
 export type MaintenanceStatus={admin:boolean;active:boolean;blocked:boolean;manual:boolean};
 export type Connection="connecting"|"connected"|"disconnected";
 /* Server contract (one authenticated socket.io websocket, auth:{token} = fresh Clerk session token):
+   State events carry full/diff envelopes, decoded here before notifying subscribers.
    room:state PublicRoom, market:update MarketSnapshot, maintenance:state MaintenanceStatus.
    Non-admin blocked by maintenance: middleware rejects with Error("maintenance") (or emits maintenance:state {blocked:true} then disconnects).
    Server disconnects at token expiry; client reconnects with a fresh token. */
@@ -26,19 +28,25 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
  useEffect(()=>{
   let closed=false,retry:ReturnType<typeof setTimeout>|undefined,attempts=0,socket:Socket|undefined;
   const dispatch=(event:string,p:unknown)=>{latest.current.set(event,p);setLast(Date.now());listeners.current.get(event)?.forEach(h=>h(p));};
+  const receiver=createStateReceiver(event=>socket?.connected&&socket.emit("state:resync",event));
   const later=()=>{if(closed||!socket||socket.active)return;clearTimeout(retry);attempts++;retry=setTimeout(()=>socket?.connect(),Math.min(10000,500*2**Math.min(attempts,5)));};
   import("socket.io-client").then(({io})=>{
    if(closed)return;
    socket=io({path:"/socket.io",transports:["websocket"],reconnection:true,reconnectionDelayMax:10000,auth:cb=>{tokenRef.current({skipCache:true}).then(token=>cb({token}),()=>cb({}));}});
    socketRef.current=socket;
-   socket.on("connect",()=>{attempts=0;setConnection("connected");});
-   socket.on("disconnect",()=>{setConnection("disconnected");later();});
+   socket.on("connect",()=>{receiver.clear();latest.current.clear();attempts=0;setConnection("connected");});
+   socket.on("disconnect",()=>{receiver.clear();latest.current.clear();setConnection("disconnected");later();});
    socket.on("connect_error",e=>{setConnection("disconnected");if(e.message==="maintenance")setMaintenance(m=>({admin:false,active:true,manual:false,...m,blocked:true}));later();});
    socket.io.on("reconnect_attempt",()=>setConnection("connecting"));
-   socket.on("maintenance:state",(p:MaintenanceStatus)=>{setMaintenance(p);dispatch("maintenance:state",p);});
-   for(const event of ["room:state","market:update","candles:state","chat:changed"])socket.on(event,(p:unknown)=>dispatch(event,p));
+   for(const event of STATE_STREAMS)socket.on(event,(message:unknown)=>{
+    const result=receiver.receive(event,message);if(!result.ok)return;
+    if(event==="maintenance:state")setMaintenance(result.value as MaintenanceStatus);
+    dispatch(event,result.value);
+   });
+   // TableTalk's encrypted protocol and invalidation hints stay untouched.
+   socket.on("chat:changed",(p:unknown)=>dispatch("chat:changed",p));
   }).catch(()=>setConnection("disconnected"));
-  return()=>{closed=true;clearTimeout(retry);socket?.disconnect();socketRef.current=undefined;};
+  return()=>{closed=true;receiver.clear();latest.current.clear();clearTimeout(retry);socket?.disconnect();socketRef.current=undefined;};
  },[]);
  const value=useMemo<Live>(()=>({connection,maintenance,lastMessageAt,...api}),[connection,maintenance,lastMessageAt,api]);
  return <Context.Provider value={value}>{children}</Context.Provider>;

@@ -1,3 +1,4 @@
+import {emitState,STATE_STREAMS} from "./runtime/state-stream.mjs";
 import {sessionGuard} from "./runtime/chat-session.mjs";
 import {createChatService} from "./runtime/chat-service.mjs";
 import {CHAT_MAX_PAYLOAD} from "./runtime/chat-protocol.mjs";
@@ -50,17 +51,21 @@ async function pushState(socket,force=false){
   if(!response.ok)throw new Error("Live snapshot unavailable");
   const data=await response.json();
   if(!socket.connected||socket.data.expires<=Date.now())return;
+  force=force||socket.data.forceFull===true;socket.data.forceFull=false;
   for(const [key,event] of [["maintenance","maintenance:state"]]){
-   const fingerprint=JSON.stringify(data[key]);
-   if(force||socket.data[key]!==fingerprint){socket.emit(event,data[key]);socket.data[key]=fingerprint;}
+   emitState(socket,event,data[key],force);
   }
   emitRoomState(socket,data,force);
-  emitChartState(socket,data);
+  emitChartState(socket,data,force);
   socket.data.initialized=true;
  }catch{socket.emit("live:error",{error:"Live state unavailable. Retrying."});}
  finally{socket.data.busy=false;}
 }
 io.on("connection",socket=>{
+ socket.on("state:resync",event=>{
+  if(!STATE_STREAMS.includes(event)||Date.now()<(socket.data.resyncAt||0))return;
+  socket.data.resyncAt=Date.now()+1000;socket.data.forceFull=true;socket.data.statusAt=0;
+ });
  socket.on("candles:subscribe",selection=>subscribeChart(socket,selection));
  for(const event of ["register","state","claim","wrap","send","history","keys:get","keys:put"]){
   socket.on("chat:"+event,async(payload,ack)=>{

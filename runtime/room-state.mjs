@@ -1,8 +1,9 @@
-// Version tracking belongs to each authenticated connection, never a global version.
+import {emitState,resetStream} from "./state-stream.mjs";
+// Only already-redacted per-user snapshots enter this connection-local baseline.
 export function emitRoomState(socket,data,force=false){
- if(data.maintenance.blocked){socket.data.version=undefined;return;}
- if(data.room&&(force||socket.data.version!==data.room.version)){
-  socket.emit("room:state",data.room);
+ if(data.maintenance.blocked){socket.data.version=undefined;resetStream(socket,"room:state");return;}
+ if(data.room){
+  emitState(socket,"room:state",data.room,force);
   socket.data.version=data.room.version;
  }
 }
