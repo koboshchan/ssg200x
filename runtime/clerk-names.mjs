@@ -1,3 +1,4 @@
+import {clerkReads} from "./clerk-reads.mjs";
 // Only server-fetched Clerk profiles enter this resolver. Never pass handshake/client data.
 const clean=value=>typeof value==="string"?value.replace(/[\u0000-\u001f\u007f]/g,"").trim():"";
 const label=value=>{const name=clean(value);return name&&!name.includes("@")?name.slice(0,80):"";};
@@ -12,16 +13,13 @@ export function clerkDisplayName(user){
 }
 export async function loadClerkProfiles(clerk,ids){
  const unique=[...new Set(ids.filter(id=>typeof id==="string"&&id))],profiles=new Map();
- // Clerk accepts at most 100 userId filters, and defaults to only 10 results.
- // Sequential bounded batches avoid N+1 per seat/message and request bursts.
- for(let i=0;i<unique.length;i+=100){
-  const batch=unique.slice(i,i+100);
-  const {data}=await clerk.users.getUserList({userId:batch,limit:100});
-  for(const user of data)if(batch.includes(user.id)){
-   let avatar=null;
-   try{const url=new URL(user.imageUrl);if(url.protocol==="https:"&&url.hostname==="img.clerk.com")avatar=url.href;}catch{}
-   profiles.set(user.id,{name:clerkDisplayName(user),avatar});
-  }
+ // Five-second presentation cache and cross-caller in-flight batches. Failures
+ // use neutral labels rather than breaking an already authenticated snapshot.
+ const data=await clerkReads(clerk).profiles(clerk,unique).catch(()=>[]);
+ for(const user of data)if(user&&unique.includes(user.id)){
+  let avatar=null;
+  try{const url=new URL(user.imageUrl);if(url.protocol==="https:"&&url.hostname==="img.clerk.com")avatar=url.href;}catch{}
+  profiles.set(user.id,{name:clerkDisplayName(user),avatar});
  }
  return profiles;
 }
