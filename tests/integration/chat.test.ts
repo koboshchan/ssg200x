@@ -5,7 +5,7 @@ import {webcrypto,randomUUID} from 'node:crypto';
 // @ts-expect-error runtime module
 import {createChatService} from '../../runtime/chat-service.mjs';
 // @ts-expect-error runtime module
-import {registerData,signedWrap,wrapHeader,signedMessage,messageHeader} from '../../runtime/chat-protocol.mjs';
+import {registerData,signedWrap,wrapHeader,signedMessage,messageHeader,digest} from '../../runtime/chat-protocol.mjs';
 if(!process.env.MONGODB_DB?.startsWith('fakebucks_test_'))throw Error('Isolated database required');
 const client=new MongoClient(process.env.MONGODB_URI!),db=client.db(process.env.MONGODB_DB+'_chat');
 after(async()=>{await db.dropDatabase();await client.close();});
@@ -216,9 +216,32 @@ test('committed bootstrap response loss survives addition; real account reset ex
  // Removal and explicit re-admission before the next snapshot still fences the epoch.
  await isolated.collection('rooms').updateOne({_id:'main' as never},{$inc:{version:1,chatRemovalVersion:1}});
  assert.notEqual((await chat.handle(owner.user,'state',{v:1})).epoch,state.epoch);
- // Retrieval pagination, not cryptographic validity of synthetic historical rows.
- await isolated.collection('chat_wraps').insertMany(Array.from({length:513},(_,i)=>({...self,_id:i.toString(16).padStart(64,'0') as never,senderUserId:owner.user,toDeviceId:replacement.deviceId,epoch:randomUUID(),senderDhPublic:owner.registration.dhPublic,senderSignPublic:owner.registration.signPublic})));
- const first=await chat.handle(owner.user,'state',{v:1});assert.equal(first.wraps.length,512);assert.ok(first.nextWrapCursor);
- const second=await chat.handle(owner.user,'state',{v:1,beforeWrap:first.nextWrapCursor});assert.equal(second.wraps.length,1);assert.equal(second.nextWrapCursor,null);
+ // Retrieval pagination uses the exact production digest schema, not hex fixtures.
+ const grants=Array.from({length:1025},()=>{const epoch=randomUUID();return {...self,_id:digest(JSON.stringify([epoch,owner.user,replacement.deviceId])) as never,senderUserId:owner.user,toDeviceId:replacement.deviceId,epoch,senderDhPublic:owner.registration.dhPublic,senderSignPublic:owner.registration.signPublic};});
+ const excluded=Array.from({length:20},(_,i)=>{const epoch=randomUUID(),toUserId=i%2?'added':owner.user,toDeviceId=i%2?added.deviceId:owner.deviceId;return {...self,_id:digest(JSON.stringify([epoch,toUserId,toDeviceId])) as never,senderUserId:owner.user,toUserId,toDeviceId,epoch};});
+ await isolated.collection('chat_wraps').insertMany([...grants,...excluded]);
+ for(const beforeWrap of ['', 'a'.repeat(64), 'a'.repeat(42), 'a'.repeat(44), 'a'.repeat(42)+'=', 'a'.repeat(42)+'B', 7, null, {}, 'a'.repeat(10000)]){
+  await assert.rejects(chat.handle(owner.user,'state',{v:1,beforeWrap}),/malformed/);
+ }
+ const received:string[]=[],cursors:string[]=[],sizes:number[]=[];
+ let beforeWrap:string|undefined;
+ do{
+  const page=await chat.handle(owner.user,'state',{v:1,...(beforeWrap?{beforeWrap}:{})});
+  sizes.push(page.wraps.length);received.push(...page.wraps.map((w:any)=>w.epoch));
+  if(page.nextWrapCursor){
+   assert.match(page.nextWrapCursor,/^[A-Za-z0-9_-]{43}$/);
+   assert.equal(Buffer.from(page.nextWrapCursor,'base64url').toString('base64url'),page.nextWrapCursor);
+   assert.ok(!cursors.includes(page.nextWrapCursor));cursors.push(page.nextWrapCursor);
+  }
+  beforeWrap=page.nextWrapCursor;
+ }while(beforeWrap);
+ assert.deepEqual(sizes,[512,512,1]);
+ assert.equal(new Set(received).size,1025);
+ assert.deepEqual(received,grants.slice().sort((a,b)=>String(a._id)<String(b._id)?-1:1).map(w=>w.epoch));
+ assert.equal(received.some(epoch=>excluded.some(w=>w.epoch===epoch)),false);
+ const final=await chat.handle(owner.user,'state',{v:1,beforeWrap:grants.map(w=>String(w._id)).sort().at(-1)});
+ assert.deepEqual(final.wraps,[]);assert.equal(final.nextWrapCursor,null);
+ await assert.rejects(chat.handle('intruder','state',{v:1,beforeWrap:cursors[0]}),/forbidden/);
+
  }finally{await isolated.dropDatabase();}
 });

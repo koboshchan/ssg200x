@@ -73,7 +73,9 @@ export function createChatService(db,{now=Date.now,clerk}={}){
   }
   if(event==='state'){
    shape(p,['v'],['beforeWrap']);
-   if(p.beforeWrap!==undefined&&(typeof p.beforeWrap!=='string'||!/^\w{64}$/.test(p.beforeWrap)||!/^[a-f0-9]+$/.test(p.beforeWrap)))fail();
+   // Wrap IDs are canonical SHA-256 base64url digests (32 bytes), not hex.
+   // Ascending unique _id order uses an exclusive lower bound despite the legacy beforeWrap name.
+   if(p.beforeWrap!==undefined)binary(p.beforeWrap,32);
    const rows=await wraps.find({toUserId:user,toDeviceId:{$in:s.directory.filter(d=>d.userId===user).map(d=>d.deviceId)},...(p.beforeWrap?{_id:{$gt:p.beforeWrap}}:{})}).sort({_id:1}).limit(513).toArray();
    const ws=rows.slice(0,512),nextWrapCursor=rows.length>512?ws[ws.length-1]._id:null;
    if(!p.beforeWrap&&s.state.bootstrap?.toUserId===user&&s.directory.some(d=>d.userId===user&&d.deviceId===s.state.bootstrap.toDeviceId)&&!ws.some(w=>w._id===s.state.bootstrap._id))ws.push(s.state.bootstrap);
