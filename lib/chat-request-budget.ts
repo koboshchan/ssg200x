@@ -14,6 +14,7 @@ export function createRequestBudget(now=Date.now,random=Math.random){
  return {
   status:(u:string)=>state(u),
   reset(u:string){const b=state(u);b.failures=0;b.stopped=false;}, // Never bypass a server cooldown.
+  success(u:string){const b=state(u);b.failures=0;b.stopped=false;},
   async request(u:string,event:string,payload:unknown,transport:(e:string,p:unknown)=>Promise<any>){
    const b=state(u);
    if(b.stopped||b.until>now())throw error(b);

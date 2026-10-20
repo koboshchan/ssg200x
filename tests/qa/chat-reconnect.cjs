@@ -1,0 +1,55 @@
+const {chromium}=require('/home/kit/out/cal-browser-evidence/node_modules/playwright');
+const assert=require('node:assert/strict'),fs=require('fs');
+(async()=>{
+ const browser=await chromium.launch({headless:true,executablePath:chromium.executablePath(),args:['--no-sandbox']});
+ const report={kind:'isolated real Socket.IO + production chat service + Mongo + Chromium IndexedDB; fake auth and Clerk metadata only',checks:[]};
+ const context=await browser.newContext(),a=await context.newPage();
+ const go=async(p,u)=>{await p.goto('http://127.0.0.1:39763/?user='+u);await p.evaluate(()=>ready);};
+ const mode=async p=>a.evaluate(p=>new Promise(r=>socket.emit('qa:mode',p,r)),p);
+ try{
+ await go(a,'a');await mode('limit');
+ await a.evaluate(async()=>{await client.start();for(let i=0;i<50;i++)await client.reconnect();});
+ let data=await fetch('http://127.0.0.1:39763/evidence').then(r=>r.json());
+ assert.equal(data.events.filter(x=>x.event==='keys:get').length,1);
+ report.checks.push('50 rapid reconnect callbacks during cooldown produce one keys:get, no reset');
+ await mode('normal');
+ await a.evaluate(()=>client.retrySync());
+ await a.waitForFunction(()=>client.getSnapshot().phase==='setup',{},{timeout:10000});
+ await a.evaluate(async()=>{await client.createIdentity();await client.confirmWords();});
+ assert.equal(await a.evaluate(()=>client.getSnapshot().phase),'ready');
+ const b=await context.newPage();await go(b,'b');
+ await b.evaluate(async()=>{await client.start();await client.createIdentity();await client.confirmWords();});
+ await a.evaluate(()=>client.start());await b.evaluate(()=>client.start());
+ assert.equal(await b.evaluate(()=>client.getSnapshot().phase),'ready');
+ assert.equal(await a.evaluate(()=>client.send('normal-e2e-canary')),true);
+ await b.evaluate(()=>client.start());
+ assert.ok((await b.evaluate(()=>client.getSnapshot().messages)).some(m=>m.text==='normal-e2e-canary'&&m.status==='ok'));
+ report.checks.push('Two actual browser clients setup, ECDH wraps, signed encrypted send and recipient decrypt');
+ await mode('disconnect-before');
+ assert.equal(await a.evaluate(()=>client.send('resume-exact-canary')),false);
+ const before=await a.evaluate(async()=>JSON.stringify((await store.getPending('a'))[0]));
+ await a.reload();await a.evaluate(()=>ready);await a.evaluate(()=>client.reconnect());
+ assert.equal(await a.evaluate(()=>client.getSnapshot().phase),'ready');
+ assert.equal(await a.evaluate(async()=>(await store.getPending('a')).length),0);
+ data=await fetch('http://127.0.0.1:39763/evidence').then(r=>r.json());
+ const id=JSON.parse(before).id,attempts=data.events.filter(x=>x.event==='send'&&x.p.id===id);
+ assert.equal(attempts.length,2);assert.deepEqual(attempts[0].p,attempts[1].p);
+ assert.equal(data.docs.filter(x=>x.id===id).length,1);
+ report.checks.push('Disconnect before commit then full browser reload resumes identical ID/ciphertext/signature once');
+ await mode('disconnect-after');
+ assert.equal(await a.evaluate(()=>client.send('lost-ack-canary')),false);
+ const lost=await a.evaluate(async()=>(await store.getPending('a'))[0].id);
+ await a.reload();await a.evaluate(()=>ready);await a.evaluate(()=>client.reconnect());
+ data=await fetch('http://127.0.0.1:39763/evidence').then(r=>r.json());
+ assert.equal(data.events.filter(x=>x.event==='send'&&x.p.id===lost).length,1);
+ assert.equal(data.docs.filter(x=>x.id===lost).length,1);
+ assert.equal(await a.evaluate(async()=>(await store.getPending('a')).length),0);
+ await b.evaluate(()=>client.start());
+ for(const text of ['resume-exact-canary','lost-ack-canary'])assert.ok((await b.evaluate(()=>client.getSnapshot().messages)).some(m=>m.text===text&&m.status==='ok'));
+ report.checks.push('Disconnect after commit before ACK reconciles history without resending or duplicate; peer decrypts both');
+ for(const text of ['normal-e2e-canary','resume-exact-canary','lost-ack-canary'])assert.equal(JSON.stringify(data.docs).includes(text),false);
+ report.checks.push('Real Mongo stores no plaintext canaries');
+ report.pass=true;
+ }catch(e){report.error=e.stack;process.exitCode=1;}
+ finally{fs.writeFileSync(__dirname+'/reconnect-e2e-evidence.json',JSON.stringify(report,null,2));console.log(report);await browser.close();}
+})();

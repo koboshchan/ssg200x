@@ -42,7 +42,7 @@ export default function ChatDock(){
   resize();viewport?.addEventListener("resize",resize);viewport?.addEventListener("scroll",resize);
   return()=>{viewport?.removeEventListener("resize",resize);viewport?.removeEventListener("scroll",resize);document.documentElement.style.removeProperty("--chat-viewport-height");document.documentElement.style.removeProperty("--chat-viewport-top");};
  },[open]);
- useEffect(()=>{if(client&&live.connection==="connected")void client.start();},[client,live.connection]);
+ useEffect(()=>{if(client&&live.connection==="connected")void client.reconnect();},[client,live.connection]);
  useLiveEvent("chat:changed",()=>client?.hint());
  useLiveEvent("room:state",(room:{leaderboard?:{publicId:string;name:string}[]})=>{if(room?.leaderboard)setNames(Object.fromEntries(room.leaderboard.map(r=>[r.publicId,r.name])));});
  const snap=useSyncExternalStore(client?client.subscribe:()=>()=>{},client?client.getSnapshot:()=>idle,()=>idle);
@@ -86,7 +86,7 @@ function Room({snap,client,names}:{snap:Snapshot;client:ChatClient;names:Record<
  const submit=()=>{if(!text.trim()||bytes>MAX_TEXT_BYTES)return;const t=text;setText("");stick.current=true;void client.send(t).then(ok=>{if(!ok)setText(cur=>cur||t);});};
  return <>
   {snap.error==="sync_incomplete"&&<p className="chat-note" role="alert">Chat loading paused after repeated rate limits. <button onClick={()=>client.retrySync()}>Retry loading chat</button></p>}
-  {snap.phase==="waiting"&&snap.error!=="sync_incomplete"&&<p className="chat-note" role="status">{snap.error==="history_incomplete"?"Still loading older messages. Retrying automatically.":"Waiting for a member to share the key. This opens when someone with access is online."}</p>}
+  {snap.phase==="waiting"&&snap.error!=="sync_incomplete"&&<p className="chat-note" role="status">{snap.error==="history_incomplete"?"Still loading older messages. Retrying automatically.":snap.error==="rate_limited"?"Chat loading is rate limited. Retrying after a short delay.":"Waiting for a member to share the key. This opens when someone with access is online."}</p>}
   {changed.length>0&&<div className="chat-warn" role="alert">{changed.map(m=><p key={m.userId+":"+m.fingerprint}><strong>{m.historical?"Historical security key needs approval.":nameOf(m.publicId,false)+"'s security key changed."}</strong> {m.historical?"This key is attached to older messages. Compare its fingerprint with the sender before approving it.":"Messages from the new key stay hidden and they get no access until you trust it."} <code>{group(m.fingerprint)}</code><button onClick={()=>client.trust(m.userId,m.fingerprint)}>{m.historical?"Trust historical key":"Trust new key"}</button></p>)}</div>}
   <div className="chat-list" ref={list} onScroll={e=>{const el=e.currentTarget;stick.current=el.scrollHeight-el.scrollTop-el.clientHeight<40;}}>
    {snap.hasMore&&<button className="chat-more" disabled={snap.busy} onClick={()=>client.loadMore()}>{snap.busy?"Loading…":"Load earlier"}</button>}

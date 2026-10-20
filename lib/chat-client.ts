@@ -25,10 +25,7 @@ export type Snapshot={phase:Phase;error:string|null;words:string[]|null;messages
 type Device={deviceId:string;dhPublic:string;signPublic:string;fingerprint:string};
 type View={revision:number;epoch:string;status:"unclaimed"|"claimed"|"active";owner:{userId:string;deviceId:string}|null;leaseUntil:number;members:{userId:string;devices:Device[]}[];wraps?:WireWrap[];nextWrapCursor?:string|null};
 const codeOf=(e:unknown)=>e instanceof Error?e.message:"unavailable";
-const PAGE=50,BACKOFF_MS=500,BUDGET_MS=30000,RESYNC_MS=15000;
-/** Server-mandated wait in ms (retryAfter is seconds when small, else ms); absent means unspecified. */
-const serverWait=(e:unknown)=>{const r=(e as {retryAfter?:number})?.retryAfter;return typeof r==="number"&&r>=0?(r<=120?r*1000:r):undefined;};
-const sleep=(ms:number)=>new Promise<void>(r=>setTimeout(r,ms));
+const PAGE=50,RESYNC_MS=15000;
 export const RENDER_CAP=500,RENDER_TRIM=400,OPEN_CACHE_MAX=600;
 
 export class ChatClient{
@@ -44,7 +41,21 @@ export class ChatClient{
  private opened=new Map<string,{key:CryptoKey;res:Awaited<ReturnType<typeof openMessage>>}>();private inflight=new Map<string,Promise<Awaited<ReturnType<typeof openMessage>>>>();private windowStart=0;private extra=0;
  constructor(private user:string,private transport:Transport,private store:ChatStore,private now:()=>number=Date.now,private open:typeof openMessage=openMessage,private budget=chatRequestBudget){}
  private request:Transport=(event,payload)=>this.budget.request(this.user,event,payload,this.transport);
- retrySync=()=>{this.budget.reset(this.user);return this.start();};
+ private recovering:Promise<void>|undefined;
+ reconnect=()=>{
+  if(this.recovering)return this.recovering;
+  this.registered=false;
+  const p=this.start().then(async()=>{
+   if(this.closed||this.snap.phase!=="ready")return;
+   // History reconciliation runs first. Only still-uncommitted exact envelopes are retried.
+   for(const m of [...this.local.values()]){
+    if(this.closed||this.snap.phase!=="ready")break;
+    if(m.status==="failed"&&this.sealed.has(m.id))await this.retry(m);
+   }
+  }).finally(()=>{if(this.recovering===p)this.recovering=undefined;});
+  this.recovering=p;return p;
+ };
+ retrySync=()=>{this.budget.reset(this.user);return this.reconnect();};
  subscribe=(fn:()=>void)=>{this.listeners.add(fn);return()=>{this.listeners.delete(fn);};};
  getSnapshot=()=>this.snap;
  private set(patch:Partial<Snapshot>){this.snap={...this.snap,...patch};this.listeners.forEach(l=>l());}
@@ -70,6 +81,9 @@ export class ChatClient{
  }
  private async sync(){
   if(this.closed||this.snap.phase==="words")return;
+  const b=this.budget.status(this.user);
+  if(b.stopped){this.set({phase:"waiting",error:"sync_incomplete"});return;}
+  if(b.until>this.now()){this.later(b.until-this.now());return;}
   try{
    const setup=await this.store.getSetup(this.user);
    if(setup){
@@ -125,6 +139,7 @@ export class ChatClient{
   if(!await this.refresh(me,view))return;
   clearTimeout(this.timer);this.staleFailures=0;
   await this.restorePending(me);
+  this.budget.success(this.user);
   this.set({phase:"ready",error:null});
  }
  /** Only authenticated ciphertext is restored; plaintext stays in session memory. */
@@ -259,23 +274,13 @@ export class ChatClient{
      this.attempted.add(id);
     }catch(e){
      // conflict means a wrap for that device already exists; anything else is retried on the next sync.
-     if(codeOf(e)==="conflict")this.attempted.add(id);else if(codeOf(e)==="stale_revision")throw e;
+     if(codeOf(e)==="conflict")this.attempted.add(id);else throw e;
     }
    }
   }
  }
  private async fetchPage(me:Identity,epoch:string,before?:number){
-  let res!:{messages:WireMessage[];nextCursor:number|null};let waited=0;
-  for(let n=0;;n++){
-   try{res=await this.request("history",{v:1,epoch,deviceId:me.deviceId,...(before===undefined?{}:{before}),limit:PAGE}) as typeof res;break;}
-   catch(e){
-    if(codeOf(e)!=="rate_limited"||this.closed||(e as {retryAfterMs?:number}).retryAfterMs!==undefined)throw e;
-    // Never retry earlier than the server asked; if that exceeds the bounded budget, exhaust instead.
-    const srv=serverWait(e),wait=Math.max(srv??0,BACKOFF_MS*2**n);
-    if(waited+wait>BUDGET_MS){this.retryHint=Math.max(srv??0,RESYNC_MS);throw e;}
-    waited+=wait;await sleep(wait);
-   }
-  }
+  const res=await this.request("history",{v:1,epoch,deviceId:me.deviceId,...(before===undefined?{}:{before}),limit:PAGE}) as {messages:WireMessage[];nextCursor:number|null};
   for(const m of res.messages)this.raw.set(m.epoch+":"+m.senderUserId+":"+m.id,m);
   return res.nextCursor;
  }

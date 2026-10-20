@@ -330,3 +330,21 @@ test("actual client remounts and state-driven starts cannot reset a rate-limit b
  for(let i=0;i<50;i++)await stopped.start();
  assert.equal(calls,4);assert.equal(stopped.getSnapshot().error,"sync_incomplete");stopped.close();
 });
+
+test("rapid socket reconnects preserve account exponential attempts and terminal stop",async()=>{
+ let clock=1,calls=0;const budget=createRequestBudget(()=>clock,()=>0),store=new MemoryStore();
+ const transport=async()=>{calls++;return {ok:false,error:"rate_limited"};};
+ const c=new ChatClient("rapid",transport,store,()=>clock,openMessage,budget);
+ for(let attempt=0;attempt<4;attempt++){
+  await c.reconnect();
+  for(let n=0;n<100;n++)await c.reconnect();
+  assert.equal(calls,attempt+1);
+  assert.equal(budget.status("rapid").failures,attempt+1);
+  assert.equal(budget.status("rapid").until-clock,1000*2**attempt);
+  clock=budget.status("rapid").until;
+ }
+ clock+=100000;
+ for(let n=0;n<100;n++)await c.reconnect();
+ assert.equal(calls,4);assert.equal(c.getSnapshot().error,"sync_incomplete");
+ await c.retrySync();assert.equal(calls,5);c.close();
+});
