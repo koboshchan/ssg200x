@@ -14,7 +14,9 @@ No deposits, withdrawals or cash prizes.
 - **Markets** at `/markets`: fractional crypto spot holdings and isolated long/short perpetuals at 1–200× leverage. Persisted TP/SL, server-side liquidation and private closed-position history. Settings beside the avatar let each user enter triggers as prices or dollar profit/loss amounts.
 - **Standings** at `/standings`: net worth includes cash, chips, holdings and open-position equity. Administrator cash adjustments do not inflate profit standings.
 - **Administration** at `/players`: account balances, portfolios, risk limits, maintenance margin and liquidation overrides, with durable audit records.
-- **Live updates** over one authenticated WebSocket connection: games, prices, P/L, balances, maintenance and history progress. HTTP handles initial reads and actions, not periodic live-data polling. Cards and portfolios are scoped to the signed-in player.
+- **Live updates** over one authenticated WebSocket connection: games, prices, P/L, balances and maintenance. HTTP handles initial reads and actions, not periodic live-data polling. Cards and portfolios are scoped to the signed-in player.
+
+Payment requests at `/wallet` are receiver-created: the receiver fixes the amount and generates a four-word code that expires after ten minutes. The sender enters only the code, previews the recipient and fixed amount, then confirms payment. Codes are single-use and guessing is rate-limited. Administrators preview an Airdrop and explicitly confirm it before any balances change.
 
 Cards and roulette use OS cryptographic randomness. Financial writes use Mongo compare-and-swap and request receipts to prevent double spending and duplicate actions.
 
@@ -24,7 +26,7 @@ Node.js 24, TypeScript, Next.js App Router, React, Socket.IO, MongoDB 8, Clerk, 
 
 ## Prerequisites
 
-For containers, install Docker Engine or Docker Desktop and a recent Compose v2 with support for `!reset` overrides. For development outside Docker, use Node.js 24 and a reachable MongoDB instance.
+For containers, install Docker Engine or Docker Desktop and a recent Compose v2 with support for `!reset` overrides. For development outside Docker, use Node.js 24 and a reachable MongoDB 8 replica set. Transactions require a replica set; a standalone Mongo instance is not sufficient.
 
 Create a Clerk application before starting the app.
 
@@ -58,7 +60,7 @@ docker compose --env-file .env.local up -d --build
 
 Open [http://localhost:43891](http://localhost:43891), or the port configured in `APP_PORT`.
 
-The app binds to loopback. Mongo has no published port, no authentication, and belongs only to an internal Compose network. The app connects through `mongodb://mongo:27017`. Database files persist in the gitignored `./data/mongo` bind mount. Restrict Docker-host access and back up that directory using a consistent Mongo backup or while Mongo is stopped.
+The app binds to loopback. Mongo has no published port, no authentication, and belongs only to an internal Compose network. The app connects through `mongodb://mongo:27017/?replicaSet=rs0&directConnection=true`. Database files persist in the gitignored `./data/mongo` bind mount. Restrict Docker-host access and back up that directory using a consistent Mongo backup or while Mongo is stopped.
 
 ```sh
 docker compose --env-file .env.local logs -f app
@@ -67,8 +69,32 @@ docker compose --env-file .env.local down
 
 Stopping containers does not remove the database bind mount.
 
-> [!NOTE]
-> First boot imports candle history for all configured markets. Non-admins see maintenance until bootstrap finishes; admins can enter the app and watch progress. Leave disk space for the database and archives. Imports pause below the two-GiB free-space guard and resume rather than count the pause as completion.
+Mongo runs as a single-node replica set named `rs0`, with `mongo:27017` as its sole member. The healthcheck initializes only an unconfigured replica set (`NotYetInitialized`) and reports healthy only when `rs0` has a writable primary. Connection, permission and configuration errors fail the check instead of triggering initialization. The app waits for this healthcheck. Restarts reuse the stored replica-set configuration without reinitializing it. `directConnection=true` targets this one Docker member; `replicaSet=rs0` requires the expected set.
+
+A single node enables multi-document transactions but provides no redundancy or failover. Keep backups; do not expose this unauthenticated database outside the internal network.
+
+## Existing standalone database upgrade
+
+Lucas redeploys manually. Publishing commits or images does not change the running stack.
+
+Keep the existing `./data/mongo:/data/db` mount and use the same MongoDB 8.0 image version as the standalone database. Before redeploying, stop app writes, shut Mongo down cleanly and make an independent copy of the entire stopped data directory. Do not copy WiredTiger files while Mongo is running, delete the directory or start two Mongo processes against it.
+
+Test the update on that independent copy in an isolated Compose project first. The updated Mongo command starts the same database files with `--replSet rs0`; its healthcheck creates the single-member configuration only if none exists. Confirm the copied documents and indexes match the standalone fixture, a multi-document transaction commits, an aborted transaction leaves no changes, and a second start remains healthy without changing the replica-set configuration.
+
+For the manual deployment, use the existing Compose project and environment file so the bind mount stays unchanged. Stop app writes before recreating Mongo, wait for it to become healthy, then recreate the app so it receives the updated URI:
+
+```sh
+docker compose --env-file .env.local stop app mongo
+# Back up the stopped ./data/mongo directory before continuing.
+docker compose --env-file .env.local up -d --wait mongo
+docker compose --env-file .env.local up -d --build app
+docker compose --env-file .env.local ps
+docker compose --env-file .env.local exec mongo mongosh --quiet --eval 'db.adminCommand({hello:1})'
+```
+
+Keep any existing deployment override files and project-name options on every command. The final check must show `setName: "rs0"` and `isWritablePrimary: true`. If Mongo remains unhealthy, inspect its logs and healthcheck output. Do not force `rs.initiate()`, reconfigure an existing set, erase data or downgrade Mongo to bypass an error. Retain the untouched backup and investigate before resuming writes.
+
+Existing stored Mongo candles are preserved and remain readable. Only future live observations add candles; a fresh database starts collecting when its feed starts. There is no first-boot import or historical Binance/Coinbase fetch to fill missing bars. Maintenance is controlled manually, not by an import job.
 
 ## Configuration
 
@@ -78,17 +104,15 @@ Stopping containers does not remove the database bind mount.
 | `CLERK_SECRET_KEY` | Required server-only Clerk secret. Runtime environment only. |
 | `APP_ORIGIN` | Exact browser origin, such as `http://localhost:43891`. Used by CSRF and WebSocket origin checks. No trailing path. |
 | `APP_PORT` | Host port for Compose; defaults to `43891`. |
-| `MONGODB_URI` | Mongo connection URI. Compose supplies `mongodb://mongo:27017`; native development needs a host-reachable URI. |
+| `MONGODB_URI` | Mongo connection URI. Compose supplies `mongodb://mongo:27017/?replicaSet=rs0&directConnection=true`; native development needs a host-reachable replica-set URI. |
 | `MONGODB_DB` | Database name; defaults to `pokerroom`. The base Compose file sets this explicitly. |
 | `PORT` / `HOSTNAME` | Native server listener; defaults to `3000` / `0.0.0.0`. Compose sets these inside the container. |
 | `DEV_ALLOWED_ORIGINS` | Comma-separated development hostnames for Next HMR, without a scheme. Configure when using a development tunnel. |
-| `CANDLE_BACKFILL_DISABLED` | Set to `1` to skip historical imports in a disposable development/test environment. |
-| `CANDLE_STORAGE_PATH` | Filesystem path used for the history worker's free-space check; defaults to the process working directory. |
 | `IMAGE_TAG` | GHCR override image tag; defaults to `latest`. |
 
 Next loads `.env.local` for native development. Compose receives it through `--env-file`; the file is excluded from Git and Docker build context.
 
-The base Compose file forwards the required app variables. Optional native-development variables must also be added to the app service environment when you want them inside a container. `compose.dev.yaml` already forwards `CANDLE_BACKFILL_DISABLED`.
+The base Compose file forwards the required app variables. Optional native-development variables must also be added to the app service environment when you want them inside a container.
 
 ## GHCR images
 
@@ -123,7 +147,7 @@ For a native dev server, set these values in `.env.local`, alongside Clerk keys:
 APP_ORIGIN=http://localhost:43891
 PORT=43891
 HOSTNAME=127.0.0.1
-MONGODB_URI=mongodb://127.0.0.1:27017
+MONGODB_URI=mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true
 MONGODB_DB=ssg200x_dev
 ```
 
@@ -133,7 +157,7 @@ Then run:
 PORT=43891 HOSTNAME=127.0.0.1 npm run dev
 ```
 
-The supplied Compose Mongo is deliberately not host-accessible. Use your own development Mongo for the native server, or run the dev server inside Compose after installing dependencies:
+The supplied Compose Mongo is deliberately not host-accessible. Use your own development replica set named `rs0` for the native server, or run the dev server inside Compose after installing dependencies:
 
 ```sh
 docker compose --env-file .env.local -f compose.yaml -f compose.dev.yaml up -d
@@ -149,7 +173,7 @@ A reverse proxy or tunnel must forward WebSocket upgrades. Set `APP_ORIGIN` to i
 npm test
 npm run typecheck
 npm run build
-MONGODB_URI=mongodb://127.0.0.1:27017 \
+MONGODB_URI='mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true' \
   MONGODB_DB=fakebucks_test_local npm run test:integration
 ```
 
@@ -159,13 +183,13 @@ The app has no test authentication bypass.
 
 ## Market data and settlement
 
-The allowlist is BTC, ETH, BNB, XRP, SOL, ZEC, HYPE, DOGE, LINK, ADA, NEAR, XLM, BCH, LTC, UNI, AVAX, SUI, HBAR, TAO and SHIB. Change `lib/market-config.ts` to update trading, charts and import jobs together. Unavailable products are not silently replaced.
+The crypto allowlist is BTC, ETH, BNB, XRP, SOL and LTC. Change `lib/market-config.ts` to update trading and live charts together. Unavailable products are not silently replaced.
 
-One persistent server-side native Node WebSocket subscribes to the public Coinbase Exchange ticker and heartbeat channels for all 20 configured USD products. A global singleton survives Next HMR; a renewed 15-second Mongo leader lease selects one feed owner across processes. An independent 100ms watchdog closes the connection before lease expiry, and any observed database/worker error closes it immediately. This is bounded lease ownership, not a mathematical guarantee of one physical TCP connection during arbitrary OS process suspension or network partitions; deployments requiring that stronger invariant must use a dedicated feed-service owner. Every accepted ticker goes through serial room CAS settlement, including intermediate same-millisecond TP/SL or liquidation crossings, with no connected clients required. Candle extrema and bucket rollovers are persisted before draining the next batch. The bounded 4,096-tick queue disconnects and reports overload rather than silently coalescing crossings. Disconnects and 10-second transport stalls reconnect with capped exponential backoff and resubscribe. Heartbeats never refresh quote timestamps. Exchange timestamps up to one second ahead are accepted with cache timestamps clamped to server receipt time; farther-future events fail closed. Invalid products, prices, future/stale times and duplicate/out-of-order sequences are rejected.
+One persistent server-side native Node WebSocket subscribes to the public Coinbase Exchange ticker and heartbeat channels for the configured USD products. A global singleton survives Next HMR; a renewed 15-second Mongo leader lease selects one feed owner across processes. An independent 100ms watchdog closes the connection before lease expiry, and any observed database/worker error closes it immediately. This is bounded lease ownership, not a mathematical guarantee of one physical TCP connection during arbitrary OS process suspension or network partitions; deployments requiring that stronger invariant must use a dedicated feed-service owner. Every accepted ticker goes through serial room CAS settlement, including intermediate same-millisecond TP/SL or liquidation crossings, with no connected clients required. Candle extrema and bucket rollovers are persisted before draining the next batch. The bounded 4,096-tick queue disconnects and reports overload rather than silently coalescing crossings. Disconnects and 10-second transport stalls reconnect with capped exponential backoff and resubscribe. Heartbeats never refresh quote timestamps. Exchange timestamps up to one second ahead are accepted with cache timestamps clamped to server receipt time; farther-future events fail closed. Invalid products, prices, future/stale times and duplicate/out-of-order sequences are rejected.
 
-The first ten seconds after worker creation are WebSocket-only startup grace. Thereafter, only products whose ticker marks are older than ten seconds use the existing batched Coinbase USD rates REST fallback, with the existing once-per-second idle / 200ms active target and 429 backoff. History and fallback share one Mongo-backed request budget, with at least 334ms between requests across processes. Healthy symbols are excluded from fallback writes; when all are healthy no REST request is made. Unchanged REST rates do not renew freshness because that endpoint supplies no event timestamp. Missing or stale quotes block fills. Unsupported or omitted ticker subscriptions are logged as feed-health failures without expanding the whitelist. They remain eligible for stale-mark REST fallback after startup grace, but that fallback is best-effort, not a promise of fresh quotes: missing or unchanged rates remain unavailable/stale and fills stay blocked. A successful subscription also does not promise a trade every ten seconds for every product. Public REST product discovery and a live unauthenticated ticker subscription verified all 20 products available during implementation; this is not a guarantee of future listings. See [Exchange protocol](https://docs.cdp.coinbase.com/exchange/websocket-feed/overview) and [ticker schema](https://docs.cdp.coinbase.com/exchange/websocket-feed/channels#ticker-channel).
+The first ten seconds after worker creation are WebSocket-only startup grace. Thereafter, only products whose ticker marks are older than ten seconds use the existing batched Coinbase USD rates REST fallback, with the existing once-per-second idle / 200ms active target and 429 backoff. Fallback uses one Mongo-backed request budget, with at least 334ms between requests across processes. Healthy symbols are excluded from fallback writes; when all are healthy no REST request is made. Unchanged REST rates do not renew freshness because that endpoint supplies no event timestamp. Missing or stale quotes block fills. Unsupported or omitted ticker subscriptions are logged as feed-health failures without expanding the whitelist. They remain eligible for stale-mark REST fallback after startup grace, but that fallback is best-effort, not a promise of fresh quotes: missing or unchanged rates remain unavailable/stale and fills stay blocked. A successful subscription also does not promise a trade every ten seconds for every product. Product availability can change. See [Exchange protocol](https://docs.cdp.coinbase.com/exchange/websocket-feed/overview) and [ticker schema](https://docs.cdp.coinbase.com/exchange/websocket-feed/channels#ticker-channel).
 
-Historical candles use the last twelve complete monthly Binance USDT one-minute archives, plus Coinbase USD pages for the current month. The worker aggregates other intervals locally, persists progress and continues with Coinbase updates. Archive USDT references are not USD executions. Missing products are marked unavailable; automatic maintenance ends only when bootstrap work is complete or explicitly unavailable. Manual maintenance is independent.
+Stored Mongo candles remain readable. New candle buckets come only from accepted live quotes and stale-mark fallback observations, not historical candle downloads. Missing bars stay missing, including gaps while the app is offline. New observations have unknown volume, recorded as zero. No background import, progress polling or automatic import-related maintenance runs; the manual maintenance switch remains available.
 
 Perpetuals simulate isolated margin with no fees, slippage, funding or order book. A price gap may fill a trigger beyond its target; liquidation takes priority and consumes the isolated margin, not the remaining wallet. Charts and marks can differ. This is a small-group simulation, not an exchange.
 
@@ -175,7 +199,7 @@ Perpetuals simulate isolated margin with no fees, slippage, funding or order boo
 
 **WebSocket stays offline:** check proxy upgrade forwarding and the origin. Check `DEV_ALLOWED_ORIGINS` separately for development HMR issues.
 
-**Players see maintenance:** sign in as an admin to inspect backfill progress, storage status and the manual maintenance switch.
+**Players see maintenance:** sign in as an admin to inspect the manual maintenance switch.
 
 **Changed publishable key has no effect:** rebuild the local image, or use a GHCR build made for that Clerk instance.
 

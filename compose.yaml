@@ -8,7 +8,7 @@ services:
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
       CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Set your Clerk secret key}
       APP_ORIGIN: ${APP_ORIGIN:?Set exact browser origin}
-      MONGODB_URI: mongodb://mongo:27017
+      MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0&directConnection=true
       MONGODB_DB: pokerroom
     networks: [default, backend]
     ports:
@@ -26,11 +26,31 @@ services:
       retries: 6
   mongo:
     image: mongo:8.0
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    stop_grace_period: 60s
     networks: [backend]
     volumes:
       - ./data/mongo:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      # Only an uninitialized replica set may be initiated. Other errors fail closed.
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - mongodb://127.0.0.1:27017/?directConnection=true
+        - --eval
+        - |
+          try {
+            rs.status();
+          } catch (error) {
+            if (error.codeName !== "NotYetInitialized") throw error;
+            const result = rs.initiate({_id: "rs0", members: [{_id: 0, host: "mongo:27017"}]});
+            if (result.ok !== 1) throw new Error("Replica set initialization failed: " + JSON.stringify(result));
+          }
+          const hello = db.adminCommand({hello: 1});
+          if (hello.setName !== "rs0" || hello.isWritablePrimary !== true) {
+            throw new Error("Waiting for writable rs0 primary");
+          }
       interval: 5s
       timeout: 5s
       retries: 20

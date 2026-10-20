@@ -10,4 +10,3 @@ services:
       NODE_ENV: development
       HOSTNAME: 0.0.0.0
       PORT: 3000
-      CANDLE_BACKFILL_DISABLED: ${CANDLE_BACKFILL_DISABLED:-0}
