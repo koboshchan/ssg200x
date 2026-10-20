@@ -70,6 +70,10 @@ test('real Mongo stores ciphertext only, bootstrap leases, wrapping, replay, str
   const docs=await db.collection(name).find().toArray();const dump=JSON.stringify(docs);assert.equal(dump.includes(secret),false);assert.equal(dump.includes(b64(raw)),false);
  }
  assert.equal(await db.collection('chat_messages').countDocuments(),1);
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{members:[{id:a.user,approved:true},{id:b.user,approved:true},{id:'user_c',approved:true}]},$inc:{version:1}});
+ const added=await chat.handle(a.user,'state',{v:1});assert.equal(added.epoch,state.epoch);assert.ok(added.revision>state.revision);
+ assert.equal((await chat.handle(a.user,'history',{v:1,epoch:state.epoch,deviceId:a.deviceId})).messages.length,1);
+
  await db.collection('rooms').updateOne({_id:'main' as never},{$set:{members:[{id:a.user,approved:true}]},$inc:{version:1}});
  await assert.rejects(chat.handle(b.user,'state',{v:1}),/forbidden/);
  await assert.rejects(chat.handle(b.user,'wrap',ba),/forbidden/);

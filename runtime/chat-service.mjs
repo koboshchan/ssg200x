@@ -15,8 +15,8 @@ export function createChatService(db,{now=Date.now,clerk}={}){
   const directory=await devices.find({userId:{$in:members}},{projection:{_id:0,userId:1,deviceId:1,dhPublic:1,signPublic:1}}).sort({userId:1,deviceId:1}).limit(4096).toArray();
   const fingerprint=digest(JSON.stringify([members,directory]));
   let state=await states.findOne({_id:'main'});
-  if(!state){await states.updateOne({_id:'main'},{$setOnInsert:{revision:1,epoch:randomUUID(),fingerprint,status:'unclaimed',owner:null,leaseUntil:0,counter:0}},{upsert:true});state=await states.findOne({_id:'main'});}
-  if(state.fingerprint!==fingerprint){const changed=await states.updateOne({_id:'main',revision:state.revision,fingerprint:state.fingerprint},{$set:{fingerprint,epoch:randomUUID(),status:'unclaimed',owner:null,leaseUntil:0,counter:0},$inc:{revision:1}});if(!changed.matchedCount)fail('stale_revision');state=await states.findOne({_id:'main'});}
+  if(!state){await states.updateOne({_id:'main'},{$setOnInsert:{revision:1,epoch:randomUUID(),fingerprint,status:'unclaimed',owner:null,leaseUntil:0,counter:0,members,directory}},{upsert:true});state=await states.findOne({_id:'main'});}
+  if(state.fingerprint!==fingerprint){const removed=(state.members||[]).some(u=>!members.includes(u));const reset=(state.directory||[]).some(d=>members.includes(d.userId)&&!directory.some(n=>n.userId===d.userId&&n.deviceId===d.deviceId&&n.dhPublic===d.dhPublic&&n.signPublic===d.signPublic));const rotate=removed||reset;const changed=await states.updateOne({_id:'main',revision:state.revision,fingerprint:state.fingerprint},{$set:{fingerprint,members,directory,...(rotate?{epoch:randomUUID(),status:'unclaimed',owner:null,leaseUntil:0,counter:0}:{})},$inc:{revision:1}});if(!changed.matchedCount)fail('stale_revision');state=await states.findOne({_id:'main'});}
   return {room,members,directory,state};
  }
  async function fence(s,user){
@@ -85,7 +85,7 @@ export function createChatService(db,{now=Date.now,clerk}={}){
    const doc={_id:digest(content),v:1,room:'main',revision:p.revision,epoch:p.epoch,senderUserId:user,deviceId:p.deviceId,id:p.id,ts:p.ts,iv:p.iv,ciphertext:p.ciphertext,signature:p.signature,serverTs:now(),cursor:counter.counter,content};await messages.insertOne(doc);return {message:cleanMessage(doc),duplicate:false};
   }
   if(event==='history'){
-   shape(p,['v','epoch','deviceId'],['before','limit']);if(uuid(p.epoch)!==s.state.epoch)fail('stale_revision');await device(user,p.deviceId);if(!await hasWrap(p.epoch,user,p.deviceId))fail('waiting');
+   shape(p,['v','epoch','deviceId'],['before','limit']);uuid(p.epoch);await device(user,p.deviceId);if(!await hasWrap(p.epoch,user,p.deviceId))fail('waiting');
    const limit=p.limit??50;if(!Number.isSafeInteger(limit)||limit<1||limit>50)fail();if(p.before!==undefined&&(!Number.isSafeInteger(p.before)||p.before<1))fail();
    const docs=await messages.find({epoch:p.epoch,...(p.before===undefined?{}:{cursor:{$lt:p.before}})}).sort({cursor:-1}).limit(limit+1).toArray();await fence(s,user);const more=docs.length>limit;const page=docs.slice(0,limit);return {messages:page.reverse().map(cleanMessage),nextCursor:more?page[0].cursor:null};
   }
