@@ -14,13 +14,14 @@ test("mounted blackjack uses roulette chip buttons on desktop and mobile",async(
  createRoot(document.getElementById("root")).render(<Blackjack room={room} busy={false} post={post}/>);
  `,resolveDir:process.cwd(),loader:"tsx"},bundle:true,write:false,outdir:"out",format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"local-css"}});
  const js=out.outputFiles.find((f:any)=>f.path.endsWith(".js")).text,css=out.outputFiles.find((f:any)=>f.path.endsWith(".css"))?.text||"";
+ const globalCss=require("node:fs").readFileSync("app/globals.css","utf8");
  const browser=await chromium.launch({headless:true,channel:"chromium"});
  try{
   for(const vp of [{width:1280,height:800},{width:375,height:700}]){
    const page=await browser.newPage({viewport:vp}),errors:string[]=[];
    page.on("pageerror",(e:Error)=>errors.push(e.message));page.on("console",(m:any)=>{if(m.type()==="error")errors.push(m.text());});
    await page.route("https://bj.test/**",async(r:any)=>r.fulfill({contentType:"text/html",body:'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><div id="root"></div>'}));await page.goto("https://bj.test");
-   await page.addStyleTag({content:css});await page.addScriptTag({content:js});
+   await page.addStyleTag({content:globalCss});await page.addStyleTag({content:css});await page.addScriptTag({content:js});
    assert.equal(await page.locator("input").count(),0);
    assert.equal(await page.getByRole("group",{name:"Chip value"}).getByRole("button").count(),5);
    const posts=()=>page.evaluate(()=>(window as any).posts||[]);
@@ -36,8 +37,8 @@ test("mounted blackjack uses roulette chip buttons on desktop and mobile",async(
    await page.getByRole("button",{name:"Clear"}).click();assert.equal(await total.textContent(),"$0");
    assert.equal(await page.getByRole("button",{name:/^Bet/}).isDisabled(),true);
    const geo=await chip(1).evaluate((e:HTMLElement)=>{const c=getComputedStyle(e),r=e.getBoundingClientRect();return {w:r.width,h:r.height,br:c.borderRadius,bg:c.backgroundColor,bs:c.borderStyle};});
-   assert.equal(geo.w,geo.h);assert.ok(geo.w>=48&&geo.w<=60);assert.equal(geo.br,"50%");assert.equal(geo.bs,"dashed");assert.notEqual(geo.bg,"rgba(0, 0, 0, 0)");
-   if(vp.width<400)assert.equal(geo.w,50);
+   assert.equal(geo.w,geo.h);assert.equal(geo.br,"50%");assert.equal(geo.bs,"dashed");assert.notEqual(geo.bg,"rgba(0, 0, 0, 0)");
+   assert.equal(geo.w,vp.width<400?50:60);
    await chip(100).click();assert.equal(await total.textContent(),"$100");
    for(let i=0;i<9;i++)await chip(100).click();
    assert.equal(await total.textContent(),"$1,000");assert.equal(await chip(1).isDisabled(),true);
