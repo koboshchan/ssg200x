@@ -69,7 +69,7 @@ export class AlpacaIexFeed {
           this.handshake = null;
           this.subscribed = true; this.attempt = 0; o.onState("subscribed");
         }
-        if ((m.T === "c" || m.T === "x" || m.T === "s") && isStockSymbol(m.S)) return fail();
+        if ((m.T === "c" || m.T === "x") && isStockSymbol(m.S)) return fail();
         // Quotes and bars are not executable last-trade prices. Only regular
         // sale prints are accepted; unknown conditions fail closed for that tick.
         if (m.T !== "t" || !this.subscribed || !isStockSymbol(m.S)) continue;
@@ -78,7 +78,7 @@ export class AlpacaIexFeed {
           typeof m.s !== "number" || !Number.isFinite(m.s) || m.s <= 0 ||
           !Array.isArray(m.c) || m.c.length === 0 || !m.c.every(c => c === "@" || c === " ") ||
           !Number.isFinite(now) || !Number.isFinite(timestamp) || timestamp <= (this.lastTimestamp.get(m.S) ?? -Infinity) ||
-          timestamp > now || now - timestamp > 15_000) continue;
+          timestamp > now || now - timestamp >= 60_000) continue;
         this.lastTimestamp.set(m.S, timestamp);
         o.onTick({symbol: m.S, price: m.p, timestamp, receivedAt: now, feed: "alpaca-iex"});
       }

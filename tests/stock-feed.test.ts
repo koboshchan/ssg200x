@@ -49,7 +49,7 @@ test("malformed frames fail closed and no preauth ticks",()=>{
 });
 
 test("trade corrections/cancels invalidate connection rather than retaining executable cache",()=>{
-  for(const T of ["c","x","s"]){const h=setup(),s=h.connect();s.message([{T,S:"AAPL"}]);assert.equal(s.closed,true);assert.equal(h.states.at(-1),"disconnected");}
+  for(const T of ["c","x"]){const h=setup(),s=h.connect();s.message([{T,S:"AAPL"}]);assert.equal(s.closed,true);assert.equal(h.states.at(-1),"disconnected");}
 });
 test("missing credentials never construct upstream sockets",()=>{
   let called=false;
@@ -90,4 +90,14 @@ test("SPCX zero-ask stale quote never becomes executable or removes configured s
   s.message([h.print({S:"SPCX"})]);
   assert.equal(h.ticks.length,1);assert.equal(h.ticks[0].symbol,"SPCX");
   h.feed.stop();
+});
+
+test("status metadata is nonblocking and parser uses strict 60-second stock age",()=>{
+ const now=Date.parse("2026-10-19T15:00:00Z");
+ for(const age of [59999,60000,-1]){
+  const h=setup(),s=h.connect();s.message([{T:"s",S:"AAPL"}]);
+  assert.equal(s.closed,false);
+  s.message([h.print({t:new Date(now-age).toISOString()})]);
+  assert.equal(h.ticks.length,age===59999?1:0);
+ }
 });

@@ -1,3 +1,4 @@
+import {isStockSymbol} from "./stock-config";
 import {isActiveSymbol} from "./market-shared";
 import {ensure} from "./errors";
 import {closePosition,liquidate,liqPrice,stockExecutable} from "./finance";
@@ -33,7 +34,7 @@ export function settleTriggers(r:Room,now=Date.now()){
  liquidate(r,now);
  for(const m of r.members)for(const p of [...(m.positions||[])] as (Position & PositionTriggers)[]){
   const q=r.quotes?.[p.symbol];
-  if(!stockExecutable(r,p.symbol,now)||!isActiveSymbol(p.symbol)||!q||!Number.isSafeInteger(q.micro)||q.micro<=0||q.at>now||now-q.at>10_000)continue;
+  if(!stockExecutable(r,p.symbol,now)||!isActiveSymbol(p.symbol)||!q||!Number.isSafeInteger(q.micro)||q.micro<=0||q.at>now||(isStockSymbol(p.symbol)?now-q.at>=60_000:now-q.at>10_000))continue;
   const reason=p.stopLoss!=null&&(p.side==="long"?q.micro<=p.stopLoss:q.micro>=p.stopLoss)?"Stop-loss":p.takeProfit!=null&&(p.side==="long"?q.micro>=p.takeProfit:q.micro<=p.takeProfit)?"Take-profit":null;
   if(!reason)continue;
   const who={id:m.id,name:m.name,email:m.email,admin:false};
