@@ -87,6 +87,12 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
 @media(min-width:1000px){.market-grid{grid-template-columns:minmax(0,1fr) 380px}}
 @media(min-width:561px){.side-positions .table-scroll{overflow:visible}.side-positions table{min-width:0;margin:0;display:block}.side-positions thead{display:none}.side-positions tbody{display:grid;gap:10px}.side-positions tr{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;padding:12px;background:var(--surface);border-radius:12px;border:1px solid var(--line)}.side-positions tr>*{padding:0;border:0;font-size:13px;min-width:0}.side-positions tr>th{grid-column:1/-1;font-weight:600}.side-positions td[data-label]:before{content:attr(data-label);display:block;font-size:11px;color:var(--muted)}.side-positions tr>td:not([data-label]){grid-column:1/-1}.side-positions tr>td:last-child{text-align:right}}
 
+/* Open perpetuals sit under the chart, full chart-column width */
+.open-perps{min-width:0}.open-perps h3{font-size:15px;font-weight:500;margin:0 0 14px}.open-perps .table-scroll{overflow-x:auto}.open-perps .table-scroll table{min-width:640px}
+@media(min-width:561px){.market-grid{grid-template-columns:minmax(0,1fr) 280px;grid-template-areas:"chart side" "perps side";grid-template-rows:auto 1fr;align-items:start}.market-grid>.cached-chart{grid-area:chart}.market-grid>.trade-side{grid-area:side}.market-grid>.open-perps{grid-area:perps}}
+@media(min-width:1000px){.market-grid{grid-template-columns:minmax(0,1fr) 380px}}
+@media(max-width:560px){.market-grid>.trade-side{display:contents}.market-grid>.cached-chart{order:1}.market-grid>.trade-side>.order-ticket{order:2}.market-grid>.trade-side>.side-positions{order:3;margin-top:10px}.market-grid>.open-perps{order:4;margin-top:10px}}
+
 /* TableTalk chat dock */
 .chat-toggle{position:fixed;right:18px;bottom:18px;z-index:40;width:46px;height:46px;border-radius:50%;display:grid;place-items:center;background:var(--surface);color:var(--ink);border:1px solid var(--line);box-shadow:0 2px 10px rgba(0,0,0,.12)}
 .chat-badge{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--blue);color:#fff;font-size:11px;line-height:18px;text-align:center}

@@ -2,10 +2,12 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 const fin=readFileSync("app/finance-client.tsx","utf8"),css=readFileSync("app/globals.css","utf8");
-test("order form, holdings and open positions share the right column; closed positions stay below",()=>{
- const side=fin.indexOf('className="trade-side"'),tk=fin.indexOf('className="order-ticket"'),sp=fin.indexOf('className="side-positions"'),open=fin.indexOf("<h3>Open perpetuals</h3>"),closed=fin.indexOf("<h3>Closed positions</h3>"),pos=fin.indexOf('className="positions"');
- assert.ok(side>0&&side<tk&&tk<sp&&sp<open&&open<pos&&pos<closed);
+test("order form and holdings share the right column; open perpetuals sit under the chart",()=>{
+ const grid=fin.indexOf('className="market-grid"'),chart=fin.indexOf("<Chart symbol",grid),side=fin.indexOf('className="trade-side"'),tk=fin.indexOf('className="order-ticket"'),sp=fin.indexOf('className="side-positions"'),open=fin.indexOf("<h3>Open perpetuals</h3>"),perps=fin.indexOf('className="open-perps"'),closed=fin.indexOf("<h3>Closed positions</h3>"),pos=fin.indexOf('className="positions"');
+ assert.ok(grid>0&&chart>grid&&chart<side&&side<tk&&tk<sp&&sp<perps&&perps<open&&open<pos&&pos<closed);
+ assert.match(css,/grid-template-areas:"chart side" "perps side"/);
  assert.match(css,/@media\(min-width:1000px\)\{\.market-grid\{grid-template-columns:minmax\(0,1fr\) 380px/);
+ assert.match(css,/@media\(max-width:560px\)\{\.market-grid>\.trade-side\{display:contents\}/);
 });
 test("trigger helper text is on its own line, not glued to the preview",()=>{
  assert.match(css,/\.order-ticket small\{display:block/);assert.ok(fin.includes('<small className="trigger-note">Triggers close'));
