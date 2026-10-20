@@ -4,34 +4,47 @@ Research checked 2026-10-19. AAPL is not enabled or in the crypto allowlist.
 No live stock feed, session calendar or trade integration has been implemented. stockPrerequisites is an inert server-side readiness check,
 not an execution guard. Existing crypto behavior is unchanged.
 
-## Provider decision is blocked
+## Massive selected, free-tier integration blocked
 
-Alpaca's official FAQ says the free websocket feed is IEX only, a single venue,
-not consolidated SIP or NBBO. Specify IEX explicitly rather than letting an
-account upgrade silently change source. No historical provider endpoints will
-be used.
-https://docs.alpaca.markets/us/docs/market-data-faq
+Lucas selected Massive (formerly Polygon.io). Official pages checked 2026-10-19.
+Stocks Basic is free, 5 REST requests/minute, with end-of-day custom aggregates
+and two years of history. Basic does not include minute-aggregate WebSockets.
+Starter and Developer aggregates are 15-minute delayed; Advanced is real-time.
+A free key cannot deliver fresh regular-session prices. Marketing headlines
+about real-time data do not override the endpoint-specific plan tables.
 
-The current documentation footer links these terms. They restrict content to
-personal noncommercial use, require 30 days notice for an application offered
-to others, and prohibit redistribution without express prior written consent.
-Authenticated players still receive redistributed data. A free API key alone
-does not establish permission.
-https://s3.amazonaws.com/files.alpaca.markets/disclosures/library/TermsAndConditions.pdf
+https://massive.com/stocks
+https://massive.com/docs/rest/stocks/aggregates/custom-bars
+https://massive.com/docs/websocket/stocks/aggregates-per-minute
 
-Finnhub free pricing says Personal Use. Its terms prohibit redistributing data
-or derived results without
-written approval. Enterprise pricing explicitly includes redistribution rights.
-https://finnhub.io/pricing
-https://finnhub.io/terms-of-service
-https://finnhub.io/pricing-startups-and-enterprise
+The Market Data Terms (updated August 28, 2025) grant personal, non-business,
+non-commercial use. Absent prior express written consent from Massive or an
+applicable Third Party Provider agreement, they prohibit displaying or
+redistributing data AND derived charts/works to any third party. Individual
+plans are not a friends-only redistribution license. Lucas accepts the
+friends-only play-money use case, but that does not establish provider
+permission. Massive's stocks FAQ directs redistribution/customer-facing
+display to Business plans.
 
-No plausible Alpaca/Finnhub/stock/market/Polygon credential filenames were found
-under the connected secrets directory. No credentials, signup, purchases or
-external feed connections were created. chub searches for both providers had no
-entries; official provider documentation was used instead.
+https://massive.com/legal/market-data-terms-of-service
+https://massive.com/stocks
 
-## Proposed execution policy, requires parent approval
+Prepare MASSIVE_API_KEY only in the server environment; never put it in
+NEXT_PUBLIC variables, client requests, URLs, fixtures or logs. No key is
+available to this worker and no live entitlement has been verified.
+stockPrerequisites reads credential presence only and never returns its value.
+The Basic end-of-day blocker is unconditional even when credentials and an
+approval reference are supplied. No environment toggle enables AAPL.
+
+No provider client, WebSocket, REST polling, historical download, signup or
+purchase is added. Polling EOD data faster does not make it fresh. A licensed
+fresh-data entitlement and parent-approved integration policy are blockers,
+not assumptions to hide behind an implementation. Revisit plan verification
+only with actual provider evidence; a claimed plan string is insufficient.
+chub searches for Massive and Polygon found no applicable API documentation,
+so official endpoint documentation was read directly.
+
+## Accepted execution policy, not yet implemented
 
 Use the existing spot/perp leverage rules, not new stock-specific leverage.
 Reject every market execution, including manual close, outside the regular
@@ -64,8 +77,8 @@ Lucas removed backfilling completely. AAPL must never fetch past bars, call a
 historical API, schedule historical jobs or download archives. Persist candles
 collected from future live ticks to Mongo. Charts read only our stored Mongo
 candles. Retain existing stored candles; do not clear or replace them. Empty
-periods remain empty, with no synthetic historical fill. No historical provider
-documentation or historical-data credentials are required.
+periods remain empty, with no synthetic historical fill. Historical aggregate capability was researched only to establish plan
+entitlements; no aggregate requests are implemented or authorized.
 
 This worker owns only docs/aapl-data-gates.md, lib/stock-config.ts and
 tests/stock-config.test.ts. The backfill-removal worker owns candles/history
