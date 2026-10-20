@@ -1,3 +1,4 @@
+import {playerReference} from "../runtime/clerk-names.mjs";
 import {createHash,randomInt,randomUUID} from "node:crypto";
 import {wordlist} from "@scure/bip39/wordlists/english.js";
 import type {Db} from "mongodb";
@@ -53,7 +54,7 @@ export async function sendTransfer(who:Identity,input:{code:unknown;requestId:st
   const record:Transfer={_id:id,sender:who.id,recipient:recipient.id,senderName:sender.name,recipientName:recipient.name,amount,note,at:Date.now(),fingerprint,senderBefore:sender.wallet,senderAfter:sender.wallet-amount,recipientBefore:recipient.wallet,recipientAfter:recipient.wallet+amount};
   sender.wallet-=amount;recipient.wallet+=amount;
   sender.adjustments=(sender.adjustments||0)-amount;recipient.adjustments=(recipient.adjustments||0)+amount;
-  for(const [m,text] of [[sender,`Sent $${(amount/100).toFixed(2)} to ${recipient.name}`],[recipient,`Received $${(amount/100).toFixed(2)} from ${sender.name}`]] as const)m.activity=[text,...(m.activity||[])].slice(0,40);
+  for(const [m,text] of [[sender,`Sent $${(amount/100).toFixed(2)} to ${playerReference(recipient)}`],[recipient,`Received $${(amount/100).toFixed(2)} from ${playerReference(sender)}`]] as const)m.activity=[text,...(m.activity||[])].slice(0,40);
   assertRoom(r);
   // Same room/version CAS as all trade and poker writers. Their stale writes cannot overwrite this transaction.
   const {_id,...fields}=r;Reflect.deleteProperty(fields,"chatMutationLock");fields.version=r.version+1;

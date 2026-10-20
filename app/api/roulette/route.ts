@@ -1,7 +1,7 @@
 import {z} from 'zod';
 import {endpoint,parse} from '@/lib/api';
 import {rateLimit} from '@/lib/store';
-import {publicRoom} from '@/lib/public';
+import {freshPublicRoom as publicRoom} from '@/lib/public';
 import {rouletteMove} from '@/lib/roulette-store';
 const base={requestId:z.string().uuid(),requestAt:z.number().int(),round:z.number().int().min(1)};
 const bet=z.object({kind:z.enum(['straight','red','black','odd','even','low','high','dozen','column']),pick:z.number().int().min(0).max(36).optional(),amount:z.number().int().min(100).max(100_000)}).strict();

@@ -2,7 +2,7 @@ import {ensure} from "@/lib/errors";
 import {z} from "zod";
 import {endpoint,parse} from "@/lib/api";
 import {mutate,rateLimit,visit} from "@/lib/store";
-import {publicRoom} from "@/lib/public";
+import {freshPublicRoom as publicRoom} from "@/lib/public";
 import {setTradingSettings,triggerInputMode} from "@/lib/trading-settings";
 const schema=z.object({triggerInputMode:z.enum(["price","pnl"]),requestAt:z.number().int().optional(),requestId:z.string().uuid().optional()}).strict();
 export const GET=(request:Request)=>endpoint(request,async who=>{

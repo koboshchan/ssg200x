@@ -62,8 +62,9 @@ test("public page reads the Clerk session without gating, stays outside maintena
  assert.match(read("app/layout.tsx"),/<RoomClient configured=\{configured\(\)\}>/);
  assert.match(client,/isPublicPage\(path\)/);
  assert.doesNotMatch(page,/\.email|privateMetadata\.(?!admin)/);
- assert.match(store,/findOne\(\{_id:"main"\}/);assert.match(store,/cachedLeaderboard/);
- assert.doesNotMatch(store,/await (readRoom|visit|mutate)|updateOne|insertOne|clerk/);
+ assert.match(store,/findOne\(\{_id:"main"\}/);assert.match(store,/currentNamedRoom/);
+ assert.doesNotMatch(store,/cachedLeaderboard/);
+ assert.doesNotMatch(store,/await (readRoom|visit|mutate)|updateOne|insertOne/);
  assert.match(page,/snapshot\.rows\.map/);assert.match(page,/role="status"/);assert.match(page,/No players yet/);
  assert.match(client,/href:"\/leaderboard",label:"Leaderboard"/);
  assert.match(client,/View the public leaderboard/);

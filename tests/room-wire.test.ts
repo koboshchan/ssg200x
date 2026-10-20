@@ -42,7 +42,7 @@ test("actual server has exactly one room emission helper, including connect, pol
  assert.equal((server.match(/emitRoomState\(socket,data,force\)/g)||[]).length,1);
  assert.doesNotMatch(server,/\.emit\(["']room:state/);
  assert.match(server,/void pushState\(socket,true\)/);
- assert.match(server,/return pushState\(socket,!socket.data.initialized\)/);
+ assert.match(server,/return pushState\(socket,!socket.data.initialized,new Map\(/);
  assert.match(server,/socket.data.forceFull=true/);
  const helper=readFileSync(new URL("../runtime/room-state.mjs",import.meta.url),"utf8");
  assert.match(helper,/emitState\(socket,"room:state",data.room,force\)/);

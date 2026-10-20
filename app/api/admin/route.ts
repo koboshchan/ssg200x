@@ -1,7 +1,7 @@
 import {z} from "zod";
 import {endpoint,parse} from "@/lib/api";
 import {mutate,rateLimit} from "@/lib/store";
-import {publicRoom} from "@/lib/public";
+import {freshPublicRoom as publicRoom} from "@/lib/public";
 import {adjustBalance,setMaintenance,setLiquidation,setLimits,setMemberAccess} from "@/lib/admin";
 import {audit} from "@/lib/audit";
 import {ensure} from "@/lib/errors";

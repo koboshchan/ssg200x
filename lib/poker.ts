@@ -1,3 +1,4 @@
+import {playerReference} from "../runtime/clerk-names.mjs";
 import {ACTION_TURN_MS} from "./turn-timer";
 import { randomInt, createHash } from "node:crypto";
 import {rouletteAssets} from "./roulette";
@@ -63,7 +64,7 @@ export function forfeitSeat(r:Room,i:number) {
   if(s.committed)(r.pokerDead??=[]).push(s.committed);
  } else r.pokerCarry=(r.pokerCarry??0)+s.stack+s.committed;
  r.seats[i]=null;r.pending=r.pending.filter(j=>j!==i);
- addLog(r,(r.members.find(m=>m.id===s.userId)?.name??"Player")+" removed; table chips forfeited");
+ addLog(r,playerReference(r.members.find(m=>m.id===s.userId))+" removed; table chips forfeited");
 }
 function countCompletedHand(r:Room) {
  if((r.idleCountedHand??-1)===r.handNumber)return;
@@ -79,7 +80,7 @@ function end(r: Room, payouts: Payout[], now: number) {
  r.payouts = payouts;
  for (const p of payouts) {
   const m = r.members.find(m => m.id === r.seats[p.seat]!.userId)!;
-  addLog(r, m.name + " " + (p.description === "Uncalled bet returned" ? "returned $" : "wins $") + (p.amount / 100).toFixed(2) + " · " + p.description);
+  addLog(r, playerReference(m) + " " + (p.description === "Uncalled bet returned" ? "returned $" : "wins $") + (p.amount / 100).toFixed(2) + " · " + p.description);
  }
  r.street = "showdown"; r.pending = []; setTurn(r, null, now); r.nextDeal = now + BREAK_MS;
  // Contributions are already in awarded stacks. Clearing prevents double counting.
@@ -191,7 +192,7 @@ export function act(r: Room, id: string, action: Extract<Action,{type:"fold"|"ch
  }
  s.actedAt = r.currentBet;
  r.pending = r.pending.filter(j=>j!==i);
- addLog(r, r.members.find(m=>m.id===id)!.name + " " + text);
+ addLog(r, playerReference(r.members.find(m=>m.id===id)) + " " + text);
  advance(r,i,now);
 }
 export function applyAction(r: Room, who: Identity, action: Action, now: number) {
@@ -205,7 +206,7 @@ export function applyAction(r: Room, who: Identity, action: Action, now: number)
   ensure(Number.isSafeInteger(action.buyIn) && action.buyIn >= 10_000 && action.buyIn <= 100_000 && member.wallet >= action.buyIn, "Buy in with $100–$1,000 from your wallet.");
   member.wallet -= action.buyIn;
   r.seats[action.seat] = { userId: who.id, stack: action.buyIn, hole: [], bet: 0, committed: 0, folded: true, inHand: false, actedAt: null, sitOut: false, leaveAfter: false, seen: now, ready: false };
-  addLog(r,member.name + " takes seat " + (action.seat+1));
+  addLog(r,playerReference(member) + " takes seat " + (action.seat+1));
  } else if (action.type === "leave") {
   ensure(i >= 0, "You are not seated.");
   const s = r.seats[i]!;

@@ -1,7 +1,7 @@
 import {z} from "zod";
 import {endpoint,parse} from "@/lib/api";
 import {rateLimit} from "@/lib/store";
-import {publicRoom} from "@/lib/public";
+import {freshPublicRoom as publicRoom} from "@/lib/public";
 import {BLACKJACK_TABLE_IDS} from "@/lib/blackjack";
 import {blackjackMove} from "@/lib/blackjack-store";
 const base={tableId:z.enum(BLACKJACK_TABLE_IDS),requestId:z.string().uuid(),requestAt:z.number().int(),round:z.number().int().optional(),deadline:z.number().int().nullable().optional()};

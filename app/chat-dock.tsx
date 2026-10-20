@@ -44,7 +44,7 @@ export default function ChatDock(){
  },[open]);
  useEffect(()=>{if(client&&live.connection==="connected")void client.reconnect();},[client,live.connection]);
  useLiveEvent("chat:changed",()=>client?.hint());
- useLiveEvent("room:state",(room:{leaderboard?:{publicId:string;name:string}[]})=>{if(room?.leaderboard)setNames(Object.fromEntries(room.leaderboard.map(r=>[r.publicId,r.name])));});
+ useLiveEvent("room:state",(room:{chatNames?:{publicId:string;name:string}[];leaderboard?:{publicId:string;name:string}[]})=>{const rows=room?.chatNames??room?.leaderboard;if(rows)setNames(Object.fromEntries(rows.map(r=>[r.publicId,r.name])));});
  const snap=useSyncExternalStore(client?client.subscribe:()=>()=>{},client?client.getSnapshot:()=>idle,()=>idle);
  const unread=snap.messages.filter(m=>!m.mine&&m.status==="ok"&&seen!==null&&m.serverTs>seen).length;
  useEffect(()=>{
@@ -81,7 +81,7 @@ function Recover({snap,client,err}:{snap:Snapshot;client:ChatClient;err:string|n
 function Room({snap,client,names}:{snap:Snapshot;client:ChatClient;names:Record<string,string>}){
  const [text,setText]=useState(""),list=useRef<HTMLDivElement>(null),stick=useRef(true);
  const bytes=new TextEncoder().encode(text).length,changed=snap.members.filter(m=>m.changed);
- const nameOf=(publicId:string,mine:boolean)=>mine?"You":names[publicId]||"Member";
+ const nameOf=(publicId:string,mine:boolean)=>names[publicId]||"Player";
  useEffect(()=>{const el=list.current;if(el&&stick.current)el.scrollTop=el.scrollHeight;},[snap.messages]);
  const submit=()=>{if(!text.trim()||bytes>MAX_TEXT_BYTES)return;const t=text;setText("");stick.current=true;void client.send(t).then(ok=>{if(!ok)setText(cur=>cur||t);});};
  return <>

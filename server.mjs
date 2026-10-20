@@ -1,3 +1,4 @@
+import {loadClerkProfiles,profileName} from "./runtime/clerk-names.mjs";
 import {timingSafeEqual} from "node:crypto";
 import {createAirdropBroadcaster} from "./runtime/airdrop-events.mjs";
 import {emitState,STATE_STREAMS} from "./runtime/state-stream.mjs";
@@ -56,14 +57,19 @@ const announceAirdrop=createAirdropBroadcaster(io,client.db(process.env.MONGODB_
 const checkChatSession=sessionGuard(clerk);
 let hintTimer;
 function hintChatChanged(){if(hintTimer)return;hintTimer=setTimeout(()=>{hintTimer=null;io.emit("chat:changed",{v:1});},100);hintTimer.unref();}
-async function pushState(socket,force=false){
+async function pushState(socket,force=false,profiles){
  if(!socket.connected||socket.data.busy)return;
  if(socket.data.expires<=Date.now()){socket.disconnect(true);return;}
  socket.data.busy=true;
  try{
+  if(!profiles){
+   const room=await collection.findOne({_id:"main"},{projection:{"members.id":1}});
+   profiles=await loadClerkProfiles(clerk,[socket.data.identity.id,...(room?.members||[]).map(m=>m.id),...(socket.data.chatNameIds||[])]);
+  }
+  socket.data.identity.name=profileName(profiles,socket.data.identity.id);
   const response=await fetch(`http://127.0.0.1:${port}/api/internal-live`,{
    method:"POST",headers:{"content-type":"application/json","x-internal-live-secret":process.env.INTERNAL_LIVE_SECRET,...(socket.data.chart?{"x-chart-symbol":socket.data.chart.symbol,"x-chart-granularity":socket.data.chart.granularity}:{})},
-   body:JSON.stringify(socket.data.identity),signal:AbortSignal.timeout(10000)
+   body:JSON.stringify({identity:socket.data.identity,profiles:[...profiles].map(([id,p])=>[id,{name:p.name,avatar:null}])}),signal:AbortSignal.timeout(10000)
   });
   if(!response.ok)throw new Error("Live snapshot unavailable");
   const data=await response.json();
@@ -94,6 +100,10 @@ io.on("connection",socket=>{
     if(!socket.connected||socket.data.expires<=Date.now()){socket.disconnect(true);return;}
     const result=await chat.handle(socket.data.identity.id,event,payload);
     if(socket.data.expires<=Date.now()){socket.disconnect(true);return;}
+    // Include current names for historical senders as well as seated members.
+    // Bounded per socket and refreshed by the next live snapshot, not cached names.
+    const senders=[...(result.messages||[]).map(m=>m.senderUserId),...(result.message?[result.message.senderUserId]:[])];
+    if(senders.length)socket.data.chatNameIds=[...new Set([...(socket.data.chatNameIds||[]),...senders])].slice(-500);
     ack({ok:true,...result});
     if((["register","keys:put","claim","wrap","send"].includes(event)||result.directoryChanged===true)){
      // Generic coalesced hints contain no membership, ciphertext or wrapped keys.
@@ -110,12 +120,19 @@ let running=false;
 const timer=setInterval(async()=>{
  if(running||!io.engine.clientsCount)return;running=true;
  try{
-  const r=await collection.findOne({_id:"main"},{projection:{version:1}});
+  const r=await collection.findOne({_id:"main"},{projection:{version:1,"members.id":1}});
+  const sockets=[...io.sockets.sockets.values()];
+  const due=sockets.filter(socket=>!socket.data.initialized||socket.data.version!==r?.version||Date.now()-(socket.data.statusAt||0)>=1000);
+  // One fresh batch per emission cycle, never one API call per seat or socket.
+  // This map dies after this cycle. No TTL or cross-cycle stale names.
+  const memberIds=(r?.members||[]).map(m=>m.id);
+  const profiles=due.length?await loadClerkProfiles(clerk,[...memberIds,...due.map(s=>s.data.identity.id),...due.flatMap(s=>s.data.chatNameIds||[])]):new Map();
   const now=Date.now();
-  await Promise.all([...io.sockets.sockets.values()].map(socket=>{
+  await Promise.all(due.map(socket=>{
    // Manual maintenance can change without the room version changing.
    if(!socket.data.initialized||socket.data.version!==r?.version||now-(socket.data.statusAt||0)>=1000){
-    socket.data.statusAt=now;return pushState(socket,!socket.data.initialized);
+    socket.data.statusAt=now;const allowed=new Set([socket.data.identity.id,...memberIds,...(socket.data.chatNameIds||[])]);
+    return pushState(socket,!socket.data.initialized,new Map([...profiles].filter(([id])=>allowed.has(id))));
    }
   }));
  }catch{}finally{running=false;}

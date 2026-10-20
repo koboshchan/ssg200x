@@ -1,3 +1,4 @@
+import {playerReference} from "../runtime/clerk-names.mjs";
 import {audit} from "./audit";
 import {liqPrice,liquidate} from "./finance";
 import {register,addLog} from "./poker";
@@ -12,7 +13,7 @@ export function adjustBalance(r:Room,who:Identity,target:string,delta:number){
  const old=m.wallet;
  m.wallet+=delta;r.issuance=(r.issuance||0)+delta;m.adjustments=(m.adjustments||0)+delta;
  audit(r,who,"balance",m.id,old,m.wallet);
- addLog(r,"Host adjusted "+m.name+"'s cash by "+(delta/100).toFixed(2));
+ addLog(r,"Host adjusted "+playerReference(m)+"'s cash by "+(delta/100).toFixed(2));
 }
 export function setMaintenance(r:Room,who:Identity,percent:number){
  ensure(who.admin,"Administrator access required.",403);ensure(Number.isFinite(percent)&&percent>=0&&percent<=20,"Maintenance margin must be 0–20%.");

@@ -6,6 +6,7 @@ test("transfer signals ignore trading activity but preserve repeated payments an
  const m={publicId:"a",adjustments:0,activity:["Sent $1.00 to B"]};
  assert.equal(transferHistoryKey([m]),transferHistoryKey([{...m,activity:["Bought BTC",...m.activity]}]));
  assert.notEqual(transferHistoryKey([m]),transferHistoryKey([{...m,adjustments:-100}]));
+ assert.notEqual(transferHistoryKey([{...m,name:"Before"}]),transferHistoryKey([{...m,name:"After"}]));
  const b={publicId:"b",adjustments:0,activity:[]};
  assert.notEqual(transferHistoryKey([m,b]),transferHistoryKey([m,{...b,adjustments:100,activity:["Airdrop +$1.00"]}]));
  assert.equal(transferHistoryKey([m,b]),transferHistoryKey([b,m]));

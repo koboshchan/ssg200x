@@ -3,7 +3,7 @@ import {randomUUID} from "node:crypto";
 import {z} from "zod";
 import {endpoint,parse} from "@/lib/api";
 import {mutate,rateLimit} from "@/lib/store";
-import {publicRoom} from "@/lib/public";
+import {freshPublicRoom as publicRoom} from "@/lib/public";
 import {spot,openPosition,closePosition,requireQuote,redeemLegacyHolding,legacyQuote,SYMBOLS} from "@/lib/finance";
 import {ensure} from "@/lib/errors";
 import {editPositionTriggers} from "@/lib/position-triggers";

@@ -78,6 +78,7 @@ export default function Wallet(){
   airRetry.current=null;setMessage("Airdrop sent to "+preview.count+" players.");setPreview(undefined);setAirAmount("");setAirNote("");await refresh();
  }
 
+ const recipientName=recipient?(room?.chatNames?.find(m=>m.publicId===recipient.publicId)?.name??recipient.name):"";
  const ready=connection==="connected",expired=Boolean(recipient&&recipient.expiresAt<=now),previewExpired=Boolean(preview&&preview.expiresAt<=now);
  const label=(t:Entry)=>t.kind==="airdrop"?(t.direction==="received"?"Airdrop":"Airdrop to "+t.to):t.direction==="sent"?"To "+t.to:t.direction==="received"?"From "+t.from:t.from+" to "+t.to;
  return <main className={styles.wallet}>
@@ -95,8 +96,8 @@ export default function Wallet(){
    <section aria-labelledby="send-title"><h2 id="send-title">Send</h2>
     <form onSubmit={e=>{e.preventDefault();void run(recipient?send:resolve);}}>
      <label>Recipient’s two-word code (older four-word codes also work)<input autoComplete="off" autoCapitalize="none" spellCheck={false} value={code} maxLength={100} required disabled={busy} onChange={e=>{setCode(e.target.value);editSend();}} placeholder="word word"/></label>
-     {recipient?<div role="status" className={styles.preview}>{recipient.avatar?<img src={recipient.avatar} alt="" width={40} height={40} style={{borderRadius:"50%"}}/>:null}<p>Send <strong>{money(recipient.amount)}</strong> to <strong>{recipient.name}</strong>{recipient.note?<>. Note: “{recipient.note}”</>:null}. {expired?"Code expired. Ask for a new code.":"The amount is set by the receiver."}</p></div>:null}
-     <button className="primary" disabled={busy||!ready||expired}>{busy?"Working…":recipient?"Confirm send to "+recipient.name:"Check code"}</button>{recipient?<button type="button" disabled={busy} onClick={editSend}>Cancel</button>:null}
+     {recipient?<div role="status" className={styles.preview}>{recipient.avatar?<img src={recipient.avatar} alt="" width={40} height={40} style={{borderRadius:"50%"}}/>:null}<p>Send <strong>{money(recipient.amount)}</strong> to <strong>{recipientName}</strong>{recipient.note?<>. Note: “{recipient.note}”</>:null}. {expired?"Code expired. Ask for a new code.":"The amount is set by the receiver."}</p></div>:null}
+     <button className="primary" disabled={busy||!ready||expired}>{busy?"Working…":recipient?"Confirm send to "+recipientName:"Check code"}</button>{recipient?<button type="button" disabled={busy} onClick={editSend}>Cancel</button>:null}
     </form>
    </section>
   </div>
