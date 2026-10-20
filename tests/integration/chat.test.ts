@@ -84,8 +84,17 @@ test('real Mongo stores ciphertext only, bootstrap leases, wrapping, replay, str
  await assert.rejects(chat.handle(b.user,'state',{v:1}),/forbidden/);
  await assert.rejects(chat.handle(b.user,'wrap',ba),/forbidden/);
  await assert.rejects(chat.handle(a.user,'send',p),/stale_revision/);
- const fresh=await chat.handle(a.user,'state',{v:1});assert.notEqual(fresh.epoch,state.epoch);assert.ok(fresh.revision>state.revision);assert.equal(fresh.wraps.length,0);
- await assert.rejects(chat.handle(a.user,'send',{...p,revision:fresh.revision,epoch:fresh.epoch}),/waiting/);
+ const fresh=await chat.handle(a.user,'state',{v:1});assert.notEqual(fresh.epoch,state.epoch);assert.ok(fresh.revision>state.revision);assert.ok(fresh.wraps.some((w:any)=>w.epoch===state.epoch));
+ // Restored browser carries same account key ID and reads retained older epoch.
+ const restored=createChatService(db,{now:()=>clock});
+ assert.equal((await restored.handle(a.user,'history',{v:1,epoch:state.epoch,deviceId:a.deviceId})).messages.length,1);
+ assert.ok(await db.collection('chat_wraps').findOne({epoch:state.epoch,toUserId:b.user}));
+ // Account key reset must not rotate the shared room key.
+ const replacement=await identity(a.user);await db.collection('chat_devices').deleteMany({userId:a.user});
+ await restored.handle(a.user,'register',replacement.registration);
+ const resetState=await restored.handle(a.user,'state',{v:1});assert.equal(resetState.epoch,fresh.epoch);
+ await assert.rejects(restored.handle(a.user,'history',{v:1,epoch:state.epoch,deviceId:replacement.deviceId}),/waiting/);
+ await assert.rejects(chat.handle(a.user,'send',{...p,revision:resetState.revision,epoch:fresh.epoch,deviceId:replacement.deviceId}),/waiting/);
  for(let i=0;i<120;i++){try{await chat.handle(a.user,'state',{v:1});}catch{}}
  await assert.rejects(chat.handle(a.user,'state',{v:1}),/rate_limited/);
 });

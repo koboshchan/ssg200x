@@ -16,7 +16,7 @@ export function createChatService(db,{now=Date.now,clerk}={}){
   const fingerprint=digest(JSON.stringify([members,directory]));
   let state=await states.findOne({_id:'main'});
   if(!state){await states.updateOne({_id:'main'},{$setOnInsert:{revision:1,epoch:randomUUID(),fingerprint,status:'unclaimed',owner:null,leaseUntil:0,counter:0,members,directory}},{upsert:true});state=await states.findOne({_id:'main'});}
-  if(state.fingerprint!==fingerprint){const removed=(state.members||[]).some(u=>!members.includes(u));const reset=(state.directory||[]).some(d=>members.includes(d.userId)&&!directory.some(n=>n.userId===d.userId&&n.deviceId===d.deviceId&&n.dhPublic===d.dhPublic&&n.signPublic===d.signPublic));const rotate=removed||reset;const changed=await states.updateOne({_id:'main',revision:state.revision,fingerprint:state.fingerprint},{$set:{fingerprint,members,directory,...(rotate?{epoch:randomUUID(),status:'unclaimed',owner:null,leaseUntil:0,counter:0,bootstrap:null}:{})},$inc:{revision:1}});if(!changed.matchedCount)fail('stale_revision');state=await states.findOne({_id:'main'});}
+  if(state.fingerprint!==fingerprint){const removed=(state.members||[]).some(u=>!members.includes(u));const rotate=removed;if(rotate&&state.bootstrap)await wraps.updateOne({_id:state.bootstrap._id},{$setOnInsert:state.bootstrap},{upsert:true});const changed=await states.updateOne({_id:'main',revision:state.revision,fingerprint:state.fingerprint},{$set:{fingerprint,members,directory,...(rotate?{epoch:randomUUID(),status:'unclaimed',owner:null,leaseUntil:0,counter:0,bootstrap:null}:{})},$inc:{revision:1}});if(!changed.matchedCount)fail('stale_revision');state=await states.findOne({_id:'main'});}
   return {room,members,directory,state};
  }
  async function fence(s,user){
@@ -40,7 +40,7 @@ export function createChatService(db,{now=Date.now,clerk}={}){
    await devices.insertOne({_id:d.deviceId,userId:user,deviceId:d.deviceId,dhPublic:d.dhPublic,signPublic:d.signPublic,keyVersion:d.keyVersion});
    return result;
   }
-  if(event==='state'){shape(p,['v']);const ws=await wraps.find({epoch:s.state.epoch,toUserId:user}).limit(8).toArray();if(s.state.bootstrap?.toUserId===user&&!ws.some(w=>w._id===s.state.bootstrap._id))ws.push(s.state.bootstrap);await fence(s,user);return view(s,user,ws.map(cleanWrap));}
+  if(event==='state'){shape(p,['v']);const ws=await wraps.find({toUserId:user,toDeviceId:{$in:s.directory.filter(d=>d.userId===user).map(d=>d.deviceId)}}).limit(512).toArray();if(s.state.bootstrap?.toUserId===user&&!ws.some(w=>w._id===s.state.bootstrap._id))ws.push(s.state.bootstrap);await fence(s,user);return view(s,user,ws.map(cleanWrap));}
   if(event==='register'){
    shape(p,['v','deviceId','dhPublic','signPublic','signature']);uuid(p.deviceId);
    if(identity){const owned=(await identity.get(user)).identity;if(!owned||owned.deviceId!==p.deviceId||owned.dhPublic!==p.dhPublic||owned.signPublic!==p.signPublic)fail('identity_conflict');}await validateDevice(p);if(!await verify(p.signPublic,registerData(user,p),p.signature))fail('invalid_signature');
