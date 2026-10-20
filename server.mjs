@@ -1,3 +1,5 @@
+import {createChatService} from "./runtime/chat-service.mjs";
+import {CHAT_MAX_PAYLOAD} from "./runtime/chat-protocol.mjs";
 import {createServer} from "node:http";
 import {readFileSync} from "node:fs";
 import next from "next";
@@ -16,7 +18,7 @@ const config=dev?undefined:JSON.parse(readFileSync(new URL("./.next/required-ser
 const app=next({dev,hostname,port,conf:config,webpack:true});
 await app.prepare();
 const server=createServer(app.getRequestHandler());
-const io=new Server(server,{cors:{origin:process.env.APP_ORIGIN,credentials:true},maxHttpBufferSize:2048,transports:["websocket"]});
+const io=new Server(server,{cors:{origin:process.env.APP_ORIGIN,credentials:true},maxHttpBufferSize:CHAT_MAX_PAYLOAD,transports:["websocket"]});
 const clerk=createClerkClient({secretKey:process.env.CLERK_SECRET_KEY});
 io.use(async(socket,next)=>{
  try{
@@ -30,6 +32,8 @@ io.use(async(socket,next)=>{
 });
 const client=new MongoClient(process.env.MONGODB_URI,{serverSelectionTimeoutMS:5000});await client.connect();
 const collection=client.db(process.env.MONGODB_DB||"pokerroom").collection("rooms");
+const chat=createChatService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
+await chat.ready;
 async function pushState(socket,force=false){
  if(!socket.connected||socket.data.busy)return;
  if(socket.data.expires<=Date.now()){socket.disconnect(true);return;}
@@ -55,6 +59,23 @@ async function pushState(socket,force=false){
 }
 io.on("connection",socket=>{
  socket.on("candles:subscribe",selection=>subscribeChart(socket,selection));
+ for(const event of ["register","state","claim","wrap","send","history","keys:get","keys:put"]){
+  socket.on("chat:"+event,async(payload,ack)=>{
+   if(typeof ack!=="function")return;
+   try{
+    if(!socket.connected||socket.data.expires<=Date.now()){socket.disconnect(true);return;}
+    const result=await chat.handle(socket.data.identity.id,event,payload);
+    if(socket.data.expires<=Date.now()){socket.disconnect(true);return;}
+    ack({ok:true,...result});
+    if(["register","claim","wrap","send"].includes(event)){
+     // Hints only. Payloads require a fresh authorized state/history request.
+     for(const peer of io.sockets.sockets.values()){
+      try{if(peer.data.expires<=Date.now())throw Error();await chat.authorized(peer.data.identity.id);peer.emit("chat:changed",{v:1});}catch{peer.disconnect(true);}
+     }
+    }
+   }catch(error){ack({ok:false,error:error.chatCode||"unavailable"});if(error.chatCode==="forbidden")socket.disconnect(true);}
+  });
+ }
  const expiry=setTimeout(()=>socket.disconnect(true),Math.max(0,socket.data.expires-Date.now()));
  socket.on("disconnect",()=>clearTimeout(expiry));
  void pushState(socket,true);
