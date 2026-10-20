@@ -9,7 +9,7 @@ export type Connection="connecting"|"connected"|"disconnected";
    room:state PublicRoom, market:update MarketSnapshot, maintenance:state MaintenanceStatus, history:state HistoryStatus (admins).
    Non-admin blocked by maintenance: middleware rejects with Error("maintenance") (or emits maintenance:state {blocked:true} then disconnects).
    Server disconnects at token expiry; client reconnects with a fresh token. */
-type Live={connection:Connection;maintenance?:MaintenanceStatus;history?:HistoryStatus;lastMessageAt:number;subscribe:(event:string,handler:(payload:any)=>void)=>()=>void;emit:(event:string,payload?:unknown)=>void};
+type Live={connection:Connection;maintenance?:MaintenanceStatus;history?:HistoryStatus;lastMessageAt:number;subscribe:(event:string,handler:(payload:any)=>void)=>()=>void;emit:(event:string,payload?:unknown)=>void;request:(event:string,payload?:unknown)=>Promise<any>};
 const Context=createContext<Live|null>(null);
 export function useLive(){const v=useContext(Context);if(!v)throw new Error("LiveProvider missing");return v;}
 export function useLiveEvent(event:string,handler:(payload:any)=>void){const live=useLive(),ref=useRef(handler);ref.current=handler;useEffect(()=>live.subscribe(event,p=>ref.current(p)),[live,event]);}
@@ -17,7 +17,13 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
  const {getToken}=useAuth(),tokenRef=useRef(getToken);tokenRef.current=getToken;
  const [connection,setConnection]=useState<Connection>("connecting"),[maintenance,setMaintenance]=useState<MaintenanceStatus>(),[history,setHistory]=useState<HistoryStatus>(),[lastMessageAt,setLast]=useState(0);
  const socketRef=useRef<Socket>(undefined),listeners=useRef(new Map<string,Set<(p:any)=>void>>()),latest=useRef(new Map<string,unknown>());
- const api=useMemo(()=>({subscribe(event:string,handler:(p:any)=>void){let set=listeners.current.get(event);if(!set){set=new Set();listeners.current.set(event,set);}set.add(handler);if(latest.current.has(event)&&event!=="market:update")handler(latest.current.get(event));return()=>{set!.delete(handler);};},emit(event:string,payload?:unknown){socketRef.current?.connected&&socketRef.current.emit(event,payload);}}),[]);
+ const api=useMemo(()=>({subscribe(event:string,handler:(p:any)=>void){let set=listeners.current.get(event);if(!set){set=new Set();listeners.current.set(event,set);}set.add(handler);if(latest.current.has(event)&&event!=="market:update")handler(latest.current.get(event));return()=>{set!.delete(handler);};},emit(event:string,payload?:unknown){socketRef.current?.connected&&socketRef.current.emit(event,payload);},request(event:string,payload?:unknown){
+   const socket=socketRef.current;
+   if(!socket?.connected)return Promise.reject(new Error("disconnected"));
+   return new Promise<any>((resolve,reject)=>socket.timeout(15000).emit(event,payload,(err:Error|null,res:{ok:boolean;error?:string}|undefined)=>{
+    if(err||!res)reject(new Error("timeout"));else if(!res.ok)reject(new Error(res.error||"unavailable"));else resolve(res);
+   }));
+  }}),[]);
  useEffect(()=>{
   let closed=false,retry:ReturnType<typeof setTimeout>|undefined,attempts=0,socket:Socket|undefined;
   const dispatch=(event:string,p:unknown)=>{latest.current.set(event,p);setLast(Date.now());listeners.current.get(event)?.forEach(h=>h(p));};
@@ -32,7 +38,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    socket.io.on("reconnect_attempt",()=>setConnection("connecting"));
    socket.on("maintenance:state",(p:MaintenanceStatus)=>{setMaintenance(p);dispatch("maintenance:state",p);});
    socket.on("history:state",(p:HistoryStatus)=>{setHistory(p);dispatch("history:state",p);});
-   for(const event of ["room:state","market:update","candles:state"])socket.on(event,(p:unknown)=>dispatch(event,p));
+   for(const event of ["room:state","market:update","candles:state","chat:changed"])socket.on(event,(p:unknown)=>dispatch(event,p));
   }).catch(()=>setConnection("disconnected"));
   return()=>{closed=true;clearTimeout(retry);socket?.disconnect();socketRef.current=undefined;};
  },[]);

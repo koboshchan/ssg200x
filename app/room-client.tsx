@@ -7,6 +7,7 @@ import {SignInButton,UserButton,useUser} from "@clerk/nextjs";
 import LiveProvider,{useLive,useLiveEvent,ConnectionBadge} from "./live-provider";
 import MaintenanceGate from "./maintenance-gate";
 import HistoryProgress from "./history-progress";
+import ChatDock from "./chat-dock";
 import {useState,useEffect,useRef} from "react";
 import {usePathname,useRouter} from "next/navigation";
 import {mergeRoom,mergeMarket,settledNotices,type MarketSnapshot} from "@/lib/room-sync";
@@ -34,7 +35,7 @@ function Authenticated({children}:{children?:React.ReactNode}){
 function SignedInShell({children}:{children:React.ReactNode}){
  const {maintenance}=useLive();
  // Only the server-derived boolean is sent to the browser, never Clerk private metadata.
- return <Shell signedIn admin={maintenance?.admin===true} account={<UserButton/>}>{children}</Shell>;
+ return <Shell signedIn admin={maintenance?.admin===true} account={<UserButton/>}>{children}<ChatDock/></Shell>;
 }
 export function Shell({children,account,signedIn=false,admin=false}:{children:React.ReactNode;account?:React.ReactNode;signedIn?:boolean;admin?:boolean}){
  const path=usePathname()||"";
