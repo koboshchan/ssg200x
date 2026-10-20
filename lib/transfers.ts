@@ -7,33 +7,34 @@ import {assertRoom} from "./poker";
 import type {Identity,Room} from "./types";
 
 export const CODE_TTL_MS=10*60_000;
-type ReceiveCode={_id:string;hash:string;generation:string;expiresAt:Date};
-export type Transfer={_id:string;sender:string;recipient:string;senderName:string;recipientName:string;amount:number;note:string;at:number;fingerprint:string;senderBefore:number;senderAfter:number;recipientBefore:number;recipientAfter:number};
+type ReceiveCode={_id:string;hash:string;generation:string;expiresAt:Date;amount:number;note:string};
+export type Transfer={kind?:"airdrop";_id:string;sender:string;recipient:string;senderName:string;recipientName:string;amount:number;note:string;at:number;fingerprint:string;senderBefore:number;senderAfter:number;recipientBefore:number;recipientAfter:number};
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
-const codeHash=(code:string)=>hash("ssg200x.receive-code.v1\0"+code);
+const codeHash=(code:string)=>hash("ssg200x.payment-request.v2\0"+code);
 const words=new Set(wordlist);
 export function parseTransferAmount(input:unknown){
  ensure(typeof input==="string"&&/^(?:0|[1-9]\d{0,9})(?:\.\d{1,2})?$/.test(input),"Enter a plain dollar amount with at most two decimal places.");
  const [whole,fraction=""]=input.split(".");const amount=Number(BigInt(whole)*100n+BigInt(fraction.padEnd(2,"0")));
  ensure(Number.isSafeInteger(amount)&&amount>0&&amount<=100_000_000,"Send $0.01–$1,000,000.");return amount;
 }
-export function normalizeReceiveCode(input:unknown){ensure(typeof input==="string"&&input.length<=100,"Enter the three-word receive code.");const code=input.trim().toLowerCase().replace(/\s+/g," ");ensure(/^[a-z]+ [a-z]+ [a-z]+$/.test(code)&&code.split(" ").every(w=>words.has(w)),"Enter the three-word receive code.");return code;}
+export function normalizeReceiveCode(input:unknown){ensure(typeof input==="string"&&input.length<=100,"Enter the four-word payment request code.");const code=input.trim().toLowerCase().replace(/\s+/g," ");ensure(/^[a-z]+ [a-z]+ [a-z]+ [a-z]+$/.test(code)&&code.split(" ").every(w=>words.has(w)),"Enter the four-word payment request code.");return code;}
 export function transferNote(input:unknown){ensure(input===undefined||typeof input==="string","Invalid note.");const note=(input??"").trim();ensure(note.length<=160&&!/[\u0000-\u001f\u007f<>]/.test(note),"Use a plain-text note of at most 160 characters.");return note;}
 let indexed:Db|undefined;
 export async function transferIndexes(d:Db){if(indexed===d)return;await Promise.all([d.collection("transfer_codes").createIndex({hash:1},{unique:true}),d.collection("transfer_codes").createIndex({expiresAt:1},{expireAfterSeconds:0}),d.collection("transfers").createIndex({sender:1,at:-1}),d.collection("transfers").createIndex({recipient:1,at:-1}),d.collection("transfers").createIndex({at:-1})]);indexed=d;}
 function member(r:Room,id:string){const m=r.members.find(m=>m.id===id);ensure(m?.approved&&!m.accessRevoked,"Player unavailable.",403);return m;}
-export async function createReceiveCode(who:Identity,database?:Db){const d=database??await db();await transferIndexes(d);const r=await d.collection<Room>("rooms").findOne({_id:"main"});ensure(r,"Room unavailable.",503);member(r,who.id);
- for(let i=0;i<5;i++){const code=Array.from({length:3},()=>wordlist[randomInt(wordlist.length)]).join(" "),expiresAt=new Date(Date.now()+CODE_TTL_MS);try{await d.collection<ReceiveCode>("transfer_codes").updateOne({_id:who.id},{$set:{hash:codeHash(code),generation:randomUUID(),expiresAt}},{upsert:true});return {code,expiresAt:expiresAt.getTime()};}catch(e){if((e as {code?:number}).code!==11000)throw e;}}
+export async function createReceiveCode(who:Identity,input:{amount:unknown;note?:unknown},database?:Db){const amount=parseTransferAmount(input.amount),note=transferNote(input.note);const d=database??await db();await transferIndexes(d);const r=await d.collection<Room>("rooms").findOne({_id:"main"});ensure(r,"Room unavailable.",503);member(r,who.id);
+ for(let i=0;i<5;i++){const code=Array.from({length:4},()=>wordlist[randomInt(wordlist.length)]).join(" "),expiresAt=new Date(Date.now()+CODE_TTL_MS);try{await d.collection<ReceiveCode>("transfer_codes").updateOne({_id:who.id},{$set:{hash:codeHash(code),generation:randomUUID(),expiresAt,amount,note}},{upsert:true});return {code,amount,note,expiresAt:expiresAt.getTime()};}catch(e){if((e as {code?:number}).code!==11000)throw e;}}
  throw new AppError("Could not create a receive code. Try again.",503);
 }
-export async function resolveReceiveCode(who:Identity,input:unknown,database?:Db){const d=database??await db(),code=normalizeReceiveCode(input);const entry=await d.collection<ReceiveCode>("transfer_codes").findOne({hash:codeHash(code),expiresAt:{$gt:new Date()}});ensure(entry,"Code expired or unavailable.",404);ensure(entry._id!==who.id,"You cannot send to yourself.");const r=await d.collection<Room>("rooms").findOne({_id:"main"});ensure(r,"Room unavailable.",503);member(r,who.id);const recipient=member(r,entry._id);return {name:recipient.name,publicId:recipient.publicId,expiresAt:entry.expiresAt.getTime()};}
+export async function resolveReceiveCode(who:Identity,input:unknown,database?:Db){const d=database??await db(),code=normalizeReceiveCode(input);const entry=await d.collection<ReceiveCode>("transfer_codes").findOne({hash:codeHash(code),expiresAt:{$gt:new Date()}});ensure(entry,"Code expired or unavailable.",404);ensure(entry._id!==who.id,"You cannot send to yourself.");const r=await d.collection<Room>("rooms").findOne({_id:"main"});ensure(r,"Room unavailable.",503);member(r,who.id);const recipient=member(r,entry._id);return {name:recipient.name,publicId:recipient.publicId,amount:entry.amount,note:entry.note,expiresAt:entry.expiresAt.getTime()};}
 class RoomChanged extends Error{}
-export async function sendTransfer(who:Identity,input:{code:unknown;amount:unknown;note?:unknown;requestId:string;recipient:string},database?:Db){
- const d=database??await db(),code=normalizeReceiveCode(input.code),amount=parseTransferAmount(input.amount),note=transferNote(input.note);
+export async function sendTransfer(who:Identity,input:{code:unknown;requestId:string;recipient:string},database?:Db){
+ const d=database??await db(),code=normalizeReceiveCode(input.code);
+ ensure(!("amount" in input)&&!("note" in input),"The receiver fixes the amount and note.");
  ensure(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.requestId),"Invalid request key.");
  ensure(typeof input.recipient==="string"&&input.recipient.length>0&&input.recipient.length<=256,"Confirm the recipient first.");
  await transferIndexes(d);
- const id=hash(who.id+"\0"+input.requestId),fingerprint=hash(JSON.stringify([codeHash(code),amount,note,input.recipient]));
+ const id=hash(who.id+"\0"+input.requestId),fingerprint=hash(JSON.stringify([codeHash(code),input.recipient]));
  const transfers=d.collection<Transfer>("transfers"),codes=d.collection<ReceiveCode>("transfer_codes"),rooms=d.collection<Room>("rooms");
  for(let attempt=0;attempt<12;attempt++){
  const session=d.client.startSession();
@@ -42,6 +43,7 @@ export async function sendTransfer(who:Identity,input:{code:unknown;amount:unkno
   if(existing){ensure(existing.sender===who.id&&existing.fingerprint===fingerprint,"Request key was already used for a different transfer.",409);return transferView(existing,who);}
   const entry=await codes.findOne({hash:codeHash(code),expiresAt:{$gt:new Date()}},{session});ensure(entry,"Code expired or unavailable.",409);ensure(entry._id!==who.id,"You cannot send to yourself.");
   const r=await rooms.findOne({_id:"main"},{session});ensure(r,"Room unavailable.",503);
+  const amount=entry.amount,note=entry.note;ensure(Number.isSafeInteger(amount)&&amount>0&&amount<=100_000_000,"Invalid payment request.",409);
   const sender=member(r,who.id),recipient=member(r,entry._id);ensure(recipient.publicId===input.recipient,"Recipient changed. Confirm again.",409);
   // Wallet is already cash-only: opening margin, buying assets and poker/roulette/blackjack buy-ins debit it immediately.
   ensure(Number.isSafeInteger(sender.wallet)&&sender.wallet>=amount,"Not enough available cash.",409);ensure(Number.isSafeInteger(recipient.wallet+amount),"Recipient balance exceeds the simulation limit.");
@@ -61,5 +63,5 @@ export async function sendTransfer(who:Identity,input:{code:unknown;amount:unkno
  }
  throw new AppError("The room is busy. Try again with the same request key.",409);
 }
-export function transferView(t:Transfer,who:Identity){ensure(who.admin||t.sender===who.id||t.recipient===who.id,"Transfer unavailable.",403);return {id:t._id,amount:t.amount,note:t.note,at:t.at,from:t.senderName,to:t.recipientName,direction:t.sender===who.id?"sent":t.recipient===who.id?"received":"other",...(who.admin?{senderBefore:t.senderBefore,senderAfter:t.senderAfter,recipientBefore:t.recipientBefore,recipientAfter:t.recipientAfter}:{})};}
+export function transferView(t:Transfer,who:Identity){ensure(who.admin||t.sender===who.id||t.recipient===who.id,"Transfer unavailable.",403);return {id:t._id,kind:t.kind??"transfer",amount:t.amount,note:t.note,at:t.at,from:t.senderName,to:t.recipientName,direction:t.kind==="airdrop"?(t.recipient===who.id?"received":"other"):t.sender===who.id?"sent":t.recipient===who.id?"received":"other",...(who.admin?{senderBefore:t.senderBefore,senderAfter:t.senderAfter,recipientBefore:t.recipientBefore,recipientAfter:t.recipientAfter}:{})};}
 export async function transferHistory(who:Identity,all=false,database?:Db){ensure(!all||who.admin,"Admin access required.",403);const d=database??await db();const records=await d.collection<Transfer>("transfers").find(all?{}:{$or:[{sender:who.id},{recipient:who.id}]}).sort({at:-1,_id:-1}).limit(100).toArray();return records.map(t=>transferView(t,who));}
