@@ -7,6 +7,8 @@ const clerk = clerkMiddleware(async (auth, req) => {
   }
 });
 export default function proxy(request: NextRequest, event: NextFetchEvent) {
+  // Exact public page bypasses Clerk entirely, including during setup/maintenance.
+  if(request.nextUrl.pathname==="/leaderboard")return NextResponse.next();
   // Independently authenticated with a per-process secret, never Clerk cookies.
   if(request.nextUrl.pathname==="/api/internal-live")return NextResponse.next();
   const key = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;

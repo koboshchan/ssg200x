@@ -182,3 +182,11 @@ Perpetuals simulate isolated margin with no fees, slippage, funding or order boo
 ## References
 
 [Clerk dashboard](https://dashboard.clerk.com/) · [Docker Compose](https://docs.docker.com/compose/) · [Container publishing workflow](.github/workflows/docker-publish.yml)
+
+## Public leaderboard
+
+Anyone can open `/leaderboard`, including while sign-in is unconfigured or the site is under maintenance. Navigation and the sign-in landing link to it. This server-rendered page sits outside the authenticated room layout and bypasses Clerk middleware for that exact path only. Other pages and API protections are unchanged.
+
+A read-only Mongo query computes net worth from the same wallet, poker, blackjack, roulette and marked portfolio components as signed-in standings. It does not register visitors, initialize the room, tick games, fetch prices or write state. A per-process, 15-second cache coalesces concurrent loads and stores only the sanitized snapshot. Reload after expiry for a fresh snapshot; empty databases show an empty state and database failures show a generic message.
+
+Public rows contain only rank, display name, locally generated initials avatar and net worth in cents. No Clerk/account/public IDs, emails, avatar URLs, wallet breakdowns, holdings, positions, cards, roles or private metadata are serialized. Email-like names and Clerk ID-like names become “Player”; avatar initials avoid external tracking requests and identifiers in image URLs. Equal worth sorts by display name, then stored order.

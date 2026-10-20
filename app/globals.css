@@ -61,3 +61,5 @@ body>footer{display:flex;justify-content:space-between;gap:12px;margin-left:max(
 .cached-chart{min-width:0;max-width:100%}.cached-chart .chart-shell{min-width:0;width:100%;contain:inline-size}.cached-chart .symbol-tabs{flex-wrap:wrap}
 /* The chart library lays out its canvases in a table; the global table margin created a blank band above it. */
 .cached-chart .chart-shell table{margin:0;width:auto}
+
+.public-leaderboard{max-width:1100px}.public-leaderboard h1{font-size:clamp(32px,5vw,49px);font-weight:500;letter-spacing:-1px;margin:0 0 12px}.leaderboard-player{display:flex;align-items:center;gap:12px;overflow-wrap:anywhere}.leaderboard-player .avatar{width:32px;height:32px;font-size:12px}.leaderboard-worth{font-variant-numeric:tabular-nums;white-space:nowrap}.public-leaderboard table th:last-child,.public-leaderboard table td:last-child{text-align:right}.public-leaderboard table th:nth-child(2){padding-inline:12px}
