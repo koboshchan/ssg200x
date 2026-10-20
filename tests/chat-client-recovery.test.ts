@@ -348,3 +348,42 @@ test("rapid socket reconnects preserve account exponential attempts and terminal
  assert.equal(calls,4);assert.equal(c.getSnapshot().error,"sync_incomplete");
  await c.retrySync();assert.equal(calls,5);c.close();
 });
+
+test("pre-ACK start storm and already queued sync jobs cannot ACK-pace a rate-limit cascade, including remount",async()=>{
+ let clock=60001,calls=0,inflight=0,peak=0;
+ let acknowledge!:(value:any)=>void,entered!:()=>void;
+ const began=new Promise<void>(resolve=>{entered=resolve;});
+ const ack=new Promise<any>(resolve=>{acknowledge=resolve;});
+ const budget=createRequestBudget(()=>clock,()=>0),store=new MemoryStore();
+ const transport=async()=>{
+  calls++;inflight++;peak=Math.max(peak,inflight);entered();
+  try{return calls===1?await ack:{ok:false,error:"rate_limited"};}
+  finally{inflight--;}
+ };
+ const make=()=>new ChatClient("queued-storm",transport,store,()=>clock,openMessage,budget);
+ const original=make(),remounted=make();
+ try{
+  const first=original.start();await began;
+  const storm=Array.from({length:100},()=>original.start());
+  assert.ok(storm.every(p=>p===first),"pre-ACK starts share the same queued job");
+  // Seed legacy-style work already on the serial chain. Each execution must recheck
+  // cooldown, even though these jobs were admitted before the negative ACK arrived.
+  const queued=Array.from({length:100},()=>(original as any).run(()=>(original as any).sync()));
+  await Promise.all(Array.from({length:100},()=>remounted.start()));
+  assert.equal(calls,1);assert.equal(peak,1);
+  acknowledge({ok:false,error:"rate_limited"});
+  await Promise.all([first,...storm,...queued]);
+  assert.equal(calls,1,"draining already queued jobs emits no follow-up keys:get");
+  assert.equal(budget.status("queued-storm").until,120250);
+  original.close();
+  for(const time of [60002,119999,120249]){
+   clock=time;
+   await Promise.all(Array.from({length:100},()=>remounted.start()));
+   assert.equal(calls,1,"remount cannot bypass any part of cooldown");
+  }
+  clock=120250;
+  await Promise.all(Array.from({length:100},()=>remounted.start()));
+  assert.equal(calls,2);assert.equal(peak,1);
+  assert.equal(budget.status("queued-storm").failures,2);
+ }finally{original.close();remounted.close();}
+});
