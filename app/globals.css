@@ -110,3 +110,22 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
 .chat-compose{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:10px 12px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}.chat-compose textarea{flex:1;min-height:38px;max-height:120px}
 @media(min-width:900px){html.chat-open body{padding-right:340px}html.chat-open .mast{padding-right:calc(5% + 0px)}}
 @media(max-width:899px){.chat-dock{width:100%;border-left:0}}
+
+/* Contain native progress painting below the sticky navigation. */
+.game-main{position:relative;isolation:isolate;z-index:0}
+.history-progress{position:relative;isolation:isolate;z-index:0}
+.chat-dock{min-height:0;height:100dvh;bottom:auto}
+.chat-dock>header{flex-shrink:0;padding-top:max(14px,env(safe-area-inset-top))}
+.chat-dock button,.chat-dock button:not(.primary){min-height:44px;min-width:44px}
+.chat-panel{overflow-y:auto;min-height:0}
+.chat-check{min-height:44px}
+.chat-list{min-height:0}
+.chat-compose,.chat-safety{flex-shrink:0}
+.chat-safety{max-height:25%;overflow-y:auto}
+.chat-compose textarea{min-width:0;min-height:44px;font-size:16px}
+.chat-panel textarea{font-size:16px}
+.chat-toggle{bottom:calc(18px + env(safe-area-inset-bottom))}
+@media(max-width:899px){
+ html.chat-open,html.chat-open body{overflow:hidden}
+ .chat-dock{top:var(--chat-viewport-top,0px);height:var(--chat-viewport-height,100dvh);padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
+}
