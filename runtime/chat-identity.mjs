@@ -19,6 +19,7 @@ export function createIdentityStore(db,clerk){
   const value=metadata.tabletalk;
   return !value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).length>0;
  });
+ const hasStoredKeys=async user=>!!(await db.collection('chat_devices').findOne({userId:user})||await db.collection('chat_public_keys').findOne({userId:user}));
  const matches=(account,a)=>a.pendingPublic&&a.pendingBackup&&
   isDeepStrictEqual(account.publicMetadata?.tabletalk?.[a.slot],a.pendingPublic)&&
   isDeepStrictEqual(account.privateMetadata?.tabletalk?.[a.slot],a.pendingBackup);
@@ -27,14 +28,14 @@ export function createIdentityStore(db,clerk){
   if(!matches(account,a)){
    // Never repair a partial/different backup by overwriting either side. Legacy
    // pending rotations are also read-only, even if their new slot is empty.
-   if(occupied(account)||a.version!==0||a.pendingVersion!==1||!a.pendingPublic||!a.pendingBackup)fail('identity_exists');
+   if(occupied(account)||await hasStoredKeys(user)||a.version!==0||a.pendingVersion!==1||!a.pendingPublic||!a.pendingBackup)fail('identity_exists');
    const lock=await active.updateOne({_id:user,status:'pending',slot:a.slot,pendingHash:a.pendingHash},{$set:{status:'publishing'}});
    // Do not steal an empty publishing reservation after a crash: Clerk has no
    // fencing token, so an old in-flight write could still complete. Fail closed.
    if(!lock.matchedCount)fail('identity_unavailable');
    try{
     account=await clerk.users.getUser(user);
-    if(occupied(account))fail('identity_exists');
+    if(occupied(account)||await hasStoredKeys(user))fail('identity_exists');
     await clerk.users.updateUserMetadata(user,{publicMetadata:{tabletalk:{[a.slot]:a.pendingPublic}},privateMetadata:{tabletalk:{[a.slot]:a.pendingBackup}}});
    }catch(e){
     // A failed or ambiguous request may retry the same reservation, never a new
@@ -51,7 +52,7 @@ export function createIdentityStore(db,clerk){
  async function get(user){
   let a=await active.findOne({_id:user});
   if(!a||a.status==='active'&&a.version===0){
-   if(occupied(await clerk.users.getUser(user)))fail('identity_exists');
+   if(occupied(await clerk.users.getUser(user))||await hasStoredKeys(user))fail('identity_exists');
    return {identity:null};
   }
   if(a.status==='pending'||a.status==='publishing'){await finish(user,a);a=await active.findOne({_id:user});}
@@ -73,7 +74,7 @@ export function createIdentityStore(db,clerk){
    return get(user);
   }
   if(before?.version>0||p.expectedVersion!==0||p.keyVersion!==1)fail('identity_exists');
-  if(occupied(await clerk.users.getUser(user)))fail('identity_exists');
+  if(occupied(await clerk.users.getUser(user))||await hasStoredKeys(user))fail('identity_exists');
   await active.updateOne({_id:user},{$setOnInsert:{version:0,status:'active'}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
   const slot='k1_'+randomUUID().replaceAll('-','');
   const lock=await active.updateOne({_id:user,version:0,status:'active'},{$set:{status:'pending',slot,pendingVersion:1,pendingHash:requestHash,pendingPublic:{v:1,keyVersion:1,deviceId:p.deviceId,dhPublic:p.dhPublic,signPublic:p.signPublic},pendingBackup:backup}});

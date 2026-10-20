@@ -71,3 +71,13 @@ test('crashed empty publisher fails closed without releasing its immutable reser
  assert.equal(writes.length,0);
  assert.deepEqual(await db.collection('chat_identity_versions').findOne({_id:user as never}),reservation);
 });
+for(const name of ['chat_devices','chat_public_keys'])test(`orphaned ${name} public key cannot be replaced by a fresh setup`,async()=>{
+ const {store,profiles,writes}=fixture(),user='orphan-'+name,first=await createIdentity(user,0);
+ const record={userId:user,deviceId:'preserve-device',dhPublic:'preserve-dh',signPublic:'preserve-sign'};
+ await db.collection(name).insertOne({...record});
+ const before=await db.collection(name).findOne({userId:user});
+ await assert.rejects(store.get(user),/identity_exists/);
+ await assert.rejects(store.put(user,first.body),/identity_exists/);
+ assert.deepEqual(await db.collection(name).findOne({userId:user}),before);
+ assert.equal(writes.length,0);assert.equal(profiles[user],undefined);
+});

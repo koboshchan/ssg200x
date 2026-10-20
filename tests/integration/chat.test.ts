@@ -127,35 +127,35 @@ test('real Mongo stores ciphertext only, bootstrap leases, wrapping, replay, str
 test('account Clerk backup endpoints preserve metadata, validate bounds, own DTO and immutable first setup',async()=>{
  // @ts-expect-error runtime module
  const {createIdentityStore}=await import('../../runtime/chat-identity.mjs');
- const profiles:any={user_a:{publicMetadata:{other:'keep'},privateMetadata:{admin:true,other:'private'}},user_b:{publicMetadata:{},privateMetadata:{secret:'never return'}}};
+ const profiles:any={user_clerk_a:{publicMetadata:{other:'keep'},privateMetadata:{admin:true,other:'private'}},user_clerk_b:{publicMetadata:{},privateMetadata:{secret:'never return'}}};
  let ambiguous=false,failBefore=false;
  const clerk={users:{getUser:async(u:string)=>structuredClone(profiles[u]),updateUserMetadata:async(u:string,p:any)=>{
   if(failBefore){failBefore=false;throw Error('failed before Clerk write');}
   for(const field of ['publicMetadata','privateMetadata'])profiles[u][field]={...profiles[u][field],tabletalk:{...profiles[u][field].tabletalk,...p[field].tabletalk}};
   if(ambiguous){ambiguous=false;throw Error('ambiguous write');}return profiles[u];
  }}};
- const store=createIdentityStore(db,clerk),a=await identity('user_a');
+ const store=createIdentityStore(db,clerk),a=await identity('user_clerk_a');
  const p={v:1,expectedVersion:0,keyVersion:1,deviceId:a.deviceId,dhPublic:a.registration.dhPublic,signPublic:a.registration.signPublic,backup:{v:1,recoveryScheme:'bip39-english-6-v1',kdf:'argon2id',memoryKiB:65536,iterations:3,parallelism:1,salt:rand(32),iv:rand(12),ciphertext:rand(256)},signature:''};
  p.signature=await a.signature(store.signed(a.user,p));
- assert.deepEqual(await store.get('user_b'),{identity:null});
+ assert.deepEqual(await store.get('user_clerk_b'),{identity:null});
  await assert.rejects(store.put(a.user,{...p,recoveryPhrase:'never accept secret'}),/malformed/);
  await assert.rejects(store.put(a.user,{...p,backup:{...p.backup,memoryKiB:9999999}}),/invalid_kdf/);
  await assert.rejects(store.put(a.user,{...p,backup:{...p.backup,recoveryScheme:'eff-large-6-v1'}}),/invalid_kdf/);
  ambiguous=true;await assert.rejects(store.put(a.user,p),/identity_unavailable/);
  const recovered=await store.get(a.user);assert.equal(recovered.identity.keyVersion,1);
  const result=await store.put(a.user,p);assert.deepEqual(result,recovered);
- assert.equal(profiles.user_a.privateMetadata.admin,true);assert.equal(profiles.user_a.privateMetadata.other,'private');assert.equal(profiles.user_a.publicMetadata.other,'keep');
+ assert.equal(profiles.user_clerk_a.privateMetadata.admin,true);assert.equal(profiles.user_clerk_a.privateMetadata.other,'private');assert.equal(profiles.user_clerk_a.publicMetadata.other,'keep');
  assert.equal(JSON.stringify(result).includes('admin'),false);assert.equal(JSON.stringify(result).includes('private'),false);
  assert.deepEqual(await store.put(a.user,p),result);
  const reused={...p,expectedVersion:1,keyVersion:2};reused.signature=await a.signature(store.signed(a.user,reused));
  await assert.rejects(store.put(a.user,reused),/identity_exists/);
  const replacement=await identity(a.user);
  const next={...p,deviceId:replacement.deviceId,dhPublic:replacement.registration.dhPublic,signPublic:replacement.registration.signPublic,expectedVersion:1,keyVersion:2};next.signature=await replacement.signature(store.signed(a.user,next));
- const preserved=structuredClone(profiles.user_a);
+ const preserved=structuredClone(profiles.user_clerk_a);
  const results=await Promise.allSettled([store.put(a.user,next),store.put(a.user,next)]);assert.ok(results.every(x=>x.status==='rejected'&&/identity_exists/.test(String(x.reason))));
- assert.deepEqual(profiles.user_a,preserved);
+ assert.deepEqual(profiles.user_clerk_a,preserved);
  assert.equal((await store.get(a.user)).identity.keyVersion,1);
- const b=await identity('user_b'),lost={...p,deviceId:b.deviceId,dhPublic:b.registration.dhPublic,signPublic:b.registration.signPublic};
+ const b=await identity('user_clerk_b'),lost={...p,deviceId:b.deviceId,dhPublic:b.registration.dhPublic,signPublic:b.registration.signPublic};
  lost.signature=await b.signature(store.signed(b.user,lost));
  failBefore=true;await assert.rejects(store.put(b.user,lost),/identity_unavailable/);
  assert.equal((await store.get(b.user)).identity.deviceId,b.deviceId); // No original request needed.
