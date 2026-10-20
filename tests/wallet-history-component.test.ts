@@ -10,7 +10,7 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||"/home/kit/out/cal-brows
 const {build}=require("esbuild");
 test("real Wallet and LiveProvider coalesce events, preserve balance, and cancel bounded 429 recovery",async()=>{
  const temp=await mkdtemp(resolve(tmpdir(),"wallet-component-"));
- const bundle=await build({entryPoints:["tests/fixtures/wallet-live.tsx"],bundle:true,outdir:temp,write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"empty"},plugins:[{name:"wallet-auth-socket",setup(b:any){
+ const bundle=await build({entryPoints:["tests/fixtures/wallet-live.tsx"],bundle:true,outdir:temp,write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"empty",".css":"empty"},plugins:[{name:"wallet-auth-socket",setup(b:any){
   b.onResolve({filter:/^@clerk\/nextjs$/},()=>({path:"auth",namespace:"mock"}));
   b.onLoad({filter:/.*/,namespace:"mock"},()=>({contents:"export function useAuth(){return {getToken:async()=> 'test'}}",loader:"js"}));
   b.onResolve({filter:/^socket.io-client$/},()=>({path:resolve("tests/fixtures/wallet-socket.ts")}));
@@ -51,7 +51,7 @@ test("real Wallet and LiveProvider coalesce events, preserve balance, and cancel
 });
 
 test("Wallet requests two words while accepting legacy four-word payments",async()=>{
- const bundle=await build({entryPoints:["tests/fixtures/wallet-live.tsx"],bundle:true,write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"empty"},plugins:[{name:"wallet-auth-socket",setup(b:any){
+ const bundle=await build({entryPoints:["tests/fixtures/wallet-live.tsx"],bundle:true,write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"empty",".css":"empty"},plugins:[{name:"wallet-auth-socket",setup(b:any){
   b.onResolve({filter:/^@clerk\/nextjs$/},()=>({path:"auth",namespace:"mock"}));
   b.onLoad({filter:/.*/,namespace:"mock"},()=>({contents:"export function useAuth(){return {getToken:async()=> 'test'}}",loader:"js"}));
   b.onResolve({filter:/^socket.io-client$/},()=>({path:resolve("tests/fixtures/wallet-socket.ts")}));

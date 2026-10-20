@@ -46,7 +46,7 @@ test('GHCR compose override removes builds and preserves isolated Mongo and runt
  }));
  assert.equal(config.services.app.image,'ghcr.io/koboshchan/ssg200x:sha-test');
  assert.equal(config.services.app.build,undefined);
- assert.equal(config.services.app.environment.MONGODB_URI,'mongodb://mongo:27017');
+ assert.equal(config.services.app.environment.MONGODB_URI,'mongodb://mongo:27017/?replicaSet=rs0&directConnection=true');
  assert.equal(config.services.app.environment.CLERK_SECRET_KEY,'synthetic');
  assert.equal(config.services.mongo.ports,undefined);
  assert.equal(config.networks.backend.internal,true);
