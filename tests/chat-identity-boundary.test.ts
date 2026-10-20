@@ -40,3 +40,37 @@ test("existing account private keys can encrypt new public-ID-bound messages wit
  const wire=JSON.stringify([wrap,message]);
  assert.equal(wire.includes(senderId),false);assert.equal(wire.includes(recipientId),false);
 });
+
+test("service rejects nonmembers before exposing directory, history or recovery backup",async()=>{
+ // @ts-expect-error runtime module
+ const {createChatService}=await import("../runtime/chat-service.mjs");
+ const touched:string[]=[],room={_id:"main",version:1,members:[{id:"user_owner",publicId:publicId("user_owner"),approved:true}]};
+ const collection=(name:string)=>({
+  createIndex:async()=>{},
+  updateOne:async()=>({matchedCount:1}),
+  findOne:async()=>{touched.push(name);assert.equal(name,"rooms");return room;},
+ });
+ const service=createChatService({collection});
+ for(const event of ["state","history","keys:get","keys:put","register","claim","wrap","send"]){
+  touched.length=0;
+  await assert.rejects(service.handle("user_outsider",event,{v:1}),/forbidden/);
+  assert.deepEqual(touched,["rooms"]);
+ }
+ await assert.rejects(service.authorized("user_outsider"),/forbidden/);
+});
+
+test("registration and recovery publication proofs cannot be replayed under another authenticated account",async()=>{
+ // @ts-expect-error runtime module
+ const {createIdentityStore}=await import("../runtime/chat-identity.mjs");
+ // @ts-expect-error runtime module
+ const {verify,registerData}=await import("../runtime/chat-protocol.mjs");
+ const owner="user_owner",other="user_other",made=await createIdentity(owner,0);
+ const signature=await signText(made.identity.signPrivate,registerData(owner,made.identity));
+ assert.equal(await verify(made.identity.signPublic,registerData(owner,made.identity),signature),true);
+ assert.equal(await verify(made.identity.signPublic,registerData(other,made.identity),signature),false);
+ let persistenceReads=0;
+ const store=createIdentityStore({collection:()=>({findOne:async()=>{persistenceReads++;throw Error("unexpected persistence read");}})},{});
+ // The real identity validator rejects before any account metadata read or persistence mutation.
+ await assert.rejects(store.put(other,made.body),/invalid_signature/);
+ assert.equal(persistenceReads,0);
+});
