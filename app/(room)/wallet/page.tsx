@@ -80,12 +80,12 @@ export default function Wallet(){
   <div className={styles.columns}>
    <section aria-labelledby="receive-title"><h2 id="receive-title">Receive</h2>
     <p>Set the amount you want, then share the four-word code with the sender. It expires in 10 minutes and works once. Generating a new code cancels the old one. This is not your chat recovery phrase.</p>
-    <form onSubmit={e=>{e.preventDefault();void run(async()=>{const n=note.trim();setReceive(await call("/api/transfers",{action:"code",amount:amount.trim(),...(n?{note:n}:{})}));});}}>
+    <form onSubmit={e=>{e.preventDefault();void run(async()=>{const n=note.trim();const created=await call("/api/transfers",{action:"code",amount:amount.trim(),...(n?{note:n}:{})});setNow(Date.now());setReceive(created);});}}>
      <label>Amount in dollars<input inputMode="decimal" autoComplete="off" value={amount} maxLength={32} required disabled={busy} onChange={e=>setAmount(e.target.value)} placeholder="0.00" pattern={AMOUNT}/></label>
      <label>Note <span>(optional)</span><input value={note} maxLength={160} disabled={busy} onChange={e=>setNote(e.target.value)}/></label>
      <button className="primary" disabled={busy||!ready}>{receive?"Generate new code":"Generate receive code"}</button>
     </form>
-    {receive&&receive.expiresAt>now?<><output className={styles.code} aria-label="Your receive code">{receive.code}</output><p>Expires in {Math.ceil((receive.expiresAt-now)/60000)} min.</p><button disabled={busy} onClick={()=>void run(async()=>{await navigator.clipboard.writeText(receive.code);setMessage("Receive code copied.");})}>Copy code</button></>:receive?<p role="status">Your code expired. Generate a new one.</p>:null}
+    {receive&&receive.expiresAt>now?<><output className={styles.code} aria-label="Your receive code">{receive.code}</output><p>Expires in {Math.min(10,Math.max(1,Math.ceil((receive.expiresAt-now)/60000)))} min.</p><button disabled={busy} onClick={()=>void run(async()=>{await navigator.clipboard.writeText(receive.code);setMessage("Receive code copied.");})}>Copy code</button></>:receive?<p role="status">Your code expired. Generate a new one.</p>:null}
    </section>
    <section aria-labelledby="send-title"><h2 id="send-title">Send</h2>
     <form onSubmit={e=>{e.preventDefault();void run(recipient?send:resolve);}}>
