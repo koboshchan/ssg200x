@@ -1,12 +1,13 @@
 "use client";
 import {useEffect,useState} from 'react';
+import {ROULETTE_CHIPS as denominations} from '@/lib/roulette-chips';
 import {RED,type Bet} from '@/lib/market-shared';
 import type {PublicRoom} from '@/lib/public';
 import RouletteWheel from './roulette-wheel';
 import {roulettePhase,phaseDeadline} from '@/lib/roulette-clock';
 import styles from './roulette.module.css';
 const money=(n:number)=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:n%100===0?0:2}).format(n/100);
-const denominations=[{value:1,color:'#45956c'},{value:5,color:'#b7474b'},{value:20,color:'#4284ad'},{value:50,color:'#c59b48'},{value:100,color:'#38454e'}];
+
 type Props={room:PublicRoom;busy:boolean;post:(path:string,body:object)=>Promise<void>};
 export default function Roulette({room,busy,post}:Props){
  const table=room.roulette;
