@@ -1,9 +1,16 @@
-import { clerkMiddleware } from "@clerk/nextjs/server";
+import { clerkMiddleware, currentUser } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest, type NextFetchEvent } from "next/server";
+const publicPages = new Set(["/", "/leaderboard", "/privacy", "/terms"]);
 const clerk = clerkMiddleware(async (auth, req) => {
-  if (req.nextUrl.pathname.startsWith("/api/")) {
-    const { userId } = await auth();
-    if (!userId) return NextResponse.json({ error: "Sign in with Google." }, { status: 401 });
+  const path = req.nextUrl.pathname;
+  if (publicPages.has(path)) return;
+  const { userId } = await auth();
+  if (!userId) return path.startsWith("/api/")
+    ? NextResponse.json({ error: "Sign in with Google." }, { status: 401 })
+    : NextResponse.redirect(new URL("/", req.url));
+  if (path === "/players" || path.startsWith("/players/") || path === "/admin" || path.startsWith("/admin/")) {
+    const user = await currentUser();
+    if (user?.privateMetadata?.admin !== true) return new NextResponse("Not found", { status: 404 });
   }
 });
 export default function proxy(request: NextRequest, event: NextFetchEvent) {
@@ -15,6 +22,7 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
   const key = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   if (!key || key.includes("REPLACE") || !process.env.CLERK_SECRET_KEY) {
     if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "Clerk setup required." }, { status: 503 });
+    if (!publicPages.has(request.nextUrl.pathname)) return new NextResponse("Authentication unavailable", { status: 503 });
     return NextResponse.next();
   }
   return clerk(request, event);

@@ -37,7 +37,7 @@ test("HTTP, socket, middleware and navigation keep the private admin trust bound
  assert.match(server,/await clerk\.users\.getUser\(claims\.sub\)/);
  assert.match(server,/verifiedSocketIdentity\(user,claims\.sub\)/);
  for(const source of [api,server,proxy,client])assert.doesNotMatch(source,/publicMetadata|unsafeMetadata|sessionClaims/);
- assert.doesNotMatch(proxy,/privateMetadata/); // Middleware authenticates; handlers authorize.
+ assert.match(proxy,/privateMetadata\?\.admin !== true/); // Admin pages must authorize before rendering.
  assert.doesNotMatch(client,/privateMetadata/);
  assert.match(client,/admin=\{maintenance\?\.admin===true\}/);
 });
