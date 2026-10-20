@@ -1,6 +1,8 @@
 "use client";
 import {turnCountdown} from "@/lib/turn-timer";
 import {useServerClock} from "./use-server-clock";
+import CasinoAmountInput from "./casino-amount-input";
+import {casinoInputCents} from "@/lib/casino-amount";
 import {useState} from "react";
 import type {PublicRoom} from "@/lib/public";
 const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:n%100===0?0:2}).format(n/100);
@@ -17,7 +19,7 @@ export default function Blackjack({room,busy,post}:Props){
  const bj=(room as unknown as {blackjack?:{tables:BjTable[]}}).blackjack;
  const tables=bj?.tables||[];
  const [sel,setSel]=useState(0),[bet,setBet]=useState("10");
- const t=tables[sel];const cents=Math.round(Number(bet)*100),betOk=Number.isSafeInteger(cents)&&cents%2===0;
+ const t=tables[sel];const cents=casinoInputCents(bet),betOk=cents!==null;
  if(!tables.length)return <section className="bj"><h2>Blackjack</h2><p className="empty">Blackjack tables are not available yet.</p></section>;
  const mine=t.seats.findIndex(s=>s?.isYou);
  const me=mine>=0?t.seats[mine]:null;
@@ -30,5 +32,5 @@ export default function Blackjack({room,busy,post}:Props){
   <div className="bj-felt"><div className="bj-dealer"><small>Dealer{t.dealer.cards.length?" · "+total(t.dealer.cards):""}{t.dealerHandName?" · "+t.dealerHandName:""}</small><div className="hole">{t.dealer.cards.length?t.dealer.cards.map((c,i)=><Card key={i} value={c}/>):<span className="empty">Waiting for bets</span>}</div></div>
    <p className="table-message" role="status">{t.phase==="betting"?"Place your bets"+(t.deadline?" · "+Math.max(0,Math.ceil((t.deadline-clock)/1000))+"s":""):t.phase==="playing"?(t.turn?(t.seats[t.turn.seat]?.name||"Player")+" to act"+(countdown===null?"":" · "+countdown+"s"):""):t.phase==="dealer"?"Dealer plays":"Round over"}</p>
    <div className="bj-seats">{t.seats.map((s,i)=><div key={i} className={"bj-seat"+(s?.isYou?" you":"")+(t.turn?.seat===i?" acting":"")}>{s?<><strong>{s.name}{s.isYou?" (you)":""}</strong>{s.hands.map((h,j)=><div key={j} className="bj-hand"><div className="hole">{h.cards.map((c,k)=><Card key={k} value={c}/>)}</div><small>{h.cards.length?total(h.cards)+" · ":""}{money(h.bet)}{h.handName?" · "+h.handName:""}{h.result?" · "+h.result:""}</small></div>)}{t.phase==="betting"&&s.bet===0&&turnCountdown(s.idleDeadline??null,clock,300_000)!==null?<small>Bet within {turnCountdown(s.idleDeadline??null,clock,300_000)}s to keep seat</small>:null}{!s.hands.length&&s.bet>0?<small>Bet {money(s.bet)}</small>:null}</>:<button disabled={busy||mine>=0} onClick={()=>send({type:"join",seat:i})}>Sit at seat {i+1}</button>}</div>)}</div></div>
-  <div className="action-bar">{me?<><div><strong>{myTurn?"Your move.":t.phase==="betting"?"Place your bet.":"Waiting."}</strong></div><div className="action-buttons">{t.phase==="betting"?<><label className="raise-input"><span className="sr-only">Bet in dollars</span><span>$</span><input type="number" min={t.minBet/100} max={t.maxBet/100} step="1" value={bet} onChange={e=>setBet(e.target.value)}/></label><button className="primary" disabled={busy||!betOk||cents<t.minBet||cents>t.maxBet} onClick={()=>send({type:"bet",amount:Math.round(Number(bet)*100)})}>Bet {money(Math.round(Number(bet||0)*100))}</button></>:null}{myTurn&&t.legal?<>{(["hit","stand","double","split"] as const).map(a=><button key={a} className={a==="hit"?"primary":""} disabled={busy||!t.legal![a]} onClick={()=>act(a)}>{a[0].toUpperCase()+a.slice(1)}</button>)}</>:null}<button className="leave-button" disabled={busy} onClick={()=>send({type:"leave"})}>Leave table</button></div></>:<div><strong>Pick a seat.</strong><p>Up to 6 players per table.</p></div>}</div></section>;
+  <div className="action-bar">{me?<><div><strong>{myTurn?"Your move.":t.phase==="betting"?"Place your bet.":"Waiting."}</strong></div><div className="action-buttons">{t.phase==="betting"?<><label className="raise-input"><span className="sr-only">Bet in dollars</span><span>$</span><CasinoAmountInput min={t.minBet/100} max={t.maxBet/100} value={bet} onChange={setBet}/></label><button className="primary" disabled={busy||!betOk||cents===null||cents<t.minBet||cents>t.maxBet} onClick={()=>{if(cents!==null)send({type:"bet",amount:cents});}}>Bet {money(cents??0)}</button></>:null}{myTurn&&t.legal?<>{(["hit","stand","double","split"] as const).map(a=><button key={a} className={a==="hit"?"primary":""} disabled={busy||!t.legal![a]} onClick={()=>act(a)}>{a[0].toUpperCase()+a.slice(1)}</button>)}</>:null}<button className="leave-button" disabled={busy} onClick={()=>send({type:"leave"})}>Leave table</button></div></>:<div><strong>Pick a seat.</strong><p>Up to 6 players per table.</p></div>}</div></section>;
 }
