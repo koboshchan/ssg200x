@@ -17,7 +17,7 @@ test("full raise resets pending action; raises are to total not increments",()=>
 test("check through all streets reaches showdown and conserves every cent",()=>{const r=setup();callThrough(r);assert.equal(r.street,"showdown");assert.equal(r.board.length,5);assert.equal(pot(r),0);assert.equal(totalChips(r),200_000);assertRoom(r);});
 test("fold immediately awards whole pot and never shows opponent holes",()=>{const r=setup();const i=r.turn!;act(r,r.seats[i]!.userId,{type:"fold"},1100);assert.equal(r.street,"showdown");assert.equal(r.payouts[0].amount,300);const view=publicRoom(r,user(i));assert.deepEqual(view.seats[1-i]!.hole,["?","?"]);assertRoom(r);});
 test("active snapshots hide deck, email, user IDs and opponent holes",()=>{const r=setup();const view=publicRoom(r,{...user(0),admin:false});const text=JSON.stringify(view);assert.ok(!text.includes("deck"));assert.ok(!text.includes("user_"));assert.ok(!text.includes("@example.test"));assert.deepEqual(view.seats[1]!.hole,["?","?"]);assert.equal(view.seats[0]!.hole.length,2);});
-test("timeout folds facing a call and sits player out; free timeout checks",()=>{const r=setup();const i=r.turn!;tick(r,1000+TURN_MS);assert.ok(r.seats[i]!.sitOut);assert.equal(r.street,"showdown");assertRoom(r);const q=setup();act(q,q.seats[q.turn!]!.userId,{type:"call"},2000);const j=q.turn!;tick(q,2000+TURN_MS);assert.ok(q.seats[j]!.sitOut);assert.equal(q.street,"flop");assertRoom(q);});
+test("timeout kicks and forfeits even when checking would be free",()=>{for(const free of [false,true]){const r=setup();if(free)act(r,r.seats[r.turn!]!.userId,{type:"call"},2000);const i=r.turn!,wallet=r.members[i].wallet;tick(r,r.deadline!);assert.equal(r.seats[i],null);assert.equal(r.street,"showdown");assert.equal(r.members[i].wallet,wallet);assertRoom(r);}});
 test("leave during hand is rejected without scheduling cashout",()=>{const r=setup();const i=r.turn!,id=r.seats[i]!.userId;assert.throws(()=>applyAction(r,user(i),{type:"leave"},1100));assert.equal(r.seats[i]!.leaveAfter,false);act(r,id,{type:"fold"},1200);applyAction(r,user(i),{type:"leave"},1300);assert.equal(r.seats[i],null);assertRoom(r);});
 
 test("seat restrictions and insufficient funds are enforced",()=>{const r=setup();assert.throws(()=>applyAction(r,user(0),{type:"join",seat:3,buyIn:10_000},1200));register(r,user(3));assert.throws(()=>applyAction(r,user(3),{type:"join",seat:0,buyIn:10_000},1200));assert.throws(()=>applyAction(r,user(3),{type:"join",seat:2,buyIn:100_001},1200));assert.throws(()=>applyAction(r,user(3),{type:"join",seat:-1,buyIn:10_000},1200));});
@@ -137,7 +137,7 @@ test("readiness window protects idle unready blockers for the full five minutes"
  tick(r,expiry);
  assert.equal(r.seats.filter(Boolean).length,3);assert.ok(r.seats.every(s=>!s||(!s.ready&&s.seen===expiry)));
  assert.equal(r.readyDeadline,null);assert.equal(r.handNumber,0);
- tick(r,expiry+90001);assert.equal(r.seats.filter(Boolean).length,0);assertRoom(r);
+ tick(r,expiry+90001);assert.equal(r.seats.filter(Boolean).length,3);assertRoom(r);
 });
 test("readiness window still cleans revoked seats rather than locking them until expiry",()=>{
  const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}

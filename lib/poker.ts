@@ -1,3 +1,4 @@
+import {ACTION_TURN_MS} from "./turn-timer";
 import { randomInt, createHash } from "node:crypto";
 import {rouletteAssets} from "./roulette";
 import {blackjackTablesAssets} from "./blackjack";
@@ -6,7 +7,7 @@ import {assetsBook} from "./finance";
 import { ensure } from "./errors";
 import type { Room, Seat, Identity, Member, Action, Payout } from "./types";
 export const SMALL = 100, BIG = 200, STRADDLE = 500;
-export const TURN_MS = 30_000, BREAK_MS = 8_000, IDLE_MS = 90_000;
+export const TURN_MS = ACTION_TURN_MS, BREAK_MS = 8_000, IDLE_MS = 90_000;
 export const READY_MS = 300_000;
 const MAX_MEMBERS = 100;
 export function freshRoom(): Room {
@@ -32,7 +33,7 @@ function ordered(r: Room, after: number, test: (s: Seat) => boolean) {
 function next(r: Room, after: number, test: (s: Seat) => boolean) { return ordered(r, after, test)[0]; }
 const contenders = (s: Seat) => s.inHand && !s.folded;
 const canAct = (s: Seat) => contenders(s) && s.stack > 0;
-export function pot(r: Room) { return r.seats.reduce((n,s) => n + (s?.committed ?? 0), 0); }
+export function pot(r: Room) { return r.seats.reduce((n,s) => n + (s?.committed ?? 0), (r.pokerBonus??0)+(r.pokerDead??[]).reduce((n,v)=>n+v,0)); }
 function put(s: Seat, amount: number) { const n = Math.min(amount, s.stack); s.stack -= n; s.bet += n; s.committed += n; }
 function setTurn(r: Room, i: number | null, now: number) { r.turn = i; r.deadline = i === null ? null : now + TURN_MS; }
 export function shuffled(rng: (max: number) => number = randomInt) {
@@ -53,6 +54,26 @@ export function cashOut(r: Room, i: number) {
  const m = r.members.find(m => m.id === s.userId)!;
  m.wallet += s.stack; r.seats[i] = null;
 }
+/** Detached contributions keep their original side-pot levels. The remaining
+ * stack is dead main-pot money, never a refundable/eligible contribution. */
+export function forfeitSeat(r:Room,i:number) {
+ const s=r.seats[i]; if(!s)return;
+ if(active(r)) {
+  r.pokerBonus=(r.pokerBonus??0)+s.stack;
+  if(s.committed)(r.pokerDead??=[]).push(s.committed);
+ } else r.pokerCarry=(r.pokerCarry??0)+s.stack+s.committed;
+ r.seats[i]=null;r.pending=r.pending.filter(j=>j!==i);
+ addLog(r,(r.members.find(m=>m.id===s.userId)?.name??"Player")+" removed; table chips forfeited");
+}
+function countCompletedHand(r:Room) {
+ if((r.idleCountedHand??-1)===r.handNumber)return;
+ r.idleCountedHand=r.handNumber;
+ for(let i=0;i<r.seats.length;i++){
+  const s=r.seats[i];if(!s)continue;
+  s.idleHands=s.inHand?0:(s.idleHands??0)+1;
+  if(s.idleHands>=5)forfeitSeat(r,i);
+ }
+}
 function end(r: Room, payouts: Payout[], now: number) {
  for (const p of payouts) r.seats[p.seat]!.stack += p.amount;
  r.payouts = payouts;
@@ -63,30 +84,39 @@ function end(r: Room, payouts: Payout[], now: number) {
  r.street = "showdown"; r.pending = []; setTurn(r, null, now); r.nextDeal = now + BREAK_MS;
  // Contributions are already in awarded stacks. Clearing prevents double counting.
  r.readyDeadline = null;
+ r.pokerBonus=0;r.pokerDead=[];
  for (const s of r.seats) if (s) { s.committed = 0; s.bet = 0; s.ready = false; }
 }
 export function showdown(r: Room, now: number) {
+ if(!active(r))return;
+ countCompletedHand(r);
  const alive = r.seats.flatMap((s,i) => s && contenders(s) ? [i] : []);
  if (alive.length === 1) { end(r, [{ seat: alive[0], amount: pot(r), description: "Everyone else folded" }], now); return; }
  while (r.board.length < 5) revealStreet(r);
- const levels = [...new Set(r.seats.filter(s => s && s.committed > 0).map(s => s!.committed))].sort((a,b) => a-b);
+ const levels = [...new Set([...r.seats.filter(s => s && s.committed > 0).map(s => s!.committed),...(r.pokerDead??[])])].sort((a,b) => a-b);
  const payouts: Payout[] = [];
  let previous = 0;
  for (const level of levels) {
   const contributors = r.seats.flatMap((s,i) => s && s.committed >= level ? [i] : []);
-  const amount = (level - previous) * contributors.length; previous = level;
-  if (contributors.length === 1) { payouts.push({ seat: contributors[0], amount, description: "Uncalled bet returned" }); continue; }
-  const eligible = contributors.filter(i => contenders(r.seats[i]!));
+  const dead=(r.pokerDead??[]).filter(v=>v>=level).length;
+  const amount = (level - previous) * (contributors.length+dead); previous = level;
+  if (contributors.length === 1 && !dead) { payouts.push({ seat: contributors[0], amount, description: "Uncalled bet returned" }); continue; }
+  let eligible = contributors.filter(i => contenders(r.seats[i]!));
+  // A departed sole upper-layer contributor can never receive an uncalled refund.
+  if(!eligible.length&&dead)eligible=alive;
   ensure(eligible.length, "Pot has no eligible player.", 500);
-  const hands = eligible.map(i => solver.Hand.solve([...r.seats[i]!.hole, ...r.board]));
-  const winners = solver.Hand.winners(hands);
-  const winningSeats = eligible.filter((_,j) => winners.includes(hands[j]));
-  // Odd cents move clockwise from the button, never disappear.
-  const clockwise = ordered(r, r.button, () => true).filter(i => winningSeats.includes(i));
-  const share = Math.floor(amount / clockwise.length), remainder = amount % clockwise.length;
-  clockwise.forEach((i,j) => payouts.push({ seat: i, amount: share + (j < remainder ? 1 : 0), description: hands[eligible.indexOf(i)].descr }));
+  award(r,eligible,amount,payouts);
  }
+ if(r.pokerBonus)award(r,alive,r.pokerBonus,payouts);
  end(r, payouts, now);
+}
+function award(r:Room,eligible:number[],amount:number,payouts:Payout[]) {
+ const hands=eligible.map(i=>solver.Hand.solve([...r.seats[i]!.hole,...r.board]));
+ const winners=solver.Hand.winners(hands);
+ const winningSeats=eligible.filter((_,j)=>winners.includes(hands[j]));
+ const clockwise=ordered(r,r.button,()=>true).filter(i=>winningSeats.includes(i));
+ const share=Math.floor(amount/clockwise.length),remainder=amount%clockwise.length;
+ clockwise.forEach((i,j)=>payouts.push({seat:i,amount:share+(j<remainder?1:0),description:hands[eligible.indexOf(i)].descr}));
 }
 function advance(r: Room, after: number, now: number) {
  const alive = r.seats.filter(s => s && contenders(s));
@@ -111,12 +141,13 @@ function advance(r: Room, after: number, now: number) {
 export function startHand(r: Room, now: number, rng?: (max: number) => number) {
  ensure(!active(r), "Hand already running.", 409);
  const eligible = (s: Seat) => s.ready === true && !s.sitOut && !s.leaveAfter && s.stack > 0;
- if (r.seats.some(s => s && !eligible(s))) return;
+ if (r.seats.some(s => s && !eligible(s) && !s.sitOut)) return;
  if (r.seats.filter(s => s && eligible(s)).length < 2) { r.street = "waiting"; r.nextDeal = null; return; }
  r.button = next(r, r.button, eligible);
  r.readyDeadline = null;
+ r.pokerBonus=(r.pokerBonus??0)+(r.pokerCarry??0);r.pokerCarry=0;r.pokerDead=[];
  r.handNumber++; r.street = "preflop"; r.deck = shuffled(rng); r.board = []; r.payouts = []; r.nextDeal = null;
- for (const s of r.seats) if (s) { s.inHand = eligible(s); s.folded = !s.inHand; s.bet = 0; s.committed = 0; s.hole = []; s.actedAt = null; }
+ for (const s of r.seats) if (s) { s.inHand = eligible(s); if(s.inHand)s.idleHands=0; s.folded = !s.inHand; s.bet = 0; s.committed = 0; s.hole = []; s.actedAt = null; }
  for (let n=0;n<2;n++) for (const i of ordered(r, r.button, s => s.inHand)) r.seats[i]!.hole.push(draw(r));
  const n = r.seats.filter(s => s?.inHand).length;
  const sb = n === 2 ? r.button : next(r,r.button,s=>s.inHand);
@@ -139,6 +170,7 @@ export function legal(r: Room, i: number) {
 export function act(r: Room, id: string, action: Extract<Action,{type:"fold"|"check"|"call"}> | Extract<Action,{type:"raise"}>, now: number) {
  const i = seatOf(r,id), s = r.seats[i];
  ensure(s && i === r.turn && active(r), "It is not your turn.", 409);
+ ensure(r.deadline!==null&&now<r.deadline,"The turn expired.",409);
  const choices = legal(r,i)!;
  let text: string = action.type;
  if (action.type === "fold") s.folded = true;
@@ -196,9 +228,9 @@ export function applyAction(r: Room, who: Identity, action: Action, now: number)
 export function tick(r: Room, now: number) {
  let changed = false;
  if (active(r) && r.deadline !== null && now >= r.deadline && r.turn !== null) {
-  const s = r.seats[r.turn]!;
-  s.sitOut = true;
-  act(r,s.userId,{type:legal(r,r.turn)!.check ? "check" : "fold"},now);
+  const i=r.turn;
+  forfeitSeat(r,i);
+  advance(r,i,now);
   changed = true;
  }
  if (!active(r)) {
@@ -216,7 +248,7 @@ export function tick(r: Room, now: number) {
   }
   for (let i=0;i<r.seats.length;i++) {
    const s = r.seats[i];
-   if (s && !s.ready && (s.leaveAfter || s.stack === 0 || (r.readyDeadline == null && now - s.seen > IDLE_MS))) {
+   if (s && !s.ready && (s.leaveAfter || s.stack === 0)) {
     cashOut(r,i); changed = true;
    }
   }
@@ -225,9 +257,9 @@ export function tick(r: Room, now: number) {
 
  return changed;
 }
-export function totalChips(r: Room) { return r.members.reduce((n,m)=>n+m.wallet+assetsBook(m),r.house||0) + blackjackTablesAssets(r) + rouletteAssets(r) + r.seats.reduce((n,s)=>n+(s?s.stack+s.committed:0),0); }
+export function totalChips(r: Room) { return r.members.reduce((n,m)=>n+m.wallet+assetsBook(m),(r.house||0)+(r.pokerBonus??0)+(r.pokerCarry??0)+(r.pokerDead??[]).reduce((n,v)=>n+v,0)) + blackjackTablesAssets(r) + rouletteAssets(r) + r.seats.reduce((n,s)=>n+(s?s.stack+s.committed:0),0); }
 export function assertRoom(r: Room) {
- const values = [...r.members.map(m=>m.wallet), ...r.seats.flatMap(s=>s?[s.stack,s.bet,s.committed]:[])];
+ const values = [r.pokerBonus??0,r.pokerCarry??0,...(r.pokerDead??[]),...r.members.map(m=>m.wallet), ...r.seats.flatMap(s=>s?[s.stack,s.bet,s.committed]:[])];
  ensure(values.every(n=>Number.isSafeInteger(n) && n>=0), "Invalid chip ledger.",500);
  ensure(totalChips(r) === r.members.length * 100_000+(r.issuance||0), "Chip conservation failed.",500);
  const users = r.seats.filter(Boolean).map(s=>s!.userId);

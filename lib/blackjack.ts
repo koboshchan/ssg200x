@@ -1,3 +1,4 @@
+import {ACTION_TURN_MS} from './turn-timer';
 import {randomInt} from 'node:crypto';
 import {ensure} from './errors';
 import type {Room,Identity} from './types';
@@ -9,7 +10,7 @@ export type BlackjackSeat={userId:string;bet:number;hands:BlackjackHand[];leaveA
 export type BlackjackState={phase:'betting'|'playing'|'settled';seats:(BlackjackSeat|null)[];dealer:string[];shoe:string[];turn:number|null;hand:number;deadline:number|null;round:number;revealed:boolean};
 export type BlackjackAction={type:'join';seat:number}|{type:'leave'}|{type:'bet';amount:number}|{type:'hit'|'stand'|'double'|'split'};
 type BRoom=Room & {blackjack?:BlackjackState};
-const BET_MS=10_000,TURN_MS=30_000,BREAK_MS=5_000;
+const BET_MS=10_000,TURN_MS=ACTION_TURN_MS,BREAK_MS=5_000;
 export function blackjackShoe(rng:(max:number)=>number=randomInt):string[]{
  const cards=Array.from({length:6},()=>[...'shcd'].flatMap(s=>[...'23456789TJQKA'].map(v=>v+s))).flat();
  for(let i=cards.length-1;i>0;i--){const j=rng(i+1);[cards[i],cards[j]]=[cards[j],cards[i]];}return cards;
@@ -46,12 +47,18 @@ function deal(r:BRoom,b:BlackjackState,now:number){
 }
 export function blackjackTick(r:Room,now:number):void{const b=(r as BRoom).blackjack;if(!b||b.deadline===null||now<b.deadline)return;
  if(b.phase==='betting'){if(b.seats.some(s=>s&&s.bet>0))deal(r,b,now);else b.deadline=null;}
- else if(b.phase==='playing'){const s=b.turn===null?null:b.seats[b.turn];if(s?.hands[b.hand])s.hands[b.hand].done=true;advance(r,b,now);}
+ else if(b.phase==='playing'){
+  const i=b.turn,s=i===null?null:b.seats[i];
+  if(s&&i!==null){r.house=(r.house??0)+s.hands.reduce((n,h)=>n+h.bet,0);b.seats[i]=null;}
+  advance(r,b,now);
+ }
  else{for(let i=0;i<b.seats.length;i++){const s=b.seats[i];if(s?.leaveAfter)b.seats[i]=null;else if(s){s.bet=0;s.hands=[];}}b.phase='betting';b.dealer=[];b.turn=null;b.deadline=null;b.revealed=false;}
 }
 export function blackjackAction(r:Room,who:Identity,action:BlackjackAction,now:number):void{
  const rr=r as BRoom,m=member(rr,who.id);
- const b=state(rr),i=b.seats.findIndex(s=>s?.userId===who.id),s=i<0?null:b.seats[i];
+ const b=state(rr);
+ ensure(!(b.phase==='playing'&&b.deadline!==null&&now>=b.deadline),'The blackjack turn expired.',409);
+ const i=b.seats.findIndex(s=>s?.userId===who.id),s=i<0?null:b.seats[i];
  if(action.type==='join'){ensure(!s,'Already seated.');ensure(Number.isInteger(action.seat)&&action.seat>=0&&action.seat<6,'Invalid seat.');ensure(!b.seats[action.seat],'Seat occupied.');b.seats[action.seat]={userId:who.id,bet:0,hands:[],leaveAfter:false};return;}
  ensure(s,'Take a blackjack seat first.');
  if(action.type==='leave'){if(b.phase==='playing'&&s.hands.length){s.leaveAfter=true;for(const h of s.hands)h.done=true;if(b.turn===i)advance(rr,b,now);}else{if(b.phase==='betting')m.wallet+=s.bet;b.seats[i]=null;if(b.phase==='betting'&&!b.seats.some(x=>x&&x.bet))b.deadline=null;}return;}
