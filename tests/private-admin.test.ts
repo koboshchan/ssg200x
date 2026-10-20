@@ -32,9 +32,10 @@ test("missing private metadata ignores public and unsafe metadata plus session-s
 test("HTTP, socket, middleware and navigation keep the private admin trust boundary",()=>{
  const read=(file:string)=>readFileSync(new URL("../"+file,import.meta.url),"utf8");
  const api=read("lib/api.ts"),server=read("server.mjs"),proxy=read("proxy.ts"),client=read("app/room-client.tsx");
- assert.match(api,/await currentUser\(\)/);
+ assert.match(api,/await currentClerkSession\(sessionId,userId\)/);
+ assert.match(api,/await currentClerkUser\(userId\)/);
  assert.match(api,/admin:user\.privateMetadata\?\.admin===true/);
- assert.match(server,/await clerk\.users\.getUser\(claims\.sub\)/);
+ assert.match(server,/await clerkReads\(clerk\)\.user\(clerk,claims\.sub\)/);
  assert.match(server,/verifiedSocketIdentity\(user,claims\.sub\)/);
  for(const source of [api,server,proxy,client])assert.doesNotMatch(source,/publicMetadata|unsafeMetadata|sessionClaims/);
  assert.match(proxy,/privateMetadata\?\.admin !== true/); // Admin pages must authorize before rendering.

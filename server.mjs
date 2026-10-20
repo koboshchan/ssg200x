@@ -1,3 +1,4 @@
+import {clerkReads} from "./runtime/clerk-reads.mjs";
 import {loadClerkProfiles,profileName} from "./runtime/clerk-names.mjs";
 import {timingSafeEqual} from "node:crypto";
 import {createAirdropBroadcaster} from "./runtime/airdrop-events.mjs";
@@ -41,13 +42,14 @@ const io=new Server(server,{cors:{origin:process.env.APP_ORIGIN,credentials:true
 // Runtime-only Clerk keys; the legacy NEXT_PUBLIC name is accepted from the container environment only.
 const clerkPublishableKey=(process.env.CLERK_PUBLISHABLE_KEY||process.env["NEXT_PUBLIC_"+"CLERK_PUBLISHABLE_KEY"]||"").trim()||undefined;
 const clerkSecretKey=(process.env.CLERK_SECRET_KEY||"").trim()||undefined;
-const clerk=createClerkClient({secretKey:clerkSecretKey,publishableKey:clerkPublishableKey});
+// Same process singleton as the Next API/proxy modules, including read cooldowns.
+const clerk=globalThis.__ssgClerkBackend??=createClerkClient({secretKey:clerkSecretKey,publishableKey:clerkPublishableKey});
 io.use(async(socket,next)=>{
  try{
  if(socket.handshake.headers.origin!==process.env.APP_ORIGIN)throw new Error();
  const token=socket.handshake.auth?.token;if(typeof token!=="string"||token.length>10000)throw new Error();
  const claims=await verifyToken(token,{secretKey:clerkSecretKey,authorizedParties:[process.env.APP_ORIGIN]});
- const user=await clerk.users.getUser(claims.sub);
+ const user=await clerkReads(clerk).user(clerk,claims.sub);
  const identity=verifiedSocketIdentity(user,claims.sub);if(!identity||!Number.isFinite(claims.exp)||claims.exp*1000<=Date.now())throw new Error();
  socket.data.sessionId=claims.sid;socket.data.identity=identity;socket.data.expires=claims.exp*1000;next();
  }catch{next(new Error("Sign in with Google."));}
@@ -57,7 +59,7 @@ const collection=client.db(process.env.MONGODB_DB||"pokerroom").collection("room
 const chat=createChatService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
 await chat.ready;
 const announceAirdrop=createAirdropBroadcaster(io,client.db(process.env.MONGODB_DB||"pokerroom").collection("airdrop_receipts"));
-const checkChatSession=sessionGuard(clerk);
+const checkChatSession=sessionGuard(clerk,{reads:clerkReads(clerk)});
 let hintTimer;
 function hintChatChanged(){if(hintTimer)return;hintTimer=setTimeout(()=>{hintTimer=null;io.emit("chat:changed",{v:1});},100);hintTimer.unref();}
 async function pushState(socket,force=false,profiles){
@@ -71,12 +73,15 @@ async function pushState(socket,force=false,profiles){
    profiles=await loadClerkProfiles(clerk,[socket.data.identity.id,...(room?.members||[]).map(m=>m.id),...(socket.data.chatNameIds||[])]);
   }
   socket.data.identity.name=profileName(profiles,socket.data.identity.id);
+  const snapshotAdmin=socket.data.identity.admin;
   const response=await fetch(`http://127.0.0.1:${port}/api/internal-live`,{
    method:"POST",headers:{"content-type":"application/json","x-internal-live-secret":process.env.INTERNAL_LIVE_SECRET,...(socket.data.chart?{"x-chart-symbol":socket.data.chart.symbol,"x-chart-granularity":socket.data.chart.granularity}:{})},
    body:JSON.stringify({identity:socket.data.identity,profiles:[...profiles].map(([id,p])=>[id,{name:p.name,avatar:null}])}),signal:AbortSignal.timeout(10000)
   });
   if(!response.ok)throw new Error("Live snapshot unavailable");
   const data=await response.json();
+  await checkChatSession(socket);
+  if(snapshotAdmin!==socket.data.identity.admin)return;
   if(!socket.connected||socket.data.expires<=Date.now())return;
   force=force||socket.data.forceFull===true;socket.data.forceFull=false;
   for(const [key,event] of [["maintenance","maintenance:state"]]){
@@ -127,8 +132,8 @@ const timer=setInterval(async()=>{
   const r=await collection.findOne({_id:"main"},{projection:{version:1,"members.id":1}});
   const sockets=[...io.sockets.sockets.values()];
   const due=sockets.filter(socket=>!socket.data.initialized||socket.data.version!==r?.version||Date.now()-(socket.data.statusAt||0)>=1000);
-  // One fresh batch per emission cycle, never one API call per seat or socket.
-  // This map dies after this cycle. No TTL or cross-cycle stale names.
+  // Cross-cycle five-second cache, in-flight dedup and bounded SDK batches.
+  // This cycle receives only its requested presentation fields.
   const memberIds=(r?.members||[]).map(m=>m.id);
   const profiles=due.length?await loadClerkProfiles(clerk,[...memberIds,...due.map(s=>s.data.identity.id),...due.flatMap(s=>s.data.chatNameIds||[])]):new Map();
   const now=Date.now();

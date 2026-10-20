@@ -30,7 +30,8 @@ test("canonical Clerk fallback handles full name, backend first+last, blanks, us
  for(const [profile,expected] of cases)assert.equal(clerkDisplayName(profile),expected);
  assert.equal(clerkDisplayName({fullName:"a".repeat(100)}).length,80);
 });
-test("official SDK list batching dedupes 250 IDs into 100/100/50, filters extraneous results and never caches between operations",async()=>{
+test("official SDK list batching dedupes 250 IDs into 100/100/50, filters extraneous results and expires its short cache",async(t)=>{
+ t.mock.timers.enable({apis:["Date"],now:10000});
  let generation="One";const batches:string[][]=[];
  const clerk={users:{getUserList:async({userId,limit}:{userId:string[];limit:number})=>{
   assert.equal(limit,100);batches.push(userId);
@@ -40,9 +41,11 @@ test("official SDK list batching dedupes 250 IDs into 100/100/50, filters extran
  const first=await loadClerkProfiles(clerk,[...ids,...ids]);
  assert.deepEqual(batches.map(b=>b.length),[100,100,50]);assert.equal(first.size,250);
  assert.equal(first.has("unrequested"),false);assert.equal(first.get("user0")?.name,"One");
- generation="Two";const second=await loadClerkProfiles(clerk,["user0"]);
+ generation="Two";
+ assert.equal((await loadClerkProfiles(clerk,["user0"])).get("user0")?.name,"One");
+ t.mock.timers.tick(5001);const second=await loadClerkProfiles(clerk,["user0"]);
  assert.equal(second.get("user0")?.name,"Two");assert.equal(batches.length,4);
- await assert.rejects(loadClerkProfiles({users:{getUserList:async()=>{throw Error("429");}}},["user0"]));
+ assert.equal((await loadClerkProfiles({users:{getUserList:async()=>{throw Error("429");}}},["user0"])).size,0);
 });
 const alice={id:"user_alice",name:"SPOOFED MONGO ALICE",email:"alice@private.test",admin:false};
 const bob={id:"user_bob",name:"SPOOFED MONGO BOB",email:"bob@private.test",admin:false};
@@ -58,7 +61,8 @@ function room(){
  r.log.push("Old Bob calls $20.00","Host adjusted Old Bob's cash by 1.00");
  return r;
 }
-test("unchanged Mongo room/version renders fresh poker, all blackjack tables, roulette bets/winners, chat directory, admin and leaderboard after Clerk rename",async()=>{
+test("unchanged Mongo room/version renders fresh poker, all blackjack tables, roulette bets/winners, chat directory, admin and leaderboard after Clerk rename",async(t)=>{
+ t.mock.timers.enable({apis:["Date"],now:10000});
  const r=room(),before=structuredClone(r),calls:any[]=[];
  let generation="Current";
  const clerk={users:{getUserList:async({userId}:any)=>{calls.push(userId);return {data:userId.map((id:string)=>({id,firstName:generation,lastName:id===alice.id?"Alice":"Bob"}))};}}};
@@ -75,7 +79,7 @@ test("unchanged Mongo room/version renders fresh poker, all blackjack tables, ro
  assert.match(first.log[0],/^Current Bob takes seat/);assert.equal(first.activity[0],"Sent $1.00 to Current Bob");
  assert.equal(first.activity[1],"Sent $1.00 to Player");
  assert.ok(first.log.includes("Player calls $20.00"));
- generation="Renamed";
+ generation="Renamed";t.mock.timers.tick(5001);
  const second=await render();assert.equal(second.version,first.version);assert.equal(second.seats[1]?.name,"Renamed Bob");
  assert.equal(second.blackjack.tables.find(t=>t.id==="lounge")!.seats[1]?.name,"Renamed Bob");assert.equal(second.roulette?.bets[0].name,"Renamed Bob");
  assert.equal(second.roulette?.history[0].winners?.[0].name,"Renamed Bob");
@@ -85,7 +89,7 @@ test("unchanged Mongo room/version renders fresh poker, all blackjack tables, ro
  assert.equal(leaderboardSnapshot(roomWithClerkNames(r,profiles)).rows.find(m=>m.name.endsWith("Bob"))?.name,"Renamed Bob");
  const json=JSON.stringify(second);
  for(const secret of ["SPOOFED","CLIENT SPOOF","STALE WINNER","Current Bob","@private.test","Old Bob","[[player:"])assert.equal(json.includes(secret),false,secret);
- assert.deepEqual(r,before);assert.equal(calls.length,3);
+ assert.deepEqual(r,before);assert.equal(calls.length,2);
  // Real websocket full/diff reconstruction must carry a name-only change with the
  // exact same financial version, without reconnect or a page reload.
  const frames:any[]=[],socket={emit:(event:string,data:any)=>frames.push({event,data})};

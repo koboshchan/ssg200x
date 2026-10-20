@@ -56,5 +56,6 @@ test("no source reads a build-time NEXT_PUBLIC Clerk key and every Clerk entry p
  assert.doesNotMatch(read("proxy.ts"),/secretKey\s*[:,]/);
  assert.match(read("server.mjs"),/createClerkClient\(\{secretKey:clerkSecretKey,publishableKey:clerkPublishableKey\}\)/);
  assert.match(read("server.mjs"),/verifyToken\(token,\{secretKey:clerkSecretKey,/);
- assert.match(read("lib/server-names.ts"),/createClerkClient\(clerkKeys\(\)!\)/);
+ assert.match(read("lib/server-names.ts"),/loadClerkProfiles\(backendClerk\(\),ids\)/);
+ assert.match(read("lib/clerk-reads.ts"),/createClerkClient\(clerkKeys\(\)!\)/);
 });

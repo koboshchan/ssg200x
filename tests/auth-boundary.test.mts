@@ -7,12 +7,16 @@ let middleware:any, inMiddleware=false;
 const adminLookups:string[]=[];
 const account=()=>userId?{id:userId,firstName:"Alice",username:null,passwordEnabled:false,primaryEmailAddressId:"e",emailAddresses:[{id:"e",emailAddress:"private@example.test",verification:{status:"verified"}}],externalAccounts:[{provider:"google",emailAddress:"private@example.test"}],privateMetadata:{admin}}:null;
 mock.module("@clerk/nextjs/server",{namedExports:{
- auth:async()=>({userId}),currentUser:async()=>{
+ auth:async()=>({userId,sessionId:"session_fixture"}),currentUser:async()=>{
   if(inMiddleware)throw Error("App Router auth() is unavailable before middleware forwards headers");
   return account();
  },
  clerkClient:async()=>({users:{getUser:async(id:string)=>{adminLookups.push(id);return account();}}}),
  clerkMiddleware:(callback:any)=>{middleware=async(...args:any[])=>{inMiddleware=true;try{return await callback(...args);}finally{inMiddleware=false;}};return async()=>{};}
+}});
+mock.module("../lib/clerk-reads.ts",{namedExports:{
+ currentClerkSession:async()=>{},
+ currentClerkUser:async(id:string)=>{adminLookups.push(id);return account();}
 }});
 mock.module("../lib/store.ts",{namedExports:{rateLimit:async()=>{},mutate:async()=>{throw Error("must not reach writes");}}});
 mock.module("../lib/site-maintenance.ts",{namedExports:{siteMaintenance:async()=>({blocked:false})}});
@@ -47,18 +51,18 @@ test("server middleware protects all room pages, including RSC requests",async()
  userId=null;
  for(const path of ["/poker","/blackjack","/roulette","/markets","/wallet","/settings","/standings","/players"]){
   const req=new NextRequest("https://example.test"+path+"?_rsc=fixture");
-  const r=await middleware(async()=>({userId}),req);
+  const r=await middleware(async()=>({userId,sessionId:"session_fixture"}),req);
   assert.equal(r.status,307,path);assert.equal(r.headers.get("location"),"https://example.test/");
  }
 });
 test("players admin page is denied server-side to ordinary authenticated users",async()=>{
  userId="alice";admin=false;
- assert.equal((await middleware(async()=>({userId}),new NextRequest("https://example.test/players"))).status,404);
- admin=true;assert.equal(await middleware(async()=>({userId}),new NextRequest("https://example.test/players")),undefined);
+ assert.equal((await middleware(async()=>({userId,sessionId:"session_fixture"}),new NextRequest("https://example.test/players"))).status,404);
+ admin=true;assert.equal(await middleware(async()=>({userId,sessionId:"session_fixture"}),new NextRequest("https://example.test/players")),undefined);
 });
 test("intentional public pages remain public",async()=>{
  userId=null;
- for(const path of ["/","/leaderboard","/privacy","/terms"])assert.equal(await middleware(async()=>({userId}),new NextRequest("https://example.test"+path)),undefined);
+ for(const path of ["/","/leaderboard","/privacy","/terms"])assert.equal(await middleware(async()=>({userId,sessionId:"session_fixture"}),new NextRequest("https://example.test"+path)),undefined);
 });
 test("every external API uses authenticated endpoint; internal live uses process secret",()=>{
  for(const dir of readdirSync("app/api")){
@@ -71,12 +75,12 @@ test("every external API uses authenticated endpoint; internal live uses process
 test("admin middleware reads the verified callback ID without App Router auth helpers",async()=>{
  userId="alice";admin=true;adminLookups.length=0;
  for(const path of ["/players","/players/detail","/admin","/admin/settings"]){
-  assert.equal(await middleware(async()=>({userId:"callback-session"}),new NextRequest("https://example.test"+path)),undefined);
+  assert.equal(await middleware(async()=>({userId:"callback-session",sessionId:"session_fixture"}),new NextRequest("https://example.test"+path)),undefined);
  }
  assert.deepEqual(adminLookups,Array(4).fill("callback-session"));
  admin=false;
  for(const path of ["/players","/players/detail","/admin","/admin/settings"]){
-  assert.equal((await middleware(async()=>({userId:"callback-session"}),new NextRequest("https://example.test"+path))).status,404);
+  assert.equal((await middleware(async()=>({userId:"callback-session",sessionId:"session_fixture"}),new NextRequest("https://example.test"+path))).status,404);
  }
 });
 test("signed-out admin requests never look up a user",async()=>{

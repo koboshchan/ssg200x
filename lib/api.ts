@@ -1,5 +1,6 @@
+import {currentClerkUser,currentClerkSession} from "./clerk-reads";
 import {clerkDisplayName} from "../runtime/clerk-names.mjs";
-import {auth,currentUser} from "@clerk/nextjs/server";
+import {auth} from "@clerk/nextjs/server";
 import {NextResponse} from "next/server";
 import {ZodError,type ZodType} from "zod";
 import {AppError,ensure} from "./errors";
@@ -13,12 +14,14 @@ export const configured=clerkConfigured;
 export async function endpoint(request:Request,handler:(who:Identity)=>Promise<unknown>) {
  try {
   ensure(configured(),"Clerk setup required.",503);
-  const {userId}=await auth(); ensure(userId,"Sign in with Google.",401);
+  const {userId,sessionId}=await auth(); ensure(userId,"Sign in with Google.",401);
   if(request.method!=="GET") {
    ensure(process.env.APP_ORIGIN&&request.headers.get("origin")===new URL(process.env.APP_ORIGIN).origin,"Request origin not allowed.",403);
    ensure(request.headers.get("content-type")?.split(";")[0]==="application/json","Use application/json.",415);
   }
-  const user=await currentUser();
+  ensure(sessionId,"Sign in with Google.",401);
+  await currentClerkSession(sessionId,userId);
+  const user=await currentClerkUser(userId);
   const email=verifiedGoogleEmail(user);
   ensure(user&&email,"A verified Google-only account is required.",403);
   const who:Identity={id:userId,name:clerkDisplayName(user),email,admin:user.privateMetadata?.admin===true};
