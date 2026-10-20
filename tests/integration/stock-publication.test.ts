@@ -1,0 +1,23 @@
+import {test,after} from "node:test";
+import assert from "node:assert/strict";
+import {db,readRoom,closeDatabase} from "../../lib/db";
+import {mutateStockPublication} from "../../lib/store";
+if(!process.env.MONGODB_DB?.startsWith("fakebucks_test_"))throw Error("Requires isolated test DB");
+process.env.MONGODB_DB+="_stock_publication";
+after(async()=>{await(await db()).dropDatabase();await closeDatabase();});
+test("existing worker lease fences stock publication without changing funds or unrelated mutations",async()=>{
+ const database=await db();await database.dropDatabase();await readRoom();
+ const workers=database.collection<{_id:string;owner:string;until:number}>("workers");
+ await workers.insertOne({_id:"coinbase-feed",owner:"old",until:Date.now()+15000});
+ await mutateStockPublication("old",room=>{room.quotes={SPCX:{micro:150_000_000,at:Date.now()}};});
+ const before=await readRoom();
+ await workers.updateOne({_id:"coinbase-feed"},{$set:{owner:"new",until:Date.now()+15000}});
+ await assert.rejects(mutateStockPublication("old",room=>{room.house=999999;room.quotes={};}),/lease revoked/i);
+ assert.deepEqual(await readRoom(),before);
+ await workers.updateOne({_id:"coinbase-feed"},{$set:{until:Date.now()-1}});
+ await assert.rejects(mutateStockPublication("new",room=>{room.house=123;}),/lease revoked/i);
+ assert.deepEqual(await readRoom(),before);
+ await workers.updateOne({_id:"coinbase-feed"},{$set:{until:Date.now()+15000}});
+ await assert.rejects(mutateStockPublication("new",()=>{throw Error("fixture abort");}),/fixture abort/);
+ assert.deepEqual(await readRoom(),before);
+});
