@@ -41,3 +41,16 @@ test("crypto retains its existing inclusive 10s quote deadline",()=>{
  const r=freshRoom();r.quotes={BTC:{micro:100e6,at:now-10000}};
  assert.equal(requireQuote(r,"BTC",now),100e6);assert.throws(()=>requireQuote(r,"BTC",now+1));
 });
+
+test("socket and HTTP stock statuses share the receipt-bounded 60s deadline",async()=>{
+ // @ts-expect-error Runtime ESM module is exercised directly, without a declaration file.
+ const {marketPayload}=await import("../runtime/market-payload.mjs");
+ for(const age of [59999,60000,-1]){
+  const {r}=fixture(age);
+  const socket=marketPayload(r,who.id,now)!.stockExecution.AAPL;
+  assert.equal(socket.executable,age===59999);
+  assert.equal(socket.executable,publicStockState(r,now).AAPL.executable);
+ }
+ const {r}=fixture(0);r.stockExecution!.AAPL!.tick!.receivedAt=now-59999;
+ assert.equal(marketPayload(r,who.id,now)!.stockExecution.AAPL.validUntil,now+1);
+});

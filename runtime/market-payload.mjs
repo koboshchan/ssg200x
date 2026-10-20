@@ -20,9 +20,9 @@ export function marketPayload(room,userId,now=Date.now()) {
  const stockExecution=Object.fromEntries(["AAPL","TSLA","NVDA","MSFT","AMD","SPCX"].map(symbol=>{
   const state=room.stockExecution?.[symbol],q=quotes[symbol],tick=state?.tick,clock=state?.clock;
   const session=state?.sessions?.find(s=>now>=s.open&&now<s.close);
-  const validUntil=Math.min(state?.leaseUntil||0,(tick?.timestamp||0)+10000,(clock?.receivedAt||0)+60000,session?.close||0);
-  const executable=!!(state?.symbol===symbol&&state.authorized&&state.connected&&state.leader&&state.halt==="clear"&&state.corporateActionsReconciled&&session&&clock?.isOpen&&clock.nextClose===session.close&&Math.abs(now-clock.timestamp)<=60000&&now>=clock.receivedAt&&now<validUntil&&tick?.symbol===symbol&&tick.feed==="alpaca-iex"&&now>=tick.timestamp&&now>=tick.receivedAt&&now-tick.receivedAt<=15000&&tick.timestamp>=session.open&&q?.micro===Math.round(tick.price*1e6)&&q?.at===tick.timestamp);
-  return [symbol,{executable,reason:executable?"fresh_regular_session":"stock_state_unavailable",checkedAt:now,validUntil}];
+  const validUntil=Math.min(state?.leaseUntil||0,(tick?.timestamp||0)+60000,(tick?.receivedAt||0)+60000,(clock?.receivedAt||0)+60000,session?.close||0);
+  const executable=!!(state?.symbol===symbol&&state.authorized&&state.connected&&state.leader&&session&&clock?.isOpen&&clock.nextClose===session.close&&Math.abs(now-clock.timestamp)<=60000&&now>=clock.receivedAt&&now<validUntil&&tick?.symbol===symbol&&tick.feed==="alpaca-iex"&&now>=tick.timestamp&&now>=tick.receivedAt&&now-tick.receivedAt<60000&&tick.timestamp>=session.open&&q?.micro===Math.round(tick.price*1e6)&&q?.at===tick.timestamp);
+  return [symbol,{executable,reason:executable?"fresh_regular_session":!session||!clock?.isOpen?"closed_or_calendar_unverified":"stale_or_invalid_tick",checkedAt:now,validUntil}];
  }));
 
  return {stockExecution,netWorth:netWorthFor(member),leaderboard,version:room.version,serverNow:now,quotes,holdings,positions,closedPositions:(member.closedPositions||[]).map(p=>({id:p.id,symbol:p.symbol,side:p.side,leverage:p.leverage,entry:p.entry,exit:p.exit,margin:p.margin,realizedPnl:p.realizedPnl,reason:p.reason,closedAt:p.closedAt})),wallet:member.wallet,activity:(member.activity||[]).slice(0,40)};

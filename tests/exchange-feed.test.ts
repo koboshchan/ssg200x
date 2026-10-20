@@ -51,11 +51,11 @@ test("persistence failure retains bounded ticks for retry and missing products e
  f.feed.receive(JSON.stringify({type:"subscriptions",channels:[{name:"ticker",product_ids:["BTC-USD"]}]}));assert.ok(f.logs.some(s=>s.includes("missing ticker products")));
  f.feed.stop();
 });
-test("all twenty healthy products suppress fallback until stale and fresh tick recovers",async()=>{
+test("all active healthy products suppress fallback until stale and fresh tick recovers",async()=>{
  const f=fixture();
  for(const s of SYMBOLS)f.feed.receive(f.tick(1).replace("BTC-USD",s+"-USD"));
  await flush();assert.deepEqual(f.feed.staleSymbols(),[]);
- f.advance(STALE_MS+1);assert.equal(f.feed.staleSymbols().length,20);
+ f.advance(STALE_MS+1);assert.equal(f.feed.staleSymbols().length,SYMBOLS.length);
  for(const s of SYMBOLS)f.feed.receive(f.tick(2).replace("BTC-USD",s+"-USD"));
  await flush();assert.deepEqual(f.feed.staleSymbols(),[]);f.feed.stop();
 });
@@ -66,7 +66,7 @@ test("transport stalls close and reconnect even without close event",()=>{
 
 test("startup has ten seconds of WebSocket-only grace, independent of reconnects",()=>{
  const f=fixture();assert.deepEqual(f.feed.staleSymbols(),[]);f.feed.step();f.advance(STALE_MS);assert.deepEqual(f.feed.staleSymbols(),[]);
- f.advance(1);assert.equal(f.feed.staleSymbols().length,20);f.feed.stop();
+ f.advance(1);assert.equal(f.feed.staleSymbols().length,SYMBOLS.length);f.feed.stop();
 });
 test("bounded clock skew accepts genuine near-future events, clamps cache time and rejects farther future",async()=>{
  const f=fixture();f.feed.receive(f.tick(1,"100",f.now()+25));f.feed.receive(f.tick(2,"101",f.now()+1001));await flush();assert.equal(f.applied.length,1);assert.equal(f.applied[0].at,f.now());f.feed.stop();
@@ -76,6 +76,6 @@ test("real epoch startup baseline gates fallback at elapsed 0, 9999 and 10001ms"
  const f=fixture();assert.ok(f.now()>1_000_000_000_000);
  assert.deepEqual(f.feed.staleSymbols(),[]);
  f.advance(9999);assert.deepEqual(f.feed.staleSymbols(),[]);
- f.advance(2);assert.equal(f.feed.staleSymbols().length,20);
+ f.advance(2);assert.equal(f.feed.staleSymbols().length,SYMBOLS.length);
  f.feed.stop();
 });

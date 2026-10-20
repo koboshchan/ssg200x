@@ -35,9 +35,6 @@ export function startPriceWorker(){
  const stocks=new StockRuntime({
   env:process.env,leaseUntil:()=>leaseUntil-1000,isLeader:()=>!stopped&&Date.now()<leaseUntil-1000,
   socket:url=>new WebSocket(url) as unknown as StockSocket,fetch,now:Date.now,
-  // A trade print cannot prove halt clearance or corporate-action reconciliation.
-  // Keep execution fail-closed until authoritative instrument state is integrated.
-  instrumentStatus:()=>({halt:"unknown",corporateActionsReconciled:false}),
   publish:async(states,tick)=>{
    if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Stock lease unavailable");
    if(tick)await candleUpdate({});

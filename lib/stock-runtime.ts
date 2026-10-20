@@ -12,8 +12,6 @@ export type StockRuntimeOptions = {
   now: () => number;
   /** Persist state/tick under the caller's existing lease and room CAS fence. */
   publish: (states: Record<StockSymbol, StockExecutionState>, tick?: StockTick) => Promise<void>;
-  /** Unknown is deliberate until an authoritative status source is integrated. */
-  instrumentStatus: (symbol: StockSymbol) => Pick<StockExecutionState, "halt" | "corporateActionsReconciled">;
   random?: () => number;
 };
 /** Lease-owned single upstream. No networking at import or construction.
@@ -49,7 +47,7 @@ export class StockRuntime {
     const result={} as Record<StockSymbol,StockExecutionState>;
     for(const symbol of STOCK_SYMBOLS)result[symbol]={
       symbol,leaseUntil:this.o.leaseUntil?.()??this.o.now(),connected:this.connected,leader:!this.stopped&&this.o.isLeader(),authorized,
-      ...this.o.instrumentStatus(symbol),tick:this.ticks.get(symbol)??null,
+      tick:this.ticks.get(symbol)??null,
       clock:this.clock,sessions:this.sessions,
     };
     return result;

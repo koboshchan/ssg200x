@@ -2,16 +2,16 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {StockRuntime} from "../lib/stock-runtime";
 import type {StockSocket} from "../lib/stock-feed";
-test("lease-free runtime does no I/O without existing lease and preserves unknown status",async()=>{
+test("lease-free runtime does no I/O without existing lease",async()=>{
  let leader=false,requests=0,connections=0;
  const runtime=new StockRuntime({
   env:{ALPACA_KEY_ID:"fixture",ALPACA_SECRET:"fixture"},isLeader:()=>leader,now:()=>Date.parse("2026-10-19T22:00:00Z"),
   socket:()=>{connections++;return {} as StockSocket;},
   fetch:(async()=>{requests++;throw new Error("fixture");}) as typeof fetch,
-  publish:async()=>{},instrumentStatus:()=>({halt:"unknown",corporateActionsReconciled:false}),
+  publish:async()=>{},
  });
  await runtime.step();assert.equal(requests,0);assert.equal(connections,0);
- for(const state of Object.values(runtime.snapshot())){assert.equal(state.leader,false);assert.equal(state.halt,"unknown");}
+ for(const state of Object.values(runtime.snapshot())){assert.equal(state.leader,false);}
  leader=true;await runtime.step();assert.equal(requests,2);assert.equal(connections,0);
  runtime.stop();await runtime.drained();
 });
@@ -22,7 +22,7 @@ test("lease revocation fences delayed calendar responses and all socket publicat
   env:{ALPACA_KEY_ID:"fixture",ALPACA_SECRET:"fixture"},isLeader:()=>leader,now:()=>Date.parse("2026-10-19T22:00:00Z"),
   socket:()=>{connections++;return {} as StockSocket;},
   fetch:(()=>new Promise<Response>(resolve=>{if(requests++===0)resolveClock=resolve;else resolveCalendar=resolve;})) as typeof fetch,
-  publish:async()=>{writes++;},instrumentStatus:()=>({halt:"unknown",corporateActionsReconciled:false}),
+  publish:async()=>{writes++;},
  });
  const pending=runtime.step();
  leader=false;runtime.revoke();
