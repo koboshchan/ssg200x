@@ -20,7 +20,7 @@ export default function ChatDock(){
  const preferencesReady=preferencesUser===userId;
  useEffect(()=>{
   if(!isLoaded||!userId)return;
-  const c=new ChatClient(userId,live.request,indexedDbStore());
+  const c=new ChatClient(userId,(event,payload)=>live.request("chat:"+event,payload),indexedDbStore());
   setClient(c);return()=>{c.close();setClient(null);};
  },[isLoaded,userId,live.request]);
  useEffect(()=>{
