@@ -1,3 +1,5 @@
+import {isStockSymbol} from "./stock-config";
+import {stockExecutionPolicy,type StockExecutionState} from "./stock-policy";
 import {randomInt,randomUUID} from "node:crypto";
 import {ensure} from "./errors";
 import {validateTriggers,type PositionTriggers} from "./position-triggers";
@@ -18,7 +20,16 @@ export function pnl(p:Position,mark:number){return Math.floor(p.margin*p.leverag
 export function liqPrice(p:Position){if(p.liquidationOverride!=null)return p.liquidationOverride;const m=p.maintenance||0;return p.side==="long"?p.entry*(1-1/p.leverage)/(1-m):p.entry*(1+1/p.leverage)/(1+m);}
 export function liquidatable(p:Position,mark:number){return p.side==="long"?mark<=liqPrice(p):mark>=liqPrice(p);}
 export function equity(p:Position,mark:number){return Math.max(0,p.margin+pnl(p,mark));}
+/** Same server guard for every stock settlement path; unknown state preserves claims. */
+export function stockExecutable(r:Room,symbol:string,now=Date.now()){
+ if(!isStockSymbol(symbol))return true;
+ const state=(r as Room & {stockExecution?:Partial<Record<string,StockExecutionState>>}).stockExecution?.[symbol];
+ const quote=r.quotes?.[symbol as Symbol];
+ return !!state&&state.symbol===symbol&&stockExecutionPolicy(state,now).executable&&!!quote&&
+   !!state.tick&&quote.micro===Math.round(state.tick.price*1e6)&&quote.at===state.tick.timestamp;
+}
 export function requireQuote(r:Room,symbol:Symbol,now=Date.now()){
+ ensure(stockExecutable(r,symbol,now),"Stock market closed or verified live state unavailable.",503);
  const q=r.quotes?.[symbol];ensure(q&&Number.isSafeInteger(q.micro)&&q.micro>0&&now-q.at<=10_000&&now>=q.at,"Live price unavailable. Trading is paused.",503);return q.micro;
 }
 /** Only server-persisted USD quote cache is a settlement source, never USDT candles.
@@ -53,7 +64,7 @@ function settle(r:Room,m:Member,p:Position,mark:number,reason:ClosedPosition["re
 }
 export function liquidate(r:Room,now=Date.now()){
  for(const m of r.members){for(const p of [...(m.positions||[])]){
- const q=r.quotes?.[p.symbol];if(isActiveSymbol(p.symbol)&&q&&Number.isSafeInteger(q.micro)&&q.micro>0&&q.at<=now&&now-q.at<=10_000&&liquidatable(p,q.micro))settle(r,m,p,q.micro,"Liq",now);
+ const q=r.quotes?.[p.symbol];if(stockExecutable(r,p.symbol,now)&&isActiveSymbol(p.symbol)&&q&&Number.isSafeInteger(q.micro)&&q.micro>0&&q.at<=now&&now-q.at<=10_000&&liquidatable(p,q.micro))settle(r,m,p,q.micro,"Liq",now);
  }}
 }
 export function spot(r:Room,who:Identity,symbol:Symbol,side:"buy"|"sell",amount:number,now=Date.now()){

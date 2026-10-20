@@ -63,3 +63,31 @@ export async function rateLimit(id:string,limit=180) {
  ensure((await c.updateOne({_id:key,count:{$lt:limit}},{$inc:{count:1}})).matchedCount,"Too many requests. Try next minute.",429);
 }
 export const requestId = randomUUID;
+
+
+/** Stock publication only. Serialize against renewal/takeover of the EXISTING
+ * workers document in the same transaction as the room CAS. No second lock.
+ * Mongo replica-set support is required; uncertainty never falls back to an
+ * unfenced write. Ordinary mutations/payments retain their existing behavior.
+ */
+export async function mutateStockPublication(owner:string,fn:(room:Room)=>void){
+ const database=await db(),session=database.client.startSession();
+ try{
+  await session.withTransaction(async()=>{
+   const now=Date.now();
+   const lease=await database.collection<{_id:string;owner:string;until:number}>("workers").updateOne(
+    {_id:"coinbase-feed",owner,until:{$gt:now+1000}},
+    {$inc:{stockPublications:1}},{session});
+   ensure(lease.matchedCount===1,"Stock worker lease revoked.",503);
+   const c=database.collection<Room>("rooms");
+   const previous=await c.findOne({_id:"main"},{session});
+   ensure(previous,"Room unavailable.",503);
+   const next=structuredClone(previous);fn(next);assertRoom(next);
+   const {_id,...fields}=next;fields.version=previous.version+1;
+   const result=await c.updateOne({_id,version:previous.version},{$set:fields},{session});
+   ensure(result.matchedCount===1,"Stock room changed.",409);
+   // withTransaction retries conflicts from takeover/renewal, rechecking owner.
+   ensure(Date.now()<now+1000,"Stock publication expired.",503);
+  },{readConcern:{level:"snapshot"},writeConcern:{w:"majority"}});
+ }finally{await session.endSession();}
+}

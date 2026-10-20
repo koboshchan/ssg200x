@@ -1,7 +1,9 @@
-import {isActiveSymbol} from "./market-shared";
+import {StockRuntime} from "./stock-runtime";
+import type {StockSocket} from "./stock-feed";
+import {SYMBOLS} from "./market-shared";
 import {candleUpdate} from "./candles";
 import {applyMarketTick} from "./market-tick";
-import {mutate} from "./store";
+import {mutate,mutateStockPublication} from "./store";
 import {readRoom,db} from "./db";
 import {randomUUID} from "node:crypto";
 import {pollingInterval,decodeRates} from "./price-policy";
@@ -9,7 +11,7 @@ import {ExchangeFeed,type Tick} from "./exchange-feed";
 type Worker={runOnce:()=>Promise<void>;ready:Promise<void>;owner:string;feed:ExchangeFeed;timer:ReturnType<typeof setInterval>;stop:()=>void};
 const globalWorker=globalThis as typeof globalThis & {exchangePriceWorker?:Worker};
 export async function persistExchangeTicks(ticks:Tick[]){
- ticks=ticks.filter(tick=>isActiveSymbol(tick.symbol));
+ ticks=ticks.filter(tick=>(SYMBOLS as readonly string[]).includes(tick.symbol));
  if(!ticks.length)return;
  await mutate(room=>{
   for(const tick of ticks){
@@ -30,6 +32,21 @@ export function startPriceWorker(){
  let feed:ExchangeFeed;
  const makeFeed=()=>new ExchangeFeed({socket:()=>{if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Price lease unavailable");return new WebSocket("wss://ws-feed.exchange.coinbase.com");},apply:async ticks=>{if(stopped||Date.now()>=leaseUntil)throw new Error("Price lease expired");await persistExchangeTicks(ticks);},log:message=>console.warn(message)});
  feed=makeFeed();
+ const stocks=new StockRuntime({
+  env:process.env,isLeader:()=>!stopped&&Date.now()<leaseUntil-1000,
+  socket:url=>new WebSocket(url) as unknown as StockSocket,fetch,now:Date.now,
+  // A trade print cannot prove halt clearance or corporate-action reconciliation.
+  // Keep execution fail-closed until authoritative instrument state is integrated.
+  instrumentStatus:()=>({halt:"unknown",corporateActionsReconciled:false}),
+  publish:async(states,tick)=>{
+   if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Stock lease unavailable");
+   await mutateStockPublication(owner,room=>{
+    if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Stock lease revoked");
+    const quotes=tick?{[tick.symbol]:{micro:Math.round(tick.price*1e6),at:tick.timestamp}}:{};
+    applyMarketTick(room,quotes,Date.now(),states);
+   });
+  },
+ });
  async function step(){
   if(running||stopped)return;running=true;
   try{
@@ -39,13 +56,14 @@ export function startPriceWorker(){
     await locks.updateOne({_id:"coinbase-feed"},{$setOnInsert:{owner:"",until:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
     const claim=await locks.updateOne({_id:"coinbase-feed",$or:[{owner},{until:{$lte:now}}]},{$set:{owner,until:now+15000}});
     // An acknowledged claim can already be expired after a delayed database response.
-    if(stopped||!claim.matchedCount||Date.now()>=now+15000-1000){feed.stop();feed=makeFeed();leaseUntil=0;return;}
+    if(stopped||!claim.matchedCount||Date.now()>=now+15000-1000){stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;return;}
     leaseUntil=now+15000;
     }catch{
      // Renewal uncertainty immediately revokes the existing connection, not just after expiry.
-     feed.stop();feed=makeFeed();leaseUntil=0;return;
+     stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;return;
     }
    }
+   void stocks.step();
    feed.step();feed.retryPending();
    const stale=feed.staleSymbols();
    if(!stale.length||now<nextRest)return;
@@ -70,12 +88,12 @@ export function startPriceWorker(){
     await mutate(r=>{const safe=Object.fromEntries(Object.entries(fallback).filter(([s,q])=>feed.staleSymbols().includes(s as never)&&(!r.quotes?.[s as keyof typeof r.quotes]||r.quotes[s as keyof typeof r.quotes]!.at<q.at)));applyMarketTick(r,safe);});
     await candleUpdate(fallback);
    }
-  }catch{feed.stop();feed=makeFeed();leaseUntil=0;}
+  }catch{stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;}
   finally{running=false;}
  }
- const timer=setInterval(()=>{if(leaseUntil&&Date.now()>=leaseUntil-1000){feed.stop();feed=makeFeed();leaseUntil=0;}void step();},100);timer.unref();
+ const timer=setInterval(()=>{if(leaseUntil&&Date.now()>=leaseUntil-1000){stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;}void step();},100);timer.unref();
  const worker:Worker={runOnce:step,ready:Promise.resolve(),owner,get feed(){return feed;},timer,stop(){
-  stopped=true;clearInterval(timer);feed.stop();delete globalWorker.exchangePriceWorker;
+  stopped=true;clearInterval(timer);stocks.stop();feed.stop();delete globalWorker.exchangePriceWorker;
   void db().then(d=>d.collection<{_id:string;owner:string;until:number}>("workers").updateOne({_id:"coinbase-feed",owner},{$set:{until:0}})).catch(()=>{});
  }};
  globalWorker.exchangePriceWorker=worker;
