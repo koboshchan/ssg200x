@@ -3,6 +3,8 @@ import {regularStockSession, type StockClock, type StockSession} from "./stock-s
 export type StockTick = {symbol: StockSymbol; price: number; timestamp: number; receivedAt: number; feed: "alpaca-iex"};
 export type StockExecutionState = {
   symbol: StockSymbol;
+  /** Persisted ownership expiry is required at execution time across workers. */
+  leaseUntil?: number;
   connected: boolean; leader: boolean; authorized: boolean;
   /** Unknown halt/corporate-action state must never be treated as clear. */
   halt: "clear" | "halted" | "unknown"; corporateActionsReconciled: boolean;
@@ -13,6 +15,7 @@ export function stockExecutionPolicy(state: StockExecutionState, now: number) {
   if (!isStockSymbol(state.symbol)) return deny("unsupported_stock");
   if (!Number.isFinite(now)) return deny("invalid_time");
   if (!state.authorized) return deny("unauthorized_feed");
+  if (state.leaseUntil!==undefined&&(!Number.isFinite(state.leaseUntil)||now>=state.leaseUntil)) return deny("lease_expired");
   if (!state.connected || !state.leader) return deny("disconnected");
   if (state.halt !== "clear") return deny("halt_unknown_or_active");
   if (!state.corporateActionsReconciled) return deny("corporate_action_unreconciled");

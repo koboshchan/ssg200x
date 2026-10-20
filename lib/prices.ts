@@ -33,7 +33,7 @@ export function startPriceWorker(){
  const makeFeed=()=>new ExchangeFeed({socket:()=>{if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Price lease unavailable");return new WebSocket("wss://ws-feed.exchange.coinbase.com");},apply:async ticks=>{if(stopped||Date.now()>=leaseUntil)throw new Error("Price lease expired");await persistExchangeTicks(ticks);},log:message=>console.warn(message)});
  feed=makeFeed();
  const stocks=new StockRuntime({
-  env:process.env,isLeader:()=>!stopped&&Date.now()<leaseUntil-1000,
+  env:process.env,leaseUntil:()=>leaseUntil-1000,isLeader:()=>!stopped&&Date.now()<leaseUntil-1000,
   socket:url=>new WebSocket(url) as unknown as StockSocket,fetch,now:Date.now,
   // A trade print cannot prove halt clearance or corporate-action reconciliation.
   // Keep execution fail-closed until authoritative instrument state is integrated.

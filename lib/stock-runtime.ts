@@ -6,6 +6,7 @@ export type StockRuntimeOptions = {
   env: StockEnvironment;
   /** Supplied by the EXISTING price worker lease. This module acquires no lock. */
   isLeader: () => boolean;
+  leaseUntil?: () => number;
   socket: (url: string) => StockSocket;
   fetch: typeof fetch;
   now: () => number;
@@ -47,7 +48,7 @@ export class StockRuntime {
     const authorized=!!this.o.env.ALPACA_KEY_ID?.trim()&&!!this.o.env.ALPACA_SECRET?.trim();
     const result={} as Record<StockSymbol,StockExecutionState>;
     for(const symbol of STOCK_SYMBOLS)result[symbol]={
-      symbol,connected:this.connected,leader:!this.stopped&&this.o.isLeader(),authorized,
+      symbol,leaseUntil:this.o.leaseUntil?.()??this.o.now(),connected:this.connected,leader:!this.stopped&&this.o.isLeader(),authorized,
       ...this.o.instrumentStatus(symbol),tick:this.ticks.get(symbol)??null,
       clock:this.clock,sessions:this.sessions,
     };

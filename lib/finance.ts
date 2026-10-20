@@ -25,7 +25,7 @@ export function stockExecutable(r:Room,symbol:string,now=Date.now()){
  if(!isStockSymbol(symbol))return true;
  const state=(r as Room & {stockExecution?:Partial<Record<string,StockExecutionState>>}).stockExecution?.[symbol];
  const quote=r.quotes?.[symbol as Symbol];
- return !!state&&state.symbol===symbol&&stockExecutionPolicy(state,now).executable&&!!quote&&
+ return !!state&&Number.isFinite(state.leaseUntil)&&now<state.leaseUntil!&&state.symbol===symbol&&stockExecutionPolicy(state,now).executable&&!!quote&&
    !!state.tick&&quote.micro===Math.round(state.tick.price*1e6)&&quote.at===state.tick.timestamp;
 }
 export function requireQuote(r:Room,symbol:Symbol,now=Date.now()){

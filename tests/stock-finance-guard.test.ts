@@ -36,3 +36,11 @@ test("stock metadata and matching print publish atomically without allowing cryp
  assert.equal(r.stockExecution?.SPCX?.symbol,"SPCX");
  assert.equal(stockExecutable(r,"SPCX",now),false);
 });
+test("persisted feed leadership expires in another worker without a disconnect publication",()=>{
+ const r=freshRoom(),symbol="AAPL" as const;
+ const state:StockExecutionState={symbol,leaseUntil:now-1,connected:true,leader:true,authorized:true,halt:"clear",corporateActionsReconciled:true,tick:{symbol,price:200,timestamp:now-100,receivedAt:now,feed:"alpaca-iex"},clock:{isOpen:true,timestamp:now,receivedAt:now,nextOpen:now+86400000,nextClose:Date.parse("2026-10-19T20:00:00Z")},sessions:[{date:"2026-10-19",open:Date.parse("2026-10-19T13:30:00Z"),close:Date.parse("2026-10-19T20:00:00Z")}]};
+ r.stockExecution={AAPL:state};r.quotes={AAPL:{micro:200_000_000,at:now-100}};
+ assert.equal(stockExecutable(r,symbol,now),false);
+ state.leaseUntil=now+5000;assert.equal(stockExecutable(r,symbol,now),true);
+ delete state.leaseUntil;assert.equal(stockExecutable(r,symbol,now),false);
+});
