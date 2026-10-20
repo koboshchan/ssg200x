@@ -58,14 +58,14 @@ test("setup stages keys and shows words before publication; lost keys ACK retrie
  finally{resumed.close();}
 });
 
-test("reload before words confirmation offers recovery or explicit reset without publishing",async()=>{
+test("reload before words confirmation offers recovery only without publishing",async()=>{
  const store=new MemoryStore();let puts=0;
  const transport=async(e:string)=>{if(e==="keys:put")puts++;return {identity:null};};
  const c=new ChatClient("a",transport,store,Date.now,openMessage,store.budget);await c.createIdentity();const words=c.getSnapshot().words!.join(" ");c.close();
  const resumed=new ChatClient("a",transport,store,Date.now,openMessage,store.budget);
  try{
   await resumed.start();assert.equal(resumed.getSnapshot().phase,"recover");assert.equal(resumed.getSnapshot().error,"setup_words_lost");assert.equal(puts,0);
-  assert.ok(words.length);await resumed.resetIdentity();assert.equal(await store.getSetup("a"),undefined);assert.equal(resumed.getSnapshot().phase,"setup");
+  assert.ok(words.length);assert.equal((resumed as any).resetIdentity,undefined);await resumed.createIdentity();assert.equal(resumed.getSnapshot().phase,"recover");assert.ok(await store.getSetup("a"));
  }finally{resumed.close();}
 });
 
@@ -386,4 +386,13 @@ test("pre-ACK start storm and already queued sync jobs cannot ACK-pace a rate-li
   assert.equal(calls,2);assert.equal(peak,1);
   assert.equal(budget.status("queued-storm").failures,2);
  }finally{original.close();remounted.close();}
+});
+
+test("createIdentity rejects when a server or local identity exists; dock has no reset UI",async()=>{
+ const {readFileSync}=await import("node:fs");
+ const {a,store}=await seeded();
+ const c=new ChatClient("a",async()=>({identity:null}),store,Date.now,openMessage,store.budget);
+ try{await c.createIdentity();assert.equal(c.getSnapshot().error,"identity_exists");assert.notEqual(c.getSnapshot().phase,"words");}finally{c.close();}
+ const src=readFileSync(new URL("../app/chat-dock.tsx",import.meta.url),"utf8");
+ assert.doesNotMatch(src,/reset|regenerat|lost my recovery/i);
 });

@@ -418,7 +418,8 @@ export class ChatClient{
    try{
     const existing=await this.store.getSetup(this.user);
     if(existing)throw new Error("setup_words_lost");
-    const made=await createIdentity(this.user,this.serverIdentity?.keyVersion??0);
+    if(this.identity||this.serverIdentity||await this.store.getIdentity(this.user))throw new Error("identity_exists");
+    const made=await createIdentity(this.user,0);
     await this.store.putSetup(this.user,{identity:made.identity,body:made.body,confirmed:false});
     this.set({phase:"words",words:made.words});
    }catch(e){this.set({error:codeOf(e)});}finally{this.set({busy:false});}
@@ -438,17 +439,6 @@ export class ChatClient{
     this.set({words:null,phase:"loading"});
     await this.sync();
    }catch(e){this.fail(e);}finally{this.set({busy:false});}
-  });
- }
- /** Caller must obtain explicit destructive confirmation. Old authorized history is lost. */
- async resetIdentity(){
-  return this.run(async()=>{
-   const {identity:server}=await this.request("keys:get",{v:1}) as {identity:ServerIdentity|null};
-   this.serverIdentity=server||undefined;
-   await this.store.clearSetup(this.user);await this.store.clearIdentity(this.user);
-   this.identity=undefined;this.registered=false;
-   this.clearSession();
-   this.set({phase:"setup",words:null,messages:[],error:null});
   });
  }
  async recover(input:string){
