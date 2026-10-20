@@ -2,7 +2,7 @@
 // Identity keys and the local epoch KEK are nonextractable CryptoKeys. Epoch bytes are AES-GCM
 // sealed at rest; temporary extractable working keys exist only to share an authorized grant.
 import type {BootstrapPayload,ChatStore,Pin,Setup} from "./chat-client";
-import {b64,unb64,importEpochKey,randomBytes,type Identity} from "./chat-crypto";
+import {b64,unb64,importEpochKey,randomBytes,sealLocalRecord,openLocalRecord,type LocalSealed,type Identity} from "./chat-crypto";
 const DB="ssg200x-tabletalk",STORE="kv";
 function open():Promise<IDBDatabase>{
  return new Promise((resolve,reject)=>{
@@ -23,7 +23,8 @@ async function tx<T>(mode:IDBTransactionMode,fn:(s:IDBObjectStore)=>IDBRequest<T
 const get=<T,>(k:string)=>tx<T>("readonly",s=>s.get(k));
 const put=(k:string,v:unknown)=>tx("readwrite",s=>s.put(v,k)).then(()=>{});
 const del=(k:string)=>tx("readwrite",s=>s.delete(k)).then(()=>{});
-type Sealed={v:1;iv:string;ciphertext:string};
+type Sealed=LocalSealed;
+type StoredSetup={identity:Identity;publication:LocalSealed;confirmed:boolean};
 const enc=new TextEncoder();
 const bytes=(s:string)=>unb64(s) as Uint8Array<ArrayBuffer>;
 async function kek(user:string){
@@ -59,8 +60,16 @@ export function indexedDbStore():ChatStore{
     return undefined;
    });
   },
-  getSetup:u=>get<Setup>("setup:"+u),
-  putSetup:(u,s)=>put("setup:"+u,s),
+  async getSetup(u){
+   const record=await get<StoredSetup|Setup>("setup:"+u);if(!record)return;
+   if("body" in record){await store.putSetup(u,record);return record;}
+   return {identity:record.identity,confirmed:record.confirmed,
+    body:await openLocalRecord<Setup["body"]>(await kek(u),u,"setup-publication",record.publication)};
+  },
+  async putSetup(u,s){
+   const publication=await sealLocalRecord(await kek(u),u,"setup-publication",s.body);
+   await put("setup:"+u,{identity:s.identity,confirmed:s.confirmed,publication} satisfies StoredSetup);
+  },
   clearSetup:u=>del("setup:"+u),
   async getEpoch(u,e){
    const id="epoch:"+u+":"+e,record=await get<Sealed|CryptoKey>(id);if(!record)return;

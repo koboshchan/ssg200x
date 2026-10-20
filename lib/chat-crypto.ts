@@ -143,3 +143,18 @@ export async function openMessage(m:WireMessage,epochKey:CryptoKey):Promise<{ok:
   return {ok:true,text:dec.decode(plain)};
  }catch{return {ok:false,reason:"decrypt"};}
 }
+
+// Local opaque records use a browser-generated nonextractable KEK, never recovery words.
+// Context binding prevents ciphertext substitution between users and record purposes.
+export type LocalSealed={v:1;iv:string;ciphertext:string};
+const localAad=(user:string,purpose:string)=>enc.encode(canonical(["tabletalk",1,"local-record",user,purpose]));
+export async function sealLocalRecord(key:CryptoKey,user:string,purpose:string,value:unknown):Promise<LocalSealed>{
+ const raw=enc.encode(canonical(value)),iv=randomBytes(12);
+ try{return {v:1,iv:b64(iv),ciphertext:b64(await subtle().encrypt({name:"AES-GCM",iv,additionalData:localAad(user,purpose)},key,raw))};}
+ finally{raw.fill(0);}
+}
+export async function openLocalRecord<T>(key:CryptoKey,user:string,purpose:string,record:LocalSealed):Promise<T>{
+ if(record.v!==1)throw new Error("bad_local_record");
+ const raw=new Uint8Array(await subtle().decrypt({name:"AES-GCM",iv:buf(unb64(record.iv)),additionalData:localAad(user,purpose)},key,buf(unb64(record.ciphertext))));
+ try{return JSON.parse(dec.decode(raw)) as T;}finally{raw.fill(0);}
+}
