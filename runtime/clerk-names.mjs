@@ -7,9 +7,8 @@ export function clerkDisplayName(user){
  // Backend User has no fullName getter in some SDK versions. A last name alone
  // is not a full name and must not outrank username.
  const full=label(user.fullName)||label(first?[first,last].filter(Boolean).join(" "):"");
- const primary=user.emailAddresses?.find(e=>e.id===user.primaryEmailAddressId);
- const email=clean(primary?.emailAddress||user.primaryEmailAddress?.emailAddress||user.emailAddresses?.[0]?.emailAddress);
- return full||label(first)||label(user.username)||label(email.includes("@")?email.slice(0,email.lastIndexOf("@")):"")||"Player";
+ // Never derive a public label from any part of a private email address.
+ return full||label(first)||label(user.username)||"Player";
 }
 export async function loadClerkProfiles(clerk,ids){
  const unique=[...new Set(ids.filter(id=>typeof id==="string"&&id))],profiles=new Map();

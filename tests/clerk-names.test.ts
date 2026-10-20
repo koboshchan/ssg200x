@@ -14,17 +14,17 @@ import {emitState,createStateReceiver} from "../runtime/state-stream.mjs";
 import {internalLiveAuthorized,liveSnapshotInput} from "../lib/internal-live";
 import type {Transfer} from "../lib/transfers";
 
-test("canonical Clerk fallback handles full name, backend first+last, blanks, username and only email local-part",()=>{
+test("canonical Clerk fallback handles full name, backend first+last, blanks, username and anonymous fallback without email local-part",()=>{
  const email={primaryEmailAddressId:"primary",emailAddresses:[{id:"other",emailAddress:"wrong@domain.test"},{id:"primary",emailAddress:"local.part@private.test"}]};
  const cases:[any,string][]=[
   [{...email,fullName:"  Full Person  ",firstName:"First",lastName:"Last",username:"handle"},"Full Person"],
   [{...email,firstName:" First ",lastName:" Last "},"First Last"],
   [{...email,firstName:" First ",lastName:null},"First"],
   [{...email,fullName:" \t ",firstName:null,lastName:"Last",username:" handle "},"handle"],
-  [{...email,firstName:"\u0000",username:" \n "},"local.part"],
-  [{emailAddresses:[{id:"one",emailAddress:"fallback@hidden.test"}]},"fallback"],
-  [{primaryEmailAddress:{emailAddress:"primary@hidden.test"}},"primary"],
-  [{username:"bad@hidden.test",...email},"local.part"],
+  [{...email,firstName:"\u0000",username:" \n "},"Player"],
+  [{emailAddresses:[{id:"one",emailAddress:"fallback@hidden.test"}]},"Player"],
+  [{primaryEmailAddress:{emailAddress:"primary@hidden.test"}},"Player"],
+  [{username:"bad@hidden.test",...email},"Player"],
   [null,"Player"],[{},"Player"],[{firstName:null,lastName:"Last"},"Player"],
  ];
  for(const [profile,expected] of cases)assert.equal(clerkDisplayName(profile),expected);
@@ -111,7 +111,7 @@ test("transfer and airdrop immutable audit labels are replaced at presentation, 
 test("socket identity ignores stored/client labels and uses canonical server Clerk name",()=>{
  const user={firstName:"Full",lastName:"Person",username:"handle",emailAddresses:[{id:"primary",emailAddress:"alice@private.test",verification:{status:"verified"}}],primaryEmailAddressId:"primary",passwordEnabled:false,externalAccounts:[{provider:"google",emailAddress:"alice@private.test"}],privateMetadata:{}};
  assert.equal(verifiedSocketIdentity(user,alice.id)?.name,"Full Person");
- assert.equal(verifiedSocketIdentity({...user,firstName:null,lastName:null,username:null},alice.id)?.name,"alice");
+ assert.equal(verifiedSocketIdentity({...user,firstName:null,lastName:null,username:null},alice.id)?.name,"Player");
  assert.equal(verifiedSocketIdentity({...user,passwordEnabled:true},alice.id),null);
 });
 test("trusted live batch cannot enter without internal secret and public action schemas never accept names",()=>{

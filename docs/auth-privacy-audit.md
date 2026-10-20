@@ -46,10 +46,10 @@ Existing controls verified: all external APIs use the shared Clerk endpoint; pri
 
 Unresolved migration requirement: legacy E2EE chat embeds Clerk IDs in signed data, AES-GCM AAD and key-wrap HKDF. Replacing those fields destroys history verification/decryption. See chat-identity-privacy.md and real WebCrypto regression tests. No destructive reset or silent history loss performed. Public cryptographic device keys are inherently necessary for peer encryption; private keys and recovery backup are not returned to other users.
 
-Parallel display-name work must NOT use email local-part as fallback. That leaks part of the email even without @. Use a generated Player label from a random publicId (for example Player 1234) when fullName, firstName and username are unavailable. This audit does not claim that parallel fallback is fixed.
+Fixed after integration: parallel display-name work used email local-part as fallback, leaking private email information without @. Removed every email fallback; missing fullName, firstName and username now yield Player. Regression tests explicitly require no email-derived labels.
 
 No Clerk keys were used in builds. Tests use explicit fake keys and mocked Clerk I/O only. No production or Windows resources were touched.
 
 ## Verification
 
-The new page-denial and privacy/session tests were run against the old implementations first: two auth tests and two privacy tests failed. With fixes all pass. TypeScript passes. Full-suite unrelated failures are documented in verification evidence rather than hidden.
+The new page-denial and privacy/session tests were run against the old implementations first: two auth tests and two privacy tests failed. With fixes all pass. TypeScript passes. After rebasing onto the concurrent release-fixture fixes, the full suite passes with one existing skipped integration prerequisite.
