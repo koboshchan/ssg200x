@@ -1,5 +1,5 @@
 /** Server-only prerequisites, never import provider credentials into client code. */
-export const STOCK_SYMBOLS = ["AAPL", "TSLA", "NVDA", "MSFT"] as const;
+export const STOCK_SYMBOLS = ["AAPL", "TSLA", "NVDA", "MSFT", "AMD"] as const;
 export type StockSymbol = typeof STOCK_SYMBOLS[number];
 export function isStockSymbol(value: unknown): value is StockSymbol {
   return typeof value === "string" && (STOCK_SYMBOLS as readonly string[]).includes(value);
