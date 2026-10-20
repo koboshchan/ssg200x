@@ -97,6 +97,19 @@ test('real Mongo stores ciphertext only, bootstrap leases, wrapping, replay, str
  await assert.rejects(chat.handle(a.user,'send',p),/stale_revision/);
  const fresh=await chat.handle(a.user,'state',{v:1});assert.notEqual(fresh.epoch,state.epoch);assert.ok(fresh.revision>state.revision);assert.ok(fresh.wraps.some((w:any)=>w.epoch===state.epoch));
  const retainedSender=fresh.wraps.find((w:any)=>w.epoch===state.epoch);assert.equal(retainedSender.senderDhPublic,b.registration.dhPublic);assert.equal(retainedSender.senderSignPublic,b.registration.signPublic);
+ // Fresh recipient has only restored account private keys, no cached room key or current grantor directory.
+ assert.equal(fresh.members.some((m:any)=>m.userId===b.user),false);
+ const historicDh=await webcrypto.subtle.importKey('raw',Buffer.from(retainedSender.senderDhPublic,'base64url'),{name:'ECDH',namedCurve:'P-256'},false,[]);
+ const historicSign=await webcrypto.subtle.importKey('raw',Buffer.from(retainedSender.senderSignPublic,'base64url'),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+ assert.equal(await webcrypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},historicSign,Buffer.from(retainedSender.signature,'base64url'),bytes(signedWrap(b.user,retainedSender))),true);
+ const restoredShared=await webcrypto.subtle.deriveBits({name:'ECDH',public:historicDh},a.dh.privateKey,256);
+ const restoredMaterial=await webcrypto.subtle.importKey('raw',restoredShared,'HKDF',false,['deriveKey']);
+ const restoredRoomKey=await webcrypto.subtle.deriveKey({name:'HKDF',hash:'SHA-256',salt:Buffer.from(retainedSender.salt,'base64url'),info:bytes(JSON.stringify(wrapHeader(b.user,retainedSender)))},restoredMaterial,{name:'AES-GCM',length:256},false,['decrypt']);
+ const restoredRaw=await webcrypto.subtle.decrypt({name:'AES-GCM',iv:Buffer.from(retainedSender.iv,'base64url'),additionalData:bytes(JSON.stringify([...wrapHeader(b.user,retainedSender),retainedSender.salt]))},restoredRoomKey,Buffer.from(retainedSender.ciphertext,'base64url'));
+ assert.deepEqual(new Uint8Array(restoredRaw),raw);
+ const recoveredRoom=await webcrypto.subtle.importKey('raw',restoredRaw,'AES-GCM',false,['decrypt']);
+ assert.equal(new TextDecoder().decode(await webcrypto.subtle.decrypt({name:'AES-GCM',iv:Buffer.from(p.iv,'base64url'),additionalData:bytes(JSON.stringify(messageHeader(a.user,p)))},recoveredRoom,Buffer.from(p.ciphertext,'base64url'))),secret);
+
  // Restored browser carries same account key ID and reads retained older epoch.
  const restored=createChatService(db,{now:()=>clock});
  assert.equal((await restored.handle(a.user,'history',{v:1,epoch:state.epoch,deviceId:a.deviceId})).messages.length,1);
