@@ -6,7 +6,8 @@ import type {Room,Identity} from './types';
 // Six-deck S17, blackjack 3:2. One split only; split aces receive one card,
 // no resplit, no insurance/surrender. Double any initial two cards (including splits).
 export type BlackjackHand={cards:string[];bet:number;done:boolean;split:boolean;payout:number;result?:string};
-export type BlackjackSeat={userId:string;bet:number;hands:BlackjackHand[];leaveAfter:boolean};
+export const BLACKJACK_IDLE_MS=300_000;
+export type BlackjackSeat={userId:string;bet:number;hands:BlackjackHand[];leaveAfter:boolean;idleRemaining?:number;idleDeadline?:number|null};
 export type BlackjackState={phase:'betting'|'playing'|'settled';seats:(BlackjackSeat|null)[];dealer:string[];shoe:string[];turn:number|null;hand:number;deadline:number|null;round:number;revealed:boolean};
 export type BlackjackAction={type:'join';seat:number}|{type:'leave'}|{type:'bet';amount:number}|{type:'hit'|'stand'|'double'|'split'};
 type BRoom=Room & {blackjack?:BlackjackState};
@@ -21,6 +22,27 @@ function member(r:BRoom,id:string){const m=r.members.find(m=>m.id===id);ensure(m
 function draw(b:BlackjackState){ensure(b.shoe.length,'Blackjack shoe exhausted.',500);return b.shoe.pop()!;}
 const natural=(h:BlackjackHand)=>!h.split&&h.cards.length===2&&blackjackValue(h.cards)===21;
 export function blackjackAssets(r:Room):number{const b=(r as BRoom).blackjack;if(!b)return 0;return b.seats.reduce((n,s)=>n+(s?(b.phase==='betting'?s.bet:b.phase==='playing'?s.hands.reduce((v,h)=>v+h.bet,0):0):0),0);}
+// Only open betting time consumes this budget. Persist the paused remainder so
+// a long hand, settlement break, disconnect or restart cannot steal betting time.
+function idleClocks(b:BlackjackState,now:number){
+ for(const s of b.seats){if(!s)continue;
+  s.idleRemaining??=BLACKJACK_IDLE_MS;
+  if(b.phase==='betting'){
+   if(s.idleDeadline==null)s.idleDeadline=now+s.idleRemaining;
+  }else if(s.idleDeadline!=null){
+   s.idleRemaining=Math.max(0,s.idleDeadline-now);s.idleDeadline=null;
+  }
+ }
+}
+function expireIdle(b:BlackjackState,now:number){
+ if(b.phase!=='betting')return;
+ for(let i=0;i<b.seats.length;i++){const s=b.seats[i];
+  if(s&&s.bet===0&&s.hands.length===0&&s.idleDeadline!=null&&now>=s.idleDeadline)b.seats[i]=null;
+ }
+}
+export function blackjackNeedsTick(b:BlackjackState,now:number):boolean{
+ return (b.deadline!==null&&now>=b.deadline)||(b.phase==='betting'&&b.seats.some(s=>s&&s.bet===0&&(s.idleDeadline==null||now>=s.idleDeadline)));
+}
 function settle(r:BRoom,b:BlackjackState,now:number){
  b.revealed=true;
  const dealerNatural=b.dealer.length===2&&blackjackValue(b.dealer)===21;
@@ -39,30 +61,33 @@ function advance(r:BRoom,b:BlackjackState,now:number){for(let i=0;i<b.seats.leng
 function deal(r:BRoom,b:BlackjackState,now:number){
  // At most 12 player hands plus dealer; reserve well beyond the maximum reachable draws.
  if(b.shoe.length<156)b.shoe=blackjackShoe();
- b.phase='playing';b.round++;b.revealed=false;b.dealer=[];
+ b.phase='playing';idleClocks(b,now);b.round++;b.revealed=false;b.dealer=[];
  for(const s of b.seats)if(s)s.hands=s.bet?[{cards:[],bet:s.bet,done:false,split:false,payout:0}]:[];
  for(let k=0;k<2;k++){for(const s of b.seats)if(s?.hands.length)s.hands[0].cards.push(draw(b));b.dealer.push(draw(b));}
  for(const s of b.seats)if(s?.hands[0]&&natural(s.hands[0]))s.hands[0].done=true;
  if(blackjackValue(b.dealer)===21)settle(r,b,now);else advance(r,b,now);
 }
-export function blackjackTick(r:Room,now:number):void{const b=(r as BRoom).blackjack;if(!b||b.deadline===null||now<b.deadline)return;
+export function blackjackTick(r:Room,now:number):void{const b=(r as BRoom).blackjack;if(!b)return;
+ idleClocks(b,now);expireIdle(b,now);
+ if(b.deadline===null||now<b.deadline)return;
  if(b.phase==='betting'){if(b.seats.some(s=>s&&s.bet>0))deal(r,b,now);else b.deadline=null;}
  else if(b.phase==='playing'){
   const i=b.turn,s=i===null?null:b.seats[i];
   if(s&&i!==null){r.house=(r.house??0)+s.hands.reduce((n,h)=>n+h.bet,0);b.seats[i]=null;}
   advance(r,b,now);
  }
- else{for(let i=0;i<b.seats.length;i++){const s=b.seats[i];if(s?.leaveAfter)b.seats[i]=null;else if(s){s.bet=0;s.hands=[];}}b.phase='betting';b.dealer=[];b.turn=null;b.deadline=null;b.revealed=false;}
+ else{for(let i=0;i<b.seats.length;i++){const s=b.seats[i];if(s?.leaveAfter)b.seats[i]=null;else if(s){s.bet=0;s.hands=[];}}b.phase='betting';b.dealer=[];b.turn=null;b.deadline=null;b.revealed=false;idleClocks(b,now);expireIdle(b,now);}
 }
 export function blackjackAction(r:Room,who:Identity,action:BlackjackAction,now:number):void{
  const rr=r as BRoom,m=member(rr,who.id);
  const b=state(rr);
+ idleClocks(b,now);expireIdle(b,now);
  ensure(!(b.phase==='playing'&&b.deadline!==null&&now>=b.deadline),'The blackjack turn expired.',409);
  const i=b.seats.findIndex(s=>s?.userId===who.id),s=i<0?null:b.seats[i];
- if(action.type==='join'){ensure(!s,'Already seated.');ensure(Number.isInteger(action.seat)&&action.seat>=0&&action.seat<6,'Invalid seat.');ensure(!b.seats[action.seat],'Seat occupied.');b.seats[action.seat]={userId:who.id,bet:0,hands:[],leaveAfter:false};return;}
+ if(action.type==='join'){ensure(!s,'Already seated.');ensure(Number.isInteger(action.seat)&&action.seat>=0&&action.seat<6,'Invalid seat.');ensure(!b.seats[action.seat],'Seat occupied.');b.seats[action.seat]={userId:who.id,bet:0,hands:[],leaveAfter:false,idleRemaining:BLACKJACK_IDLE_MS,idleDeadline:b.phase==='betting'?now+BLACKJACK_IDLE_MS:null};return;}
  ensure(s,'Take a blackjack seat first.');
  if(action.type==='leave'){if(b.phase==='playing'&&s.hands.length){s.leaveAfter=true;for(const h of s.hands)h.done=true;if(b.turn===i)advance(rr,b,now);}else{if(b.phase==='betting')m.wallet+=s.bet;b.seats[i]=null;if(b.phase==='betting'&&!b.seats.some(x=>x&&x.bet))b.deadline=null;}return;}
- if(action.type==='bet'){ensure(b.phase==='betting','Betting is closed.');ensure(Number.isSafeInteger(action.amount)&&action.amount>=100&&action.amount<=100_000&&action.amount%2===0,'Bet must be even cents between 100 and 100000.');const diff=action.amount-s.bet;ensure(m.wallet>=diff,'Insufficient funds.');m.wallet-=diff;s.bet=action.amount;if(b.deadline===null)b.deadline=now+BET_MS;return;}
+ if(action.type==='bet'){ensure(b.phase==='betting','Betting is closed.');ensure(Number.isSafeInteger(action.amount)&&action.amount>=100&&action.amount<=100_000&&action.amount%2===0,'Bet must be even cents between 100 and 100000.');const diff=action.amount-s.bet;ensure(m.wallet>=diff,'Insufficient funds.');m.wallet-=diff;s.bet=action.amount;s.idleRemaining=BLACKJACK_IDLE_MS;s.idleDeadline=now+BLACKJACK_IDLE_MS;if(b.deadline===null)b.deadline=now+BET_MS;return;}
  ensure(b.phase==='playing'&&b.turn===i,'Not your turn.');const h=s.hands[b.hand];ensure(h&&!h.done,'Hand already complete.');
  if(action.type==='stand')h.done=true;
  else if(action.type==='hit'){h.cards.push(draw(b));if(blackjackValue(h.cards)>=21)h.done=true;}
@@ -73,7 +98,7 @@ export function blackjackAction(r:Room,who:Identity,action:BlackjackAction,now:n
 }
 export function blackjackPublic(r:Room,who:Identity){const b=(r as BRoom).blackjack;if(!b)return null;
  const me=r.members.find(m=>m.id===who.id),mine=b.seats.findIndex(s=>s?.userId===who.id);
- return {phase:b.phase,round:b.round,deadline:b.deadline,turn:b.turn,hand:b.hand,dealer:b.dealer.map((c,i)=>i===0||b.revealed?c:'??'),dealerTotal:b.revealed?blackjackValue(b.dealer):null,seats:b.seats.map(s=>{if(!s)return null;const m=r.members.find(m=>m.id===s.userId);return {publicId:m?.publicId,name:m?.name,bet:s.bet,leaveAfter:s.leaveAfter,hands:s.hands.map(h=>({...h,cards:[...h.cards],total:blackjackValue(h.cards)}))};}),mySeat:mine,canAct:!!me&&b.phase==='playing'&&b.turn===mine&&mine>=0};
+ return {phase:b.phase,round:b.round,deadline:b.deadline,turn:b.turn,hand:b.hand,dealer:b.dealer.map((c,i)=>i===0||b.revealed?c:'??'),dealerTotal:b.revealed?blackjackValue(b.dealer):null,seats:b.seats.map(s=>{if(!s)return null;const m=r.members.find(m=>m.id===s.userId);return {publicId:m?.publicId,name:m?.name,bet:s.bet,leaveAfter:s.leaveAfter,idleDeadline:b.phase==='betting'&&s.bet===0?(s.idleDeadline??null):null,hands:s.hands.map(h=>({...h,cards:[...h.cards],total:blackjackValue(h.cards)}))};}),mySeat:mine,canAct:!!me&&b.phase==='playing'&&b.turn===mine&&mine>=0};
 }
 
 export const BLACKJACK_TABLE_IDS=['lounge','salon','terrace'] as const;
