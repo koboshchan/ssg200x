@@ -38,6 +38,8 @@ export class ChatClient{
  private changed=new Map<string,Device>();private publicIds=new Map<string,string>();private pins=new Map<string,Pin>();private lastView:View|undefined;
  private ambiguous=new Set<string>();private sealed=new Map<string,SendPayload>();private historical=new Map<string,Device>();
  private closed=false;private hinted=false;private staleFailures=0;
+ // Claim retries/removals synchronously, before any storage or render await.
+ private sending=new Set<string>();private removed=new Set<string>();
  private opened=new Map<string,{key:CryptoKey;res:Awaited<ReturnType<typeof openMessage>>}>();private inflight=new Map<string,Promise<Awaited<ReturnType<typeof openMessage>>>>();private windowStart=0;private extra=0;
  constructor(private user:string,private transport:Transport,private store:ChatStore,private now:()=>number=Date.now,private open:typeof openMessage=openMessage,private budget=chatRequestBudget){}
  private request:Transport=(event,payload)=>this.budget.request(this.user,event,payload,this.transport);
@@ -153,7 +155,7 @@ export class ChatClient{
    const m:WireMessage={...p,senderUserId:this.user,senderSignPublic:me.signPublic,serverTs:p.ts,cursor:Number.MAX_SAFE_INTEGER};
    let opened:Awaited<ReturnType<typeof openMessage>>;
    try{opened=await this.open(m,key);}catch{continue;}
-   if(!opened.ok)continue;
+   if(!opened.ok||this.removed.has(p.id))continue;
    this.sealed.set(p.id,p);this.ambiguous.add(p.id);
    const k=p.epoch+":"+this.user+":"+p.id;
    if(!this.local.has(k))this.local.set(k,{key:k,id:p.id,senderUserId:this.user,publicId:this.publicIds.get(this.user)||"",mine:true,ts:p.ts,serverTs:p.ts,cursor:Number.MAX_SAFE_INTEGER,epoch:p.epoch,text:opened.text,status:"failed"});
@@ -350,19 +352,30 @@ export class ChatClient{
   }
   for(const [k,m] of this.local){
    if([...this.raw.values()].some(r=>r.senderUserId===this.user&&r.id===m.id)){await this.store.deletePending(this.user,m.id);this.local.delete(k);this.sealed.delete(m.id);this.ambiguous.delete(m.id);}
-   else out.set(k,m);
+   else if(!this.removed.has(m.id))out.set(k,m);
   }
   const sorted=[...out.values()].sort((a,b)=>a.serverTs-b.serverTs||a.cursor-b.cursor||a.ts-b.ts);
   // Bounded view only; raw ciphertext history stays on the server and older pages can be fetched again.
   if(sorted.length-this.windowStart-this.extra>RENDER_CAP){this.windowStart=sorted.length-RENDER_TRIM;this.extra=0;}
   const all=sorted.slice(Math.max(0,Math.min(this.windowStart,sorted.length)-this.extra));
   const more=[...this.cursors.values()].some(c=>c!=null);
-  this.set({messages:all,hasMore:more});
+  this.set({messages:all.filter(m=>this.raw.has(m.key)||!m.mine||!this.removed.has(m.id)),hasMore:more});
  }
  async send(text:string,retryId?:string):Promise<boolean>{
+  const id=retryId||crypto.randomUUID();
+  if(this.removed.has(id)||this.sending.has(id))return false;
+  if(retryId){
+   const local=[...this.local.values()].find(m=>m.id===id);
+   // A stale button/reconnect snapshot must never recreate a removed or posted message.
+   if(!local?.mine||local.status!=="failed"||!this.sealed.has(id))return false;
+  }
+  this.sending.add(id);
+  try{return await this.sendPending(text,id);}finally{this.sending.delete(id);}
+ }
+ private async sendPending(text:string,id:string):Promise<boolean>{
   const body=text.trim(),me=this.identity;
   if(this.closed||!body||new TextEncoder().encode(body).length>MAX_TEXT_BYTES||!this.lastView||!me||this.snap.phase!=="ready")return false;
-  const id=retryId||crypto.randomUUID(),lk=this.lastView.epoch+":"+this.user+":"+id;
+  const lk=this.lastView.epoch+":"+this.user+":"+id;
   // Commit the exact signed envelope before acknowledging a pending send to the UI.
   try{
    if(!this.sealed.has(id)){
@@ -410,7 +423,22 @@ export class ChatClient{
   });
  }
  retry(m:ChatMessage){return m.text?this.send(m.text,m.id):false;}
- async dismiss(m:ChatMessage){await this.store.deletePending(this.user,m.id);this.sealed.delete(m.id);this.ambiguous.delete(m.id);this.local.delete(m.key);return this.render();}
+ /** Forget only an idle, failed local envelope. No transport or posted-history mutation. */
+ dismiss(m:ChatMessage):Promise<boolean>{
+  const local=this.local.get(m.key);
+  if(!local?.mine||local.senderUserId!==this.user||local.id!==m.id||local.status!=="failed"||this.sending.has(m.id)||this.removed.has(m.id))return Promise.resolve(false);
+  this.removed.add(m.id);
+  return this.run(async()=>{
+   try{
+    // Resolve only after the IndexedDB transaction commits. A failed delete stays retryable.
+    await this.store.deletePending(this.user,m.id);
+   }catch{
+    this.removed.delete(m.id);this.set({error:"local_storage"});await this.render();return false;
+   }
+   this.sealed.delete(m.id);this.ambiguous.delete(m.id);this.local.delete(m.key);
+   await this.render();return true;
+  });
+ }
  /** Stage keys locally; never publish before the recovery words have been saved. */
  async createIdentity(){
   return this.run(async()=>{

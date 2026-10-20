@@ -28,3 +28,10 @@ test("signed-in leaderboard uses shared authenticated shell including chat",()=>
  const root=readFileSync("app/layout.tsx","utf8");
  assert.match(root,/<RoomClient configured=\{configured\(\)\}>\{children\}<\/RoomClient>/);
 });
+
+test("failed own messages offer plain Remove and Retry, never a posted-message delete control",()=>{
+ assert.match(ui,/m.mine&&m.status==="failed"&&<small className="chat-error">Not sent\./);
+ assert.match(ui,/<button type="button" onClick=\{\(\)=>client.retry\(m\)\}>Retry<\/button>/);
+ assert.match(ui,/<button type="button" onClick=\{\(\)=>client.dismiss\(m\)\}>Remove<\/button>/);
+ assert.doesNotMatch(ui,/>Discard<\/button>/);
+});

@@ -108,6 +108,6 @@ function Bubble({m,who,client}:{m:ChatMessage;who:string;client:ChatClient}){
   <div className="chat-meta"><span>{who}</span><time dateTime={new Date(m.serverTs).toISOString()}>{time(m.serverTs)}</time></div>
   <p>{body}</p>
   {m.status==="pending"&&<small>Sending…</small>}
-  {m.status==="failed"&&<small className="chat-error">Not sent. <button onClick={()=>client.retry(m)}>Retry</button> <button onClick={()=>client.dismiss(m)}>Discard</button></small>}
+  {m.mine&&m.status==="failed"&&<small className="chat-error">Not sent. <button type="button" onClick={()=>client.retry(m)}>Retry</button> <button type="button" onClick={()=>client.dismiss(m)}>Remove</button></small>}
  </div>;
 }

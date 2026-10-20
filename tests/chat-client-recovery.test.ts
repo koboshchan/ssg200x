@@ -396,3 +396,108 @@ test("createIdentity rejects when a server or local identity exists; dock has no
  const src=readFileSync(new URL("../app/chat-dock.tsx",import.meta.url),"utf8");
  assert.doesNotMatch(src,/reset|regenerat|lost my recovery/i);
 });
+
+// Local removal must not become a second send route, even with stale UI/reconnect snapshots.
+async function removalFixture(){
+ const {a,store}=await seeded(),epoch=crypto.randomUUID(),key=await newEpochKey();
+ await store.putEpoch("a",epoch,key);
+ const events:string[]=[],posted:WireMessage[]=[];
+ let fail=true,hold:(()=>Promise<void>)|undefined;
+ const client=new ChatClient("a",async(e:string,p:any)=>{
+  events.push(e);
+  if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
+  if(e==="state")return view(a.identity,epoch);
+  if(e==="history")return {messages:posted,nextCursor:null};
+  if(e==="send"){
+   if(hold)await hold();
+   if(fail)throw Error("timeout");
+   const message={...p,senderUserId:"a",senderSignPublic:a.identity.signPublic,serverTs:Date.now(),cursor:posted.length+1};
+   posted.push(message);return {message};
+  }throw Error(e);
+ },store,Date.now,openMessage,store.budget);
+ await client.start();
+ return {client,store,events,posted,setFail:(v:boolean)=>{fail=v;},setHold:(v:typeof hold)=>{hold=v;}};
+}
+test("remove deletes only targeted failed local envelope, never emits, survives reload and stale retries",async()=>{
+ const f=await removalFixture(),{client,store,events}=f;
+ try{
+  await client.send("remove me");await client.send("keep me");
+  const [remove,keep]=client.getSnapshot().messages;
+  const other=(await store.getPending("a"))[0];await store.putPending("other",other);
+  const before=events.length;
+  assert.equal(await client.dismiss(remove),true);
+  assert.equal(events.length,before,"removal has no network requests");
+  assert.equal(await client.retry(remove),false);
+  assert.equal(await client.send(remove.text!,remove.id),false);
+  assert.equal(events.length,before,"stale retry cannot emit or recreate");
+  assert.deepEqual((await store.getPending("a")).map(p=>p.id),[keep.id]);
+  assert.equal((await store.getPending("other")).length,1);
+  await client.start();
+  assert.deepEqual(client.getSnapshot().messages.map(m=>m.id),[keep.id]);
+  f.setFail(false);assert.equal(await client.retry(keep),true);
+  const posted=client.getSnapshot().messages[0],n=events.length;
+  assert.equal(await client.dismiss(posted),false);
+  assert.equal(events.length,n);assert.equal(f.posted.length,1);
+ }finally{client.close();}
+});
+test("remove claims before durable delete, blocks racing retry and duplicate removal; delete failure retains retry",async()=>{
+ const f=await removalFixture(),{client,store,events}=f;
+ try{
+  await client.send("keep until committed");const m=client.getSnapshot().messages[0];
+  const original=store.deletePending;let release!:()=>void;
+  store.deletePending=async()=>{await new Promise<void>(r=>{release=r;});throw Error("quota");};
+  const removed=client.dismiss(m),n=events.length;
+  assert.equal(await client.retry(m),false);assert.equal(await client.dismiss(m),false);
+  // A serialized chain barrier confirms the storage transaction has started.
+  await new Promise(r=>setImmediate(r));release();
+  assert.equal(await removed,false);assert.equal(events.length,n);
+  assert.equal((await store.getPending("a")).length,1);
+  assert.equal(client.getSnapshot().messages[0].status,"failed");
+  store.deletePending=original;f.setFail(false);
+  assert.equal(await client.retry(m),true);
+ }finally{client.close();}
+});
+test("active retry cannot be removed or duplicated and an already acknowledged message stays posted",async()=>{
+ const f=await removalFixture(),{client}=f;
+ try{
+  await client.send("in flight");const m=client.getSnapshot().messages[0];
+  let entered!:()=>void,release!:()=>void;
+  const began=new Promise<void>(r=>{entered=r;});
+  f.setFail(false);f.setHold(async()=>{entered();await new Promise<void>(r=>{release=r;});});
+  const retried=client.retry(m);await began;
+  assert.equal(await client.dismiss(m),false);
+  assert.equal(await client.retry(m),false);
+  release();assert.equal(await retried,true);
+  assert.equal(await client.dismiss(m),false);
+  assert.equal(client.getSnapshot().messages[0].status,"ok");
+  assert.equal(f.posted.length,1);
+ }finally{client.close();}
+});
+test("reconnect queued before removal cannot resurrect a failed envelope",async()=>{
+ const f=await removalFixture(),{client,events,store}=f;
+ try{
+  await client.send("queued reconnect");const m=client.getSnapshot().messages[0];
+  const before=events.filter(e=>e==="send").length;
+  const reconnect=client.reconnect(),remove=client.dismiss(m);
+  await Promise.all([reconnect,remove]);
+  assert.equal(events.filter(e=>e==="send").length,before);
+  assert.equal((await store.getPending("a")).length,0);
+  assert.equal(client.getSnapshot().messages.length,0);
+ }finally{client.close();}
+});
+test("removal during pending-row decryption cannot restore or retry the captured row",async()=>{
+ const f=await removalFixture(),{client,store,events}=f;
+ try{
+  await client.send("restoration race");const m=client.getSnapshot().messages[0];
+  const original=(client as any).open;let entered!:()=>void,release!:()=>void;
+  const began=new Promise<void>(r=>{entered=r;});
+  (client as any).open=async(...args:any[])=>{entered();await new Promise<void>(r=>{release=r;});return original(...args);};
+  const sync=client.start();await began;
+  const remove=client.dismiss(m),before=events.filter(e=>e==="send").length;
+  release();await Promise.all([sync,remove]);
+  assert.equal(client.getSnapshot().messages.length,0);
+  assert.equal((await store.getPending("a")).length,0);
+  assert.equal(await client.retry(m),false);
+  assert.equal(events.filter(e=>e==="send").length,before);
+ }finally{client.close();}
+});
