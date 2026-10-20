@@ -2,7 +2,7 @@
 import {createContext,useContext,useEffect,useMemo,useRef,useState} from "react";
 import {useAuth} from "@clerk/nextjs";
 import type {Socket} from "socket.io-client";
-export type MaintenanceStatus={admin:boolean;active:boolean;blocked:boolean;manual:boolean;backfill:boolean};
+export type MaintenanceStatus={admin:boolean;active:boolean;blocked:boolean;manual:boolean;backfill:boolean;background?:boolean};
 export type HistoryStatus={status:string;reason?:string;source:string;overall:{done:number;total:number;percent:number;etaSeconds:number|null};symbols:{symbol:string;done:number;total:number;percent:number;unavailable:boolean;monthsDone:number;monthsTotal:number;daysDone:number;daysTotal:number;currentSource:string;etaSeconds:number|null}[]};
 export type Connection="connecting"|"connected"|"disconnected";
 /* Server contract (one authenticated socket.io websocket, auth:{token} = fresh Clerk session token):
@@ -32,7 +32,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    socket.io.on("reconnect_attempt",()=>setConnection("connecting"));
    socket.on("maintenance:state",(p:MaintenanceStatus)=>{setMaintenance(p);dispatch("maintenance:state",p);});
    socket.on("history:state",(p:HistoryStatus)=>{setHistory(p);dispatch("history:state",p);});
-   for(const event of ["room:state","market:update"])socket.on(event,(p:unknown)=>dispatch(event,p));
+   for(const event of ["room:state","market:update","candles:state"])socket.on(event,(p:unknown)=>dispatch(event,p));
   }).catch(()=>setConnection("disconnected"));
   return()=>{closed=true;clearTimeout(retry);socket?.disconnect();socketRef.current=undefined;};
  },[]);

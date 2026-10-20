@@ -11,6 +11,6 @@ export const GET=(request:Request)=>endpoint(request,async who=>{
  ensure((SYMBOLS as readonly string[]).includes(symbol)&&Object.hasOwn(GRANULARITIES,g),"Unsupported chart.");
  const to=Number(p.get("to")||Date.now()),from=Number(p.get("from")||(to-30*86400000));
  ensure(Number.isSafeInteger(to)&&Number.isSafeInteger(from)&&from>=0&&to>=from&&to-from<=366*86400000,"Invalid chart range.");
- const status=await candleEnsure(symbol,g,from,to);
+ const status=await candleEnsure(symbol,g,from,to).catch(()=>({status:"retry",retryAfterMs:5000}));
  return {...status,candles:await candleRead(symbol,g,from,to,1000)};
 });

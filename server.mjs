@@ -5,6 +5,7 @@ import {Server} from "socket.io";
 import {createClerkClient,verifyToken} from "@clerk/backend";
 import {MongoClient} from "mongodb";
 import {randomBytes} from "node:crypto";
+import {subscribeChart,emitChartState} from "./runtime/chart-stream.mjs";
 import {emitRoomState} from "./runtime/room-state.mjs";
 import {verifiedSocketIdentity} from "./runtime/socket-identity.mjs";
 // Assigned before Next prepares its route workers. Never accept an externally set secret.
@@ -35,7 +36,7 @@ async function pushState(socket,force=false){
  socket.data.busy=true;
  try{
   const response=await fetch(`http://127.0.0.1:${port}/api/internal-live`,{
-   method:"POST",headers:{"content-type":"application/json","x-internal-live-secret":process.env.INTERNAL_LIVE_SECRET},
+   method:"POST",headers:{"content-type":"application/json","x-internal-live-secret":process.env.INTERNAL_LIVE_SECRET,...(socket.data.chart?{"x-chart-symbol":socket.data.chart.symbol,"x-chart-granularity":socket.data.chart.granularity}:{})},
    body:JSON.stringify(socket.data.identity),signal:AbortSignal.timeout(10000)
   });
   if(!response.ok)throw new Error("Live snapshot unavailable");
@@ -47,11 +48,13 @@ async function pushState(socket,force=false){
    if(force||socket.data[key]!==fingerprint){socket.emit(event,data[key]);socket.data[key]=fingerprint;}
   }
   emitRoomState(socket,data,force);
+  emitChartState(socket,data);
   socket.data.initialized=true;
  }catch{socket.emit("live:error",{error:"Live state unavailable. Retrying."});}
  finally{socket.data.busy=false;}
 }
 io.on("connection",socket=>{
+ socket.on("candles:subscribe",selection=>subscribeChart(socket,selection));
  const expiry=setTimeout(()=>socket.disconnect(true),Math.max(0,socket.data.expires-Date.now()));
  socket.on("disconnect",()=>clearTimeout(expiry));
  void pushState(socket,true);
