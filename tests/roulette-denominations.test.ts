@@ -95,12 +95,12 @@ test("Last bet never converts dead or unknown aggregate historical chips into li
  assert.equal(r.members[0].wallet,before-500);assert.deepEqual(state.bets.map(w=>w.bet),[{kind:"red",amount:500}]);
  rouletteTick(r,138000,()=>1);assert.equal(r.members[0].spins![0].returned,1000);
 });
-test("custom change is sticky until cancellation, and clear refunds exact escrow as before",()=>{
+test("legitimate chip replacement clears private status, and clear refunds exact escrow as before",()=>{
  const r=setup();place(r,500,"one");
  rouletteAction(r,a,{type:"change",betId:"one",bet:{kind:"red",amount:300}},1,"edit",1000);
  assert.equal(r.members[0].wallet,99700);assert.equal(rouletteState(r,1000).bets[0].dead,true);
  rouletteAction(r,a,{type:"change",betId:"one",bet:{kind:"red",amount:100}},1,"launder",1000);
- assert.equal(r.members[0].wallet,99900);assert.equal(rouletteState(r,1000).bets[0].dead,true);
+ assert.equal(r.members[0].wallet,99900);assert.equal(rouletteState(r,1000).bets[0].dead,undefined);
  const before=structuredClone(r);assert.throws(()=>rouletteAction(r,b,{type:"cancel",betId:"one"},1,"other",1000));assert.deepEqual(r,before);
  rouletteAction(r,a,{type:"cancel",betId:"one"},1,"clear",1000);
  assert.equal(r.members[0].wallet,100000);assert.equal(rouletteState(r,1000).bets.length,0);assert.equal(r.auditPending!.length,1);
@@ -128,4 +128,12 @@ test("mounted roulette client bundle contains chip display only, no private dead
  const bundle=await build({entryPoints:["app/roulette-client.tsx"],bundle:true,write:false,platform:"browser",format:"iife",jsx:"automatic",loader:{".module.css":"empty"},logLevel:"silent"});
  const text=bundle.outputFiles[0].text;
  assert.doesNotMatch(text,/roulette-dead-placement|auditPending|Administrator access|required\.\s*dead|function returnedFor|function repeatable|\.dead\b|dead:/);
+});
+test('nested persisted spin/history/winner extras cannot escape the explicit roulette projection',()=>{
+ const r=setup();place(r,300);rouletteTick(r,61000,()=>1);
+ const state=rouletteState(r,0);Object.assign(state.spin!,{dead:true,auditPending:['private']});
+ Object.assign(state.history[0],{dead:true,privateAudit:'secret'});
+ state.history[0].winners=[Object.assign({publicId:'peer',name:'Bob',stake:100,returned:200},{dead:true,privateAudit:'secret'})];
+ Object.assign(state.settledBets![0].bet,{dead:true,privateAudit:'secret'});
+ assert.doesNotMatch(JSON.stringify(roulettePublic(r,a,73000)),/"dead"|auditPending|privateAudit|secret/);
 });

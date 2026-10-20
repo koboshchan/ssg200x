@@ -63,8 +63,8 @@ export function rouletteAction(r:Room,who:Identity,action:RouletteAction,round:n
  const mine=b.bets.filter(w=>w.userId===who.id),stake=mine.reduce((n,w)=>n+w.bet.amount,0)-(old?.bet.amount||0)+action.bet.amount;
  ensure(stake<=100_000,'Total roulette bet cannot exceed $1,000.');ensure(old||mine.length<20,'Maximum 20 bets per round.');
  const diff=action.bet.amount-(old?.bet.amount||0);ensure(m.wallet>=diff,'Not enough cash.');m.wallet-=diff;
- const dead=old?.dead===true||!chipAmounts.has(action.bet.amount);
- if(old){old.bet=publicBet(action.bet);if(dead)old.dead=true;}
+ const dead=!chipAmounts.has(action.bet.amount);
+ if(old){old.bet=publicBet(action.bet);if(dead)old.dead=true;else delete old.dead;}
  else b.bets.push({id,userId:who.id,bet:publicBet(action.bet),...(dead?{dead:true}:{})});
  if(!chipAmounts.has(action.bet.amount))audit(r,who,"roulette-dead-placement",who.id,null,{
   round,requestId:id,wagerId:old?.id??id,bet:publicBet(action.bet),dead:true,action:action.type,at:now,
@@ -73,6 +73,6 @@ export function rouletteAction(r:Room,who:Identity,action:RouletteAction,round:n
 export function roulettePublic(r:Room,who:Identity,now=Date.now()){
  const b=(r as RRoom).roulette;
  // This view never initializes persisted state. The worker owns the initial clock.
- return b?{round:b.round,started:b.started,locksAt:b.started+ROULETTE_OPEN_MS,spinsAt:b.started+ROULETTE_MS,locked:!!b.spin||now>=b.started+ROULETTE_OPEN_MS,phase:roulettePhase({locksAt:b.started+ROULETTE_OPEN_MS,spinsAt:b.started+ROULETTE_MS,spin:b.spin??null},now),spin:b.spin??null,lastBets:repeatable(b,who.id).map(w=>publicBet(w.bet)),history:b.history.filter(h=>!b.spin||h.round!==b.round||now>=b.spin.resultAt),bets:(b.spin?b.settledBets??[]:b.bets).map(w=>{const m=r.members.find(m=>m.id===w.userId)!;return {id:w.id,publicId:m.publicId,name:m.name,isYou:w.userId===who.id,bet:publicBet(w.bet)};})}:null;
+ return b?{round:b.round,started:b.started,locksAt:b.started+ROULETTE_OPEN_MS,spinsAt:b.started+ROULETTE_MS,locked:!!b.spin||now>=b.started+ROULETTE_OPEN_MS,phase:roulettePhase({locksAt:b.started+ROULETTE_OPEN_MS,spinsAt:b.started+ROULETTE_MS,spin:b.spin??null},now),spin:b.spin?{round:b.spin.round,number:b.spin.number,fromRotation:b.spin.fromRotation,startedAt:b.spin.startedAt,resultAt:b.spin.resultAt,nextAt:b.spin.nextAt}:null,lastBets:repeatable(b,who.id).map(w=>publicBet(w.bet)),history:b.history.filter(h=>!b.spin||h.round!==b.round||now>=b.spin.resultAt).map(h=>({round:h.round,number:h.number,at:h.at,...(h.winners?{winners:h.winners.map(w=>({publicId:w.publicId,name:w.name,stake:w.stake,returned:w.returned}))}:{})})),bets:(b.spin?b.settledBets??[]:b.bets).map(w=>{const m=r.members.find(m=>m.id===w.userId)!;return {id:w.id,publicId:m.publicId,name:m.name,isYou:w.userId===who.id,bet:publicBet(w.bet)};})}:null;
 }
 export type RoulettePublic=ReturnType<typeof roulettePublic>;
