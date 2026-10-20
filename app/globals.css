@@ -141,3 +141,4 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
 .seat>button{background:var(--surface);color:var(--ink);border:1px dashed var(--muted);box-shadow:0 2px 8px #0002}
 .seat>button:hover:not(:disabled){background:var(--surface-2)}
 .seat>button:disabled{opacity:1;color:var(--muted)}
+.bj-chips{display:grid;gap:4px;min-width:0;max-width:100%}.bj-chip-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center}.bj-placed{color:var(--muted);font-size:12px;overflow-wrap:anywhere;max-width:100%}.bj-chips>div:first-child{flex-wrap:wrap;padding-bottom:10px}
