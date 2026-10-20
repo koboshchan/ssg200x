@@ -24,7 +24,7 @@ test("mounted blackjack input sends 1.01 as 101 cents; shared poker input still 
   assert.equal(await input.getAttribute("inputmode"),"decimal");
   await input.fill("");await input.pressSequentially("1.01");
   assert.equal(await input.inputValue(),"1.01");
-  await page.getByRole("button",{name:"Bet $1.01"}).click();
+  await page.getByRole("button",{name:"Bet $1.01"}).click();await page.waitForFunction(()=>(window as any).posts?.length===1);
   const posts=await page.evaluate(()=>(window as any).posts);
   assert.equal(posts.length,1);assert.equal(posts[0].path,"/api/blackjack");
   assert.deepEqual(Object.keys(posts[0].body).sort(),["amount","requestAt","requestId","tableId","type"]);

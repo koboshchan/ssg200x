@@ -17,7 +17,7 @@ test("mounted blackjack bet input: typing/pasting cents posts exact cents; inval
   await page.route("https://bjreg.test/**",(r:any)=>r.fulfill({contentType:"text/html",body:'<!doctype html><meta charset="utf-8"><div id="root"></div>'}));
   await page.goto("https://bjreg.test");await page.addScriptTag({content:bundle.outputFiles[0].text});
   const input=page.locator(".raise-input input"),button=page.locator("button.primary");
-  const posts=()=>page.evaluate(()=>(window as any).posts||[]);
+  const posts=()=>page.evaluate(()=>new Promise<any[]>(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>r((window as any).posts||[])))));
   const typed=async(s:string)=>{await input.fill("");await input.pressSequentially(s);return input.inputValue();};
   const paste=(s:string)=>input.evaluate((el:HTMLInputElement,t:string)=>{el.value="";const d=new DataTransfer();d.setData("text",t);const e=new ClipboardEvent("paste",{clipboardData:d,bubbles:true,cancelable:true});el.dispatchEvent(e);return e.defaultPrevented;},s);
   // typed 1.01 posts 101
