@@ -1,95 +1,35 @@
-# AAPL data prerequisites
+AAPL integration preparation, checked 2026-10-19.
 
-Research checked 2026-10-19. AAPL is not enabled or in the crypto allowlist.
-No live stock feed, session calendar or trade integration has been implemented. stockPrerequisites is an inert server-side readiness check,
-not an execution guard. Existing crypto behavior is unchanged.
+Alpaca replaces Massive. Basic includes realtime IEX stock data and up to 30 subscribed symbols. IEX is a single venue, not consolidated NBBO or all-market volume. Use only wss://stream.data.alpaca.markets/v2/iex. No delayed SIP fallback. Keys are server-only ALPACA_KEY_ID and ALPACA_SECRET; never NEXT_PUBLIC variables, client requests, URLs or logs. This change makes no provider request and does not enable AAPL.
 
-## Massive selected, free-tier integration blocked
+https://docs.alpaca.markets/us/docs/about-market-data-api
+https://docs.alpaca.markets/us/v1.4.2/docs/real-time-stock-pricing-data
+https://docs.alpaca.markets/us/v1.4.2/docs/streaming-market-data
 
-Lucas selected Massive (formerly Polygon.io). Official pages checked 2026-10-19.
-Stocks Basic is free, 5 REST requests/minute, with end-of-day custom aggregates
-and two years of history. Basic does not include minute-aggregate WebSockets.
-Starter and Developer aggregates are 15-minute delayed; Advanced is real-time.
-A free key cannot deliver fresh regular-session prices. Marketing headlines
-about real-time data do not override the endpoint-specific plan tables.
+The injectable AlpacaIexFeed authenticates on socket open, then subscribes to AAPL trades and quotes after authenticated acknowledgement. Arrays are decoded with size limits. Subscription acknowledgement is required before ticks. Only finite positive regular-sale prints with fresh, strictly increasing timestamps are emitted. Unknown trade conditions are conservatively excluded. Quotes and bars are not executable last-trade prices. Minute bars describe the previous minute, include extended hours and may be revised by updatedBars; no bars are subscribed or used to fabricate historical candles. Automatic correction/cancel messages, or an AAPL status message, disconnect this conservative prepared adapter rather than silently retaining questionable execution data. Reconciliation can be implemented later.
 
-https://massive.com/stocks
-https://massive.com/docs/rest/stocks/aggregates/custom-bars
-https://massive.com/docs/websocket/stocks/aggregates-per-minute
+Alpaca requires authentication within 10 seconds. The adapter's 8-second handshake watchdog closes missing auth/subscription acknowledgements. Authentication, entitlement, invalid subscription and symbol-limit errors stop automatic retries. Transport errors, slow-client/connection-limit/server errors remain retryable through retryDelay, a bounded 1–30 second exponential backoff. Runtime must schedule those retries with jitter, stop the feed immediately on distributed lease loss, and invalidate executable cached prices on every non-subscribed state. Do not create a socket per viewer. Most subscriptions permit only one upstream connection to an endpoint; another app using the same account can exhaust that limit. This isolated module starts no timers or network at import/construction.
 
-The Market Data Terms (updated August 28, 2025) grant personal, non-business,
-non-commercial use. Absent prior express written consent from Massive or an
-applicable Third Party Provider agreement, they prohibit displaying or
-redistributing data AND derived charts/works to any third party. Individual
-plans are not a friends-only redistribution license. Lucas accepts the
-friends-only play-money use case, but that does not establish provider
-permission. Massive's stocks FAQ directs redistribution/customer-facing
-display to Business plans.
+Shared runtime integration is intentionally not implemented in this commit. Construct one feed only inside the existing distributed leader lease and pass isLeader/permitted callbacks. Fence downstream Mongo writes and app websocket broadcasts with that same lease revision, not only an in-memory flag. Stopping detaches/fences old socket callbacks. A runtime retry/supervision loop, singleton failover tests, clock/calendar fetch/cache and actual entitlement checks remain before enabling. Never send credentials, upstream frames or raw error messages to clients.
 
-https://massive.com/legal/market-data-terms-of-service
-https://massive.com/stocks
+Session parsing consumes Alpaca Trading API calendar rows with date/open/close in America/New_York, and Trading API clock responses. IANA timezone conversion handles DST; actual provider rows, not weekday arithmetic, define holidays and early closes. Clock receipt/provider timestamps expire after 60 seconds, closed clocks and calendar/clock close-time disagreements fail closed. Use the regular open/close fields, never extended session_open/session_close.
 
-Prepare MASSIVE_API_KEY only in the server environment; never put it in
-NEXT_PUBLIC variables, client requests, URLs, fixtures or logs. No key is
-available to this worker and no live entitlement has been verified.
-stockPrerequisites reads credential presence only and never returns its value.
-The Basic end-of-day blocker is unconditional even when credentials and an
-approval reference are supplied. No environment toggle enables AAPL.
+For an authorized paper-account runtime, the documented server endpoints are GET https://paper-api.alpaca.markets/v2/calendar and GET https://paper-api.alpaca.markets/v2/clock with APCA-API-KEY-ID and APCA-API-SECRET-KEY headers. Calendar start/end query parameters should request today and upcoming sessions only. Calendar metadata is not a historical price backfill. These legacy Trading API endpoints remain documented; newer v3 multi-market endpoints have different response shapes and must not be fed to these parsers. Broker API /v1/calendar uses different credentials and is not the chosen endpoint. No calendar/clock HTTP client or provider request is activated in this preparation.
 
-No provider client, WebSocket, REST polling, historical download, signup or
-purchase is added. Polling EOD data faster does not make it fresh. A licensed
-fresh-data entitlement and parent-approved integration policy are blockers,
-not assumptions to hide behind an implementation. Revisit plan verification
-only with actual provider evidence; a claimed plan string is insufficient.
-chub searches for Massive and Polygon found no applicable API documentation,
-so official endpoint documentation was read directly.
+https://docs.alpaca.markets/us/reference/legacycalendar
+https://docs.alpaca.markets/us/reference/legacyclock
+https://docs.alpaca.markets/us/v1.4.2/reference/getcalendar-1
+https://docs.alpaca.markets/us/v1.4.2/reference/getclock-1
 
-## Accepted execution policy, not yet implemented
+stockExecutionPolicy is a pure shared-guard candidate for every stock execution including open, manual close, TP/SL and liquidation. It requires authorized feed, connected lease leader, positively cleared halt state, reconciled corporate actions, verified regular session and a positive AAPL IEX tick received and timestamped within 15 seconds of now and within this session. Future, previous-session, unknown-halt and stale prices are not executable. It never mutates positions, margin or pending triggers. Shared finance hooks must preserve those records while blocked and reevaluate on a fresh next-session print with gap risk. Use existing spot/perp leverage rules, not invented stock limits. Actual halt-status entitlement/bootstrap and corporate-action reconciliation are still unresolved, so no code should assume clear by default.
 
-Use the existing spot/perp leverage rules, not new stock-specific leverage.
-Reject every market execution, including manual close, outside the regular
-session or on stale, halted, invalid, disconnected or unlicensed data. Retain
-locked margin and pending TP/SL/liquidation checks while closed. Evaluate them
-only on a fresh valid next-session tick, with gap risk, never a cached close.
-Display the timestamped last regular-session price as last session price, not
-a live executable price. Derive next open from a maintained exchange calendar,
-not weekday arithmetic. Crypto stays 24/7.
+Charts must consume only future live collected ticks persisted to Mongo. No historical bars, archives, jobs, REST latest-price polling, candle replacement or synthetic gaps are introduced. Retain existing Mongo candles. Clients use the app's cached websocket/API snapshots, never an upstream provider connection. Existing crypto stays 24/7; AAPL remains outside its allowlist until coordinated shared integration.
 
-A suitable calendar candidate is exchange_calendars, whose documented regular
-sessions exclude pre/post market and handle holidays and special closes.
-https://github.com/gerrymanoim/exchange_calendars
-It has not been installed, version-pinned, audited or integrated here. Calendar
-boundary/holiday/early-close/DST tests remain required before enabling stocks.
+Lucas accepts friends-only play-money use. That is not evidence of an Alpaca redistribution license. Alpaca's support page says API data cannot be redistributed and its terms restrict distribution without prior express written consent. Existing AAPL_REDISTRIBUTION_APPROVAL_REFERENCE remains a reference to actual permission, not a new boolean opt-in or a claim that the app has permission. No new approval flag was invented. Parent policy is required before changing this gate.
 
-If licensed, use one server upstream connection protected by the existing
-distributed leader lease, including reconnect/lease-expiry failclosed handling.
-Clients receive only the app's cached websocket/API data. Missing or unavailable
-source must not fall back to delayed data presented as realtime.
+https://alpaca.markets/support/redistribute-alpaca-api
+https://files.alpaca.markets/disclosures/library/TermsAndConditions.pdf
 
-Live prices and position balances need a coordinated corporate-action policy.
-A post-split quote cannot be compared to an unreconciled pre-split entry. Until
-reconciliation and split/halt detection exist, fail closed; do not silently
-rewrite entries, shares or balances.
+Credential-free fixture tests cover auth/subscription ordering, framing, symbol/condition/stale filters, reconnect delay, terminal entitlement failures, leadership/permission revocation, callback fencing, provider calendar DST/early close validation and execution failclosed behavior. They do not prove live connectivity, account entitlement, halt coverage, redistribution permission, shared hook behavior, actual margin persistence, UI behavior or production readiness. No deploy, account signup/settings, trade order or paid request is authorized here.
 
-## Firm live-only candle scope
-
-Lucas removed backfilling completely. AAPL must never fetch past bars, call a
-historical API, schedule historical jobs or download archives. Persist candles
-collected from future live ticks to Mongo. Charts read only our stored Mongo
-candles. Retain existing stored candles; do not clear or replace them. Empty
-periods remain empty, with no synthetic historical fill. Historical aggregate capability was researched only to establish plan
-entitlements; no aggregate requests are implemented or authorized.
-
-This worker owns only docs/aapl-data-gates.md, lib/stock-config.ts and
-tests/stock-config.test.ts. The backfill-removal worker owns candles/history
-changes. Shared feed, store, types and market configuration require parent
-coordination before stock integration. No production deployment.
-
-## Remaining acceptance gates
-
-Written redistribution permission and server-only credentials; provider protocol
-fixtures and mock websocket tests; singleton/cache/reconnect/fencing tests;
-maintained session calendar integration; stale/closed/holiday/early-close/DST
-execution and persistent margin/trigger tests; corporate-action reconciliation;
-chart/session UI integration and bundle/log secret checks; full compile and
-combined regression suite. No deployment is authorized by this research.
+chub search alpaca returned no matching documentation entry, so official protocol and API references above were used directly. No package/dependency installation was needed.

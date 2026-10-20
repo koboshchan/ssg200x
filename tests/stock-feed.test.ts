@@ -1,0 +1,58 @@
+import {test} from "node:test";
+import assert from "node:assert/strict";
+import {AlpacaIexFeed,type StockSocket} from "../lib/stock-feed";
+import type {StockTick} from "../lib/stock-policy";
+class Socket implements StockSocket {
+  sent:string[]=[];closed=false;
+  onopen:(()=>void)|null=null; onclose:(()=>void)|null=null; onerror:(()=>void)|null=null;
+  onmessage:((event:{data:unknown})=>void)|null=null;
+  send(s:string){this.sent.push(s);} close(){this.closed=true;}
+  message(data:unknown){this.onmessage?.({data:JSON.stringify(data)});}
+}
+function setup() {
+  const sockets:Socket[]=[],ticks:StockTick[]=[],states:string[]=[];
+  let leader=true,permitted=true;
+  const now=Date.parse("2026-10-19T15:00:00Z");
+  const feed=new AlpacaIexFeed({env:{ALPACA_KEY_ID:"fixture-key",ALPACA_SECRET:"fixture-secret"},permitted:()=>permitted,isLeader:()=>leader,now:()=>now,
+    socket:url=>{assert.equal(url,"wss://stream.data.alpaca.markets/v2/iex");const s=new Socket();sockets.push(s);return s;},onTick:t=>ticks.push(t),onState:s=>states.push(s)});
+  const print=(overrides={})=>({T:"t",S:"AAPL",p:200,s:100,c:["@"],t:new Date(now-100).toISOString(),...overrides});
+  function connect(){assert.equal(feed.start(),true);const s=sockets.at(-1)!;s.onopen?.();s.message([{T:"success",msg:"authenticated"}]);s.message([{T:"subscription",trades:["AAPL"],quotes:["AAPL"]}]);return s;}
+  return {feed,sockets,ticks,states,print,connect,setLeader:(v:boolean)=>leader=v,setPermission:(v:boolean)=>permitted=v};
+}
+test("auth then subscribe, array trades filtered, no bars/quotes as execution",()=>{
+  const h=setup(),s=h.connect();
+  assert.deepEqual(JSON.parse(s.sent[0]),{action:"auth",key:"fixture-key",secret:"fixture-secret"});
+  assert.deepEqual(JSON.parse(s.sent[1]),{action:"subscribe",trades:["AAPL"],quotes:["AAPL"]});
+  s.message([h.print(),h.print(),h.print({S:"MSFT"}),h.print({T:"q"}),h.print({T:"b"}),h.print({p:-1}),h.print({c:["T"]}),h.print({t:"2026-10-19T14:59:00Z"})]);
+  assert.equal(h.ticks.length,1);
+  assert.doesNotMatch(JSON.stringify(h.ticks),/fixture-/);
+  assert.equal(h.feed.start(),false);
+});
+test("permission/leader loss disconnects, fences callbacks on reconnect",()=>{
+  const h=setup(),s=h.connect(),late=s.onmessage;
+  h.setLeader(false);s.message([h.print()]);
+  assert.equal(s.closed,true);assert.equal(h.ticks.length,0);
+  h.setLeader(true);h.connect();late?.({data:JSON.stringify([h.print()])});
+  assert.equal(h.ticks.length,0);
+  h.setPermission(false);h.sockets.at(-1)!.message([h.print()]);
+  assert.equal(h.feed.start(),false);
+});
+test("auth/entitlement errors terminal, transport errors retryable",()=>{
+  for(const code of [402,409,410]){const h=setup();h.connect().message([{T:"error",code,msg:"never log raw provider message"}]);assert.equal(h.feed.start(),false);}
+  const h=setup();h.connect().onerror?.();assert.equal(h.feed.start(),true);
+  assert.deepEqual(Array.from({length:7},()=>h.feed.retryDelay()),[1000,2000,4000,8000,16000,30000,30000]);
+});
+test("malformed frames fail closed and no preauth ticks",()=>{
+  const h=setup();h.feed.start();const s=h.sockets[0];
+  s.message([h.print()]);assert.equal(h.ticks.length,0);
+  s.onmessage?.({data:"{"});assert.equal(s.closed,true);
+});
+
+test("trade corrections/cancels invalidate connection rather than retaining executable cache",()=>{
+  for(const T of ["c","x","s"]){const h=setup(),s=h.connect();s.message([{T,S:"AAPL"}]);assert.equal(s.closed,true);assert.equal(h.states.at(-1),"disconnected");}
+});
+test("missing credentials never construct upstream sockets",()=>{
+  let called=false;
+  const feed=new AlpacaIexFeed({env:{},permitted:()=>true,isLeader:()=>true,now:()=>0,socket:()=>{called=true;return new Socket();},onTick:()=>{},onState:()=>{}});
+  assert.equal(feed.start(),false);assert.equal(called,false);
+});
