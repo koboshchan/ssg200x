@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {roulettePhase,phaseDeadline,wheelPose,WHEEL_POCKETS} from '../lib/roulette-clock';
+import {roulettePhase,phaseDeadline,wheelPose,ambientWheelRotation,WHEEL_POCKETS} from '../lib/roulette-clock';
 import {freshRoom,register,assertRoom} from '../lib/poker';
 import {rouletteState,rouletteTick,roulettePublic,rouletteAction} from '../lib/roulette';
 import {createStateReceiver,emitState} from '../runtime/state-stream.mjs';
@@ -15,9 +15,9 @@ test('exact phase boundaries never shorten betting or invent a spin before worke
 test('late joins, reconnect and duplicate state frames seek identical eased absolute poses',()=>{
  for(const t of [60000,61500,66000,71000,72000,77000])assert.deepEqual(wheelPose({...spin},t),wheelPose(spin,t));
  assert.equal(wheelPose(spin,59000).progress,0);assert.equal(wheelPose(spin,73000).progress,1);
- const end=wheelPose(spin,72000);assert.equal(end.radius,119);
+ const end=wheelPose(spin,72000);
  const pocket=WHEEL_POCKETS.indexOf(7)*360/37;
- assert.ok(Math.abs(((end.ball-end.rotor-pocket)%360))<1e-9);
+ assert.ok(Math.abs(((end.rotor+pocket)%360))<1e-9);
  assert.ok(wheelPose(spin,61000).rotor>0);assert.ok(wheelPose(spin,71000).rotor-wheelPose(spin,70000).rotor<wheelPose(spin,62000).rotor-wheelPose(spin,61000).rotor);
  assert.deepEqual(wheelPose(spin,65000,true),{...end,progress:5/12});
 });
@@ -37,4 +37,25 @@ test('full/diff resync preserves one immutable spin anchor and phase clock',()=>
  assert.deepEqual(wheelPose((diff.value as typeof after).roulette.spin,66000),wheelPose(spin,66000));
  assert.equal(receiver.receive('room:state',messages[1]).ok,false);assert.equal(requests,1);
  emitState(socket,'room:state',after,true,66001);assert.deepEqual(receiver.receive('room:state',messages[2]).value,after);
+});
+
+test('ambient open clock contains no future result and spin preserves its absolute start',()=>{
+ const previous={number:7};const start=1000;
+ assert.equal(ambientWheelRotation(start,11000,previous)-ambientWheelRotation(start,1000,previous),1000);
+ const fromRotation=ambientWheelRotation(start,61000,previous);
+ const anchored={...spin,fromRotation};assert.equal(wheelPose(anchored,spin.startedAt).rotor,fromRotation);
+ const end=wheelPose(anchored,spin.resultAt).rotor;
+ const pocket=WHEEL_POCKETS.indexOf(anchored.number as typeof WHEEL_POCKETS[number])*360/37;
+ assert.ok(Math.abs((end+pocket)%360)<1e-8);
+ assert.deepEqual(wheelPose(anchored,spin.resultAt),wheelPose(anchored,spin.nextAt-1));
+});
+test('all pockets preserve ambient velocity then decelerate monotonically to a fixed result',()=>{
+ for(let number=0;number<=36;number++){
+  const anchored={...spin,number,fromRotation:6000};
+  for(const ms of [0,250,500,1000,4000])assert.ok(Math.abs((wheelPose(anchored,60000+ms+1).rotor-wheelPose(anchored,60000+ms).rotor)*1000-100)<1e-6);
+  let speed=100;
+  for(let ms=5000;ms<12000;ms+=100){const next=(wheelPose(anchored,60000+ms+1).rotor-wheelPose(anchored,60000+ms).rotor)*1000;assert.ok(next>=0&&next<=speed+1e-6);speed=next;}
+  const end=wheelPose(anchored,72000).rotor,pocket=WHEEL_POCKETS.indexOf(number as typeof WHEEL_POCKETS[number])*360/37;
+  assert.ok(Math.abs(end+pocket-Math.round((end+pocket)/360)*360)<1e-8);assert.equal(wheelPose(anchored,76999).rotor,end);
+ }
 });

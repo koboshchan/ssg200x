@@ -1,16 +1,37 @@
+"use client";
+import {useEffect,useRef,useState} from 'react';
 import {RED} from '@/lib/market-shared';
-const pockets=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
+import {wheelPose,ambientWheelRotation,WHEEL_POCKETS,type RouletteSpin} from '@/lib/roulette-clock';
+import styles from './roulette.module.css';
 const point=(radius:number,angle:number)=>[160+radius*Math.sin(angle),160-radius*Math.cos(angle)];
-/** Original vector wheel. Decorative motion never predicts the server result. */
-export default function RouletteWheel({last,locked}:{last?:number;locked:boolean}){
- const step=Math.PI*2/37;
- return <svg viewBox="0 0 320 320" role="img" aria-label={last===undefined?'European roulette wheel':'European roulette wheel, last result '+last}>
- <defs><radialGradient id="roulette-wood"><stop stopColor="#94704e"/><stop offset=".7" stopColor="#503c2d"/><stop offset="1" stopColor="#b39a73"/></radialGradient><radialGradient id="roulette-bowl"><stop stopColor="#dae1e3"/><stop offset=".65" stopColor="#bbc6cb"/><stop offset="1" stopColor="#65777e"/></radialGradient></defs>
- <circle cx="160" cy="160" r="158" fill="url(#roulette-wood)"/><circle cx="160" cy="160" r="148" fill="#d5c9a8"/>
- {pockets.map((n,i)=>{const start=(i-.5)*step,end=(i+.5)*step,a=point(145,start),b=point(145,end),c=point(112,end),d=point(112,start);return <g key={n}><path d={`M${a.join(' ')} A145 145 0 0 1 ${b.join(' ')} L${c.join(' ')} A112 112 0 0 0 ${d.join(' ')} Z`} fill={n===0?'#33845d':RED.has(n)?'#b74347':'#26323a'} stroke="#e0d5bb" strokeWidth=".6"/><text x="160" y="28" transform={`rotate(${i*360/37} 160 160)`} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize="10" fontFamily="sans-serif">{n}</text></g>;})}
- <circle cx="160" cy="160" r="110" fill="url(#roulette-bowl)" stroke="#e5d7b3" strokeWidth="3"/><circle cx="160" cy="160" r="83" fill="#34535e" stroke="#81949a" strokeWidth="2"/>
- {Array.from({length:12},(_,i)=><path key={i} d="M160 81 L160 118" transform={`rotate(${i*30} 160 160)`} stroke="#acb9bc" strokeWidth="1" opacity=".65"/>)}
- <circle cx="160" cy="160" r="50" fill="#41626d"/><path d="M115 160 H205 M160 115 V205" stroke="#d6c7a7" strokeWidth="8" strokeLinecap="round"/><circle cx="160" cy="160" r="16" fill="#f5ebd4" stroke="#a99a78" strokeWidth="3"/>
- <g className={locked?'roulette-ball-moving':undefined} style={{transformOrigin:'160px 160px'}} transform={locked?undefined:`rotate(${last===undefined?25:pockets.indexOf(last)*360/37} 160 160)`}><circle cx="160" cy="43" r="4.5" fill="#fff" stroke="#cbd1d2"/></g>
- </svg>;
+const step=Math.PI*2/37;
+/** Original SVG geometry and analytic motion, independently built. Server time is
+ * the animation position, not an instruction to start another CSS animation. */
+export default function RouletteWheel({spin,now,last,started}:{spin:RouletteSpin|null;now:number;started:number;last?:{round:number;number:number}}){
+ const rotor=useRef<HTMLDivElement>(null);
+ const clock=useRef({server:now,local:0});
+ const [reduced,setReduced]=useState(false);
+ useEffect(()=>{const query=matchMedia('(prefers-reduced-motion: reduce)');const update=()=>setReduced(query.matches);update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update);},[]);
+ useEffect(()=>{clock.current={server:now,local:performance.now()};},[now]);
+ const round=spin?.round,number=spin?.number,startedAt=spin?.startedAt,resultAt=spin?.resultAt,nextAt=spin?.nextAt,fromRotation=spin?.fromRotation;
+ useEffect(()=>{
+  let frame=0;
+  const target=round!==undefined?{round,number:number!,startedAt:startedAt!,resultAt:resultAt!,nextAt:nextAt!,fromRotation}:last?{...last,startedAt:0,resultAt:1,nextAt:1}:null;
+  const draw=()=>{
+   const time=clock.current.server+performance.now()-clock.current.local;
+   const pose=round!==undefined?wheelPose(target!,time,reduced):{rotor:reduced?ambientWheelRotation(started,started,last):ambientWheelRotation(started,time,last)};
+   if(rotor.current)rotor.current.style.transform=`rotate(${pose.rotor}deg)`;
+   if(!reduced&&(round===undefined||time<target!.resultAt))frame=requestAnimationFrame(draw);
+  };
+  draw();return()=>cancelAnimationFrame(frame);
+ },[round,number,startedAt,resultAt,nextAt,fromRotation,last?.round,last?.number,reduced,started]);
+ const landed=!!spin&&now>=spin.resultAt;
+ return <div className={styles.wheelScene} role="img" aria-label={landed?'Winning number '+spin.number:spin?'Roulette wheel spinning':'European roulette wheel'}>
+ <div ref={rotor} className={styles.wheelRotor}><svg viewBox="0 0 320 320" aria-hidden="true">
+ {WHEEL_POCKETS.map((n,i)=>{const start=(i-.5)*step,end=(i+.5)*step,a=point(157,start),b=point(157,end),c=point(132,end),d=point(132,start);return <g key={n}><path d={`M${a.join(' ')} A157 157 0 0 1 ${b.join(' ')} L${c.join(' ')} A132 132 0 0 0 ${d.join(' ')} Z`} fill={n===0?'#2ba10c':RED.has(n)?'#e31b2a':'#434141'} stroke="#ffffff" strokeWidth=".6"/><text x="160" y="15" transform={`rotate(${i*360/37} 160 160) rotate(90 160 15)`} textAnchor="middle" dominantBaseline="middle" fill="white" fontSize="11" fontFamily="sans-serif">{n}</text></g>;})}
+ <circle cx="160" cy="160" r="131.5" fill="rgb(33,91,120)"/>
+ </svg></div>
+ <svg viewBox="0 0 320 320" className={styles.wheelPointer} aria-hidden="true"><path d="M158.5 0 H161.5 L160 12 Z" fill="white"/></svg>
+ {landed?<div className={styles.resultBadge} aria-hidden="true"><small>Result</small><strong>{spin.number}</strong></div>:null}
+ </div>;
 }

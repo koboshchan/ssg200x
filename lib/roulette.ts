@@ -3,7 +3,7 @@ import {ensure} from './errors';
 import {payout} from './finance';
 import type {Bet} from './market-shared';
 import type {Room,Identity} from './types';
-import {ROULETTE_MS,ROULETTE_OPEN_MS,ROULETTE_SPIN_MS,ROULETTE_RESULT_MS,roulettePhase,type RouletteSpin} from './roulette-clock';
+import {ROULETTE_MS,ROULETTE_OPEN_MS,ROULETTE_SPIN_MS,ROULETTE_RESULT_MS,roulettePhase,ambientWheelRotation,type RouletteSpin} from './roulette-clock';
 export {ROULETTE_MS,ROULETTE_OPEN_MS} from './roulette-clock';
 export type RouletteWager={id:string;userId:string;bet:Bet};
 export type RouletteState={round:number;started:number;spin?:RouletteSpin;settledBets?:RouletteWager[];bets:RouletteWager[];previousBets?:RouletteWager[];history:{round:number;number:number;at:number;winners?:{publicId:string;name:string;stake:number;returned:number}[]}[]};
@@ -22,11 +22,12 @@ export function rouletteTick(r:Room,now:number,rng:(max:number)=>number=randomIn
   b.round++;b.started=now;b.previousBets=b.settledBets??[];b.bets=[];delete b.settledBets;delete b.spin;return true;
  }
  if(now<b.started+ROULETTE_MS)return false;
+ const fromRotation=ambientWheelRotation(b.started,now,b.history[0]);
  const number=rng(37);ensure(Number.isInteger(number)&&number>=0&&number<=36,'Invalid wheel result.',500);
  for(const w of b.bets){const m=r.members.find(m=>m.id===w.userId);ensure(m,'Missing wager owner.',500);const returned=payout(w.bet,number);m.wallet+=returned;r.house=(r.house??0)+w.bet.amount-returned;}
  for(const m of r.members){const wagers=b.bets.filter(w=>w.userId===m.id);if(!wagers.length)continue;const stake=wagers.reduce((n,w)=>n+w.bet.amount,0),returned=wagers.reduce((n,w)=>n+payout(w.bet,number),0);m.spins=[{id:'roulette-'+b.round,number,stake,returned,at:now},...(m.spins||[])].slice(0,30);}
  const winners=r.members.flatMap(m=>{const spin=m.spins?.[0];return spin?.id==='roulette-'+b.round&&spin.returned>spin.stake?[{publicId:m.publicId,name:m.name,stake:spin.stake,returned:spin.returned}]:[];});
- b.history=[{round:b.round,number,at:now,winners},...b.history].slice(0,20);b.settledBets=b.bets;b.bets=[];b.spin={round:b.round,number,startedAt:now,resultAt:now+ROULETTE_SPIN_MS,nextAt:now+ROULETTE_SPIN_MS+ROULETTE_RESULT_MS};return true;
+ b.history=[{round:b.round,number,at:now,winners},...b.history].slice(0,20);b.settledBets=b.bets;b.bets=[];b.spin={round:b.round,number,fromRotation,startedAt:now,resultAt:now+ROULETTE_SPIN_MS,nextAt:now+ROULETTE_SPIN_MS+ROULETTE_RESULT_MS};return true;
 }
 export function rouletteAction(r:Room,who:Identity,action:RouletteAction,round:number,id:string,now:number):void{
  const m=r.members.find(m=>m.id===who.id);ensure(m,'Account not found.',404);
