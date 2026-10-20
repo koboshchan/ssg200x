@@ -1,17 +1,15 @@
 # AAPL data prerequisites
 
 Research checked 2026-10-19. AAPL is not enabled or in the crypto allowlist.
-No live stock feed, session calendar, historical loader or trade integration has
-been implemented. stockPrerequisites is an inert server-side readiness check,
+No live stock feed, session calendar or trade integration has been implemented. stockPrerequisites is an inert server-side readiness check,
 not an execution guard. Existing crypto behavior is unchanged.
 
 ## Provider decision is blocked
 
 Alpaca's official FAQ says the free websocket feed is IEX only, a single venue,
 not consolidated SIP or NBBO. Specify IEX explicitly rather than letting an
-account upgrade silently change source. Historical endpoints can explicitly
-select IEX too. Free SIP historical queries must end at least 15 minutes ago;
-that is not a realtime feed.
+account upgrade silently change source. No historical provider endpoints will
+be used.
 https://docs.alpaca.markets/us/docs/market-data-faq
 
 The current documentation footer links these terms. They restrict content to
@@ -21,8 +19,8 @@ Authenticated players still receive redistributed data. A free API key alone
 does not establish permission.
 https://s3.amazonaws.com/files.alpaca.markets/disclosures/library/TermsAndConditions.pdf
 
-Finnhub free pricing says Personal Use, lists websocket access but not OHLC
-history. Its terms prohibit redistributing data or derived results without
+Finnhub free pricing says Personal Use. Its terms prohibit redistributing data
+or derived results without
 written approval. Enterprise pricing explicitly includes redistribution rights.
 https://finnhub.io/pricing
 https://finnhub.io/terms-of-service
@@ -55,12 +53,24 @@ distributed leader lease, including reconnect/lease-expiry failclosed handling.
 Clients receive only the app's cached websocket/API data. Missing or unavailable
 source must not fall back to delayed data presented as realtime.
 
-Historical raw versus adjusted prices and position balances need a coordinated
-corporate-action policy. Raw latest quotes cannot be compared to differently
-adjusted entries after a split. Until reconciliation and split/halt detection
-exist, fail closed; do not silently rewrite entries, shares or balances.
-Historical candle loading scope also needs confirmation because the latest
-request removed backfilling entirely. Do not start a stock backfill.
+Live prices and position balances need a coordinated corporate-action policy.
+A post-split quote cannot be compared to an unreconciled pre-split entry. Until
+reconciliation and split/halt detection exist, fail closed; do not silently
+rewrite entries, shares or balances.
+
+## Firm live-only candle scope
+
+Lucas removed backfilling completely. AAPL must never fetch past bars, call a
+historical API, schedule historical jobs or download archives. Persist candles
+collected from future live ticks to Mongo. Charts read only our stored Mongo
+candles. Retain existing stored candles; do not clear or replace them. Empty
+periods remain empty, with no synthetic historical fill. No historical provider
+documentation or historical-data credentials are required.
+
+This worker owns only docs/aapl-data-gates.md, lib/stock-config.ts and
+tests/stock-config.test.ts. The backfill-removal worker owns candles/history
+changes. Shared feed, store, types and market configuration require parent
+coordination before stock integration. No production deployment.
 
 ## Remaining acceptance gates
 
