@@ -1,3 +1,4 @@
+import {isWholeCasinoAmount} from "./casino-amount";
 import {randomInt,randomUUID} from 'node:crypto';
 import {ensure} from './errors';
 import {payout} from './finance';
@@ -36,12 +37,14 @@ export function rouletteAction(r:Room,who:Identity,action:RouletteAction,round:n
  if(action.type==='rebet'){
   ensure(!b.bets.some(w=>w.userId===who.id),'Clear your current bets before using Last bet.',409);
   const previous=(b.previousBets||[]).filter(w=>w.userId===who.id);ensure(previous.length,'No bets from the previous round.');
+  ensure(previous.every(w=>isWholeCasinoAmount(w.bet.amount)),'Last bet contains a fractional dollar. Choose new chips.');
   const stake=previous.reduce((n,w)=>n+w.bet.amount,0);ensure(m.wallet>=stake,'Not enough cash to repeat the last bet.');
   m.wallet-=stake;b.bets.push(...previous.map(w=>({id:randomUUID(),userId:who.id,bet:{...w.bet}})));return;
  }
  const old=action.type==='bet'?undefined:b.bets.find(w=>w.id===action.betId&&w.userId===who.id);
  if(action.type!=='bet')ensure(old,'Bet not found.',404);
  if(action.type==='cancel'){m.wallet+=old!.bet.amount;b.bets=b.bets.filter(w=>w!==old);return;}
+ ensure(isWholeCasinoAmount(action.bet.amount),'Bet must be whole dollars.');
  payout(action.bet,0); // Validate even losing selections before taking any chips.
  const mine=b.bets.filter(w=>w.userId===who.id),stake=mine.reduce((n,w)=>n+w.bet.amount,0)-(old?.bet.amount||0)+action.bet.amount;
  ensure(stake<=100_000,'Total roulette bet cannot exceed $1,000.');ensure(old||mine.length<20,'Maximum 20 bets per round.');

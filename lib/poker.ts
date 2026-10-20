@@ -1,3 +1,4 @@
+import {isWholeCasinoAmount} from "./casino-amount";
 import {playerReference} from "../runtime/clerk-names.mjs";
 import {ACTION_TURN_MS} from "./turn-timer";
 import { randomInt, createHash } from "node:crypto";
@@ -178,7 +179,7 @@ export function act(r: Room, id: string, action: Extract<Action,{type:"fold"|"ch
  else if (action.type === "call") { ensure(!choices.check, "Nothing to call."); put(s,choices.toCall); }
  else {
   ensure(choices.raiseOpen, "Betting has not reopened for you.");
-  ensure(Number.isSafeInteger(action.to) && action.to > r.currentBet && action.to <= choices.maxTo, "Invalid raise total.");
+  ensure(isWholeCasinoAmount(action.to) && action.to > r.currentBet && action.to <= choices.maxTo, "Raise total must be a whole dollar within your available chips.");
   const increment = action.to - r.currentBet;
   ensure(increment >= r.minRaise || action.to === choices.maxTo, "Raise is below the minimum.");
   put(s,action.to - s.bet);
@@ -203,7 +204,7 @@ export function applyAction(r: Room, who: Identity, action: Action, now: number)
  if (action.type === "join") {
   ensure(i < 0, "You already have a seat.", 409);
   ensure(Number.isInteger(action.seat) && action.seat >= 0 && action.seat < 6 && !r.seats[action.seat], "That seat is taken.", 409);
-  ensure(Number.isSafeInteger(action.buyIn) && action.buyIn >= 10_000 && action.buyIn <= 100_000 && member.wallet >= action.buyIn, "Buy in with $100–$1,000 from your wallet.");
+  ensure(isWholeCasinoAmount(action.buyIn) && action.buyIn >= 10_000 && action.buyIn <= 100_000 && member.wallet >= action.buyIn, "Buy in with $100–$1,000 from your wallet.");
   member.wallet -= action.buyIn;
   r.seats[action.seat] = { userId: who.id, stack: action.buyIn, hole: [], bet: 0, committed: 0, folded: true, inHand: false, actedAt: null, sitOut: false, leaveAfter: false, seen: now, ready: false };
   addLog(r,playerReference(member) + " takes seat " + (action.seat+1));

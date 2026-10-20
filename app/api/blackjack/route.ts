@@ -1,3 +1,4 @@
+import {wholeCasinoCents} from "@/lib/casino-schemas";
 import {z} from "zod";
 import {endpoint,parse} from "@/lib/api";
 import {rateLimit} from "@/lib/store";
@@ -8,7 +9,7 @@ const base={tableId:z.enum(BLACKJACK_TABLE_IDS),requestId:z.string().uuid(),requ
 const schema=z.discriminatedUnion("type",[
  z.object({...base,type:z.literal("join"),seat:z.number().int().min(0).max(5)}).strict(),
  z.object({...base,type:z.literal("leave")}).strict(),
- z.object({...base,type:z.literal("bet"),amount:z.number().int().min(100).max(100000).refine(n=>n%2===0)}).strict(),
+ z.object({...base,type:z.literal("bet"),amount:wholeCasinoCents.min(100).max(100000)}).strict(),
  ...(["hit","stand","double","split"] as const).map(type=>z.object({...base,type:z.literal(type)}).strict()),
 ]);
 export const POST=(request:Request)=>endpoint(request,async who=>{
