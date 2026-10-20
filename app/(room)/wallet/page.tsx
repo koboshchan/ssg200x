@@ -1,6 +1,7 @@
 "use client";
-import {useCallback,useEffect,useRef,useState} from "react";
+import {useEffect,useRef,useState} from "react";
 import {useLive,useLiveEvent} from "../../live-provider";
+import {createTransferHistoryRefresh,retryAfterMs} from "@/lib/transfer-history-refresh";
 import type {PublicRoom} from "@/lib/public";
 import styles from "./wallet.module.css";
 
@@ -13,10 +14,10 @@ const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency
 const AMOUNT="(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,2})?";
 const words=(v:string)=>v.trim().toLowerCase().split(/\s+/).filter(Boolean);
 
-async function call(url:string,body?:object){
- const res=await fetch(url,body?{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}:{cache:"no-store"});
+async function call(url:string,body?:object,signal?:AbortSignal){
+ const res=await fetch(url,body?{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}:{cache:"no-store",signal});
  const value=await res.json().catch(()=>({}));
- if(!res.ok)throw Object.assign(new Error(value.error||"Request unavailable."),{status:res.status});
+ if(!res.ok)throw Object.assign(new Error(value.error||"Request unavailable."),{status:res.status,retryAfter:retryAfterMs(res.headers.get("Retry-After"))});
  return value;
 }
 
@@ -27,16 +28,20 @@ export default function Wallet(){
  const [amount,setAmount]=useState(""),[note,setNote]=useState(""),[receive,setReceive]=useState<{code:string;expiresAt:number;amount?:number;note?:string}>();
  const [airAmount,setAirAmount]=useState(""),[airNote,setAirNote]=useState(""),[preview,setPreview]=useState<Preview>();
  const [busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState(""),[now,setNow]=useState(Date.now());
- const sendRetry=useRef<Pending|null>(null),airRetry=useRef<Pending|null>(null),historySerial=useRef(0);
+ const sendRetry=useRef<Pending|null>(null),airRetry=useRef<Pending|null>(null),historyRefresh=useRef<ReturnType<typeof createTransferHistoryRefresh>|null>(null),historyKey=useRef<string|undefined>(undefined);
 
- const refresh=useCallback(async()=>{
-  const serial=++historySerial.current;
-  try{const data=await call("/api/transfers"+(all?"?all=1":""));if(serial===historySerial.current)setEntries(data.transfers);}
-  catch(e){if(serial===historySerial.current)setError((e as Error).message);}
+ const refresh=()=>historyRefresh.current?.refresh();
+ useEffect(()=>{
+  let active=true;
+  const loader=createTransferHistoryRefresh(async signal=>{
+   const data=await call("/api/transfers"+(all?"?all=1":""),undefined,signal);
+   if(active){setEntries(data.transfers);setError("");}
+  },e=>{if(active)setError(e.message);});
+  historyRefresh.current=loader;loader.refresh();
+  return()=>{active=false;loader.close();historyRefresh.current=null;};
  },[all]);
- useEffect(()=>{void refresh();return()=>{historySerial.current++;};},[refresh]);
  useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(t);},[]);
- useLiveEvent("room:state",(r:PublicRoom)=>{setRoom(r);void refresh();});
+ useLiveEvent("room:state",(r:PublicRoom)=>{setRoom(r);const key=all?r.transferHistoryKeys.all:r.transferHistoryKeys.mine;if(historyKey.current!==undefined&&historyKey.current!==key)refresh();historyKey.current=key;});
 
  async function run(fn:()=>Promise<void>){
   if(busy)return;setBusy(true);setError("");setMessage("");

@@ -11,7 +11,7 @@ export type Connection="connecting"|"connected"|"disconnected";
 type Live={connection:Connection;maintenance?:MaintenanceStatus;lastMessageAt:number;subscribe:(event:string,handler:(payload:any)=>void)=>()=>void;emit:(event:string,payload?:unknown)=>void;request:(event:string,payload?:unknown)=>Promise<any>};
 const Context=createContext<Live|null>(null);
 export function useLive(){const v=useContext(Context);if(!v)throw new Error("LiveProvider missing");return v;}
-export function useLiveEvent(event:string,handler:(payload:any)=>void){const live=useLive(),ref=useRef(handler);ref.current=handler;useEffect(()=>live.subscribe(event,p=>ref.current(p)),[live,event]);}
+export function useLiveEvent(event:string,handler:(payload:any)=>void){const {subscribe}=useLive(),ref=useRef(handler);ref.current=handler;useEffect(()=>subscribe(event,p=>ref.current(p)),[subscribe,event]);}
 export default function LiveProvider({children}:{children:React.ReactNode}){
  const {getToken}=useAuth(),tokenRef=useRef(getToken);tokenRef.current=getToken;
  const [connection,setConnection]=useState<Connection>("connecting"),[maintenance,setMaintenance]=useState<MaintenanceStatus>(),[lastMessageAt,setLast]=useState(0);
