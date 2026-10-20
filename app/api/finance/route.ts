@@ -1,9 +1,10 @@
+import {DELISTED_SYMBOLS} from "@/lib/market-shared";
 import {randomUUID} from "node:crypto";
 import {z} from "zod";
 import {endpoint,parse} from "@/lib/api";
 import {mutate,rateLimit} from "@/lib/store";
 import {publicRoom} from "@/lib/public";
-import {spot,openPosition,closePosition,requireQuote,SYMBOLS} from "@/lib/finance";
+import {spot,openPosition,closePosition,requireQuote,redeemLegacyHolding,legacyQuote,SYMBOLS} from "@/lib/finance";
 import {ensure} from "@/lib/errors";
 import {editPositionTriggers} from "@/lib/position-triggers";
 import {resolveTriggerInput} from "@/lib/trading-settings";
@@ -18,6 +19,7 @@ const triggerMode=z.enum(["price","pnl"]);
 const openTriggers={triggerInputMode:triggerMode.optional(),takeProfit:triggerPrice.optional(),stopLoss:triggerPrice.optional(),takeProfitPnl:triggerPrice.optional(),stopLossPnl:triggerPrice.optional()};
 const editTriggers={triggerInputMode:triggerMode.optional(),takeProfit:triggerPrice.nullable().optional(),stopLoss:triggerPrice.nullable().optional(),takeProfitPnl:triggerPrice.nullable().optional(),stopLossPnl:triggerPrice.nullable().optional()};
 const schema=z.discriminatedUnion("type",[
+ z.object({...base,type:z.literal("redeem-legacy"),symbol:z.enum(DELISTED_SYMBOLS)}).strict(),
  z.object({...base,type:z.literal("spin"),bets:z.array(bet).min(1).max(20)}).strict(),
  z.object({...base,type:z.literal("spot"),symbol,side:z.enum(["buy","sell"]),amount:money}).strict(),
  z.object({...base,type:z.literal("open"),symbol,side:z.enum(["long","short"]),margin:money,leverage:z.number().int().min(1).max(200),...openTriggers}).strict(),
@@ -31,6 +33,10 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
  ensure(Date.now()-input.requestAt>=-10_000&&Date.now()-input.requestAt<=120_000,"Request expired. Try again.",409);
  const receipt=r.receipts.find(x=>x.id===input.requestId);if(receipt){ensure(receipt.userId===who.id,"Invalid request.",409);return;}
  if(input.type==="spin")ensure(false,"Instant spins are disabled. Use the shared roulette table.",410);
+ else if(input.type==="redeem-legacy"){
+  const result=redeemLegacyHolding(r,who,input.symbol);
+  audit(r,who,"finance-legacy-redeem",input.symbol,{requestId:input.requestId,...result.old},{requestId:input.requestId,units:0,returned:result.returned,quote:result.quote,wallet:result.wallet});
+ }
  else if(input.type==="spot")spot(r,who,input.symbol,input.side,input.amount);
  else if(input.type==="open"){
   const member=register(r,who),now=Date.now();
@@ -51,9 +57,9 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
  else {
   const member=r.members.find(m=>m.id===who.id),position=member?.positions?.find(p=>p.id===input.positionId);
   ensure(member&&position,"Position not found.",404);
-  const old={...position};closePosition(r,who,input.positionId);
+  const old={...position},legacyValuation=legacyQuote(r,position.symbol);closePosition(r,who,input.positionId);
   const closed=member.closedPositions!.find(p=>p.id===input.positionId)!;
-  audit(r,who,"finance-close",input.positionId,{...financeAuditSnapshot(input.requestId,"Manual",old,closed.exit),exists:true},{...financeAuditSnapshot(input.requestId,closed.reason==="Liq"?"Liq":"Manual",old,closed.exit),exists:false,realizedPnl:closed.realizedPnl,closedAt:closed.closedAt});
+  audit(r,who,"finance-close",input.positionId,{...financeAuditSnapshot(input.requestId,"Manual",old,closed.exit),exists:true},{...financeAuditSnapshot(input.requestId,closed.reason==="Liq"?"Liq":"Manual",old,closed.exit),exists:false,...(legacyValuation?{legacyValuation}:{}),realizedPnl:closed.realizedPnl,closedAt:closed.closedAt});
  }
  r.receipts=[{id:input.requestId,userId:who.id,at:Date.now()},...r.receipts.filter(x=>x.at&&Date.now()-x.at<300_000)];
  });return publicRoom(room,who);

@@ -1,3 +1,4 @@
+import {isActiveSymbol} from "./market-shared";
 import {candleUpdate} from "./candles";
 import {applyMarketTick} from "./market-tick";
 import {mutate} from "./store";
@@ -8,6 +9,8 @@ import {ExchangeFeed,type Tick} from "./exchange-feed";
 type Worker={runOnce:()=>Promise<void>;ready:Promise<void>;owner:string;feed:ExchangeFeed;timer:ReturnType<typeof setInterval>;stop:()=>void};
 const globalWorker=globalThis as typeof globalThis & {exchangePriceWorker?:Worker};
 export async function persistExchangeTicks(ticks:Tick[]){
+ ticks=ticks.filter(tick=>isActiveSymbol(tick.symbol));
+ if(!ticks.length)return;
  await mutate(room=>{
   for(const tick of ticks){
    const previous=room.quotes?.[tick.symbol as keyof typeof room.quotes];

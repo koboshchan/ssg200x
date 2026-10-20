@@ -4,7 +4,7 @@ import {freshRoom,register,assertRoom} from "../lib/poker";
 import {spin,payout,spot,openPosition,closePosition,liquidate,pnl,liqPrice,equity,unitsFor,value} from "../lib/finance";
 import type {Identity} from "../lib/types";
 const who:Identity={id:"a",name:"A",email:"a@a.test",admin:true};
-function setup(){const r=freshRoom();register(r,who);r.quotes={BTC:{micro:100_000_000_000,at:1000},DOGE:{micro:123456,at:1000}};return r;}
+function setup(){const r=freshRoom();register(r,who);r.quotes={BTC:{micro:100_000_000_000,at:1000},XRP:{micro:123456,at:1000}};return r;}
 test("European wheel straight and outside returns include stake",()=>{
  assert.equal(payout({kind:"straight",pick:0,amount:100},0),3600);
  for(const kind of ["red","black","odd","even","low","high","dozen","column"] as const)assert.equal(payout({kind,pick:1,amount:100},0),0);
@@ -26,7 +26,7 @@ test("invalid roulette picks, negative stakes and overdraft fail",()=>{
  r.members[0].wallet=10;assert.throws(()=>spin(r,who,[{kind:"red",amount:100}],1));
 });
 test("spot buy and full sell round-trip conserves integer ledger",()=>{const r=setup();spot(r,who,"BTC","buy",10_000,1000);assert.equal(r.members[0].holdings![0].units,100_000);assert.equal(r.members[0].wallet,90_000);assertRoom(r);spot(r,who,"BTC","sell",10_000,1000);assert.equal(r.members[0].holdings!.length,0);assert.equal(r.members[0].wallet,100_000);assertRoom(r);});
-test("sub-cent coin price and fractional units use bigint valuation",()=>{const r=setup();spot(r,who,"DOGE","buy",1234,1000);const h=r.members[0].holdings![0];assert.equal(h.units,unitsFor(1234,123456));assert.ok(value(h.units,123456)<=1234);assertRoom(r);});
+test("sub-cent coin price and fractional units use bigint valuation",()=>{const r=setup();spot(r,who,"XRP","buy",1234,1000);const h=r.members[0].holdings![0];assert.equal(h.units,unitsFor(1234,123456));assert.ok(value(h.units,123456)<=1234);assertRoom(r);});
 test("spot gains enter house ledger and partial cost basis remains correct",()=>{const r=setup();spot(r,who,"BTC","buy",10_000,1000);r.quotes!.BTC!.micro*=2;spot(r,who,"BTC","sell",10_000,1000);assert.equal(r.members[0].holdings![0].cost,5000);assert.equal(r.members[0].wallet,100_000);assert.equal(r.house,-5000);assertRoom(r);});
 test("stale quote, insufficient cash and missing holding fail closed",()=>{const r=setup();assert.throws(()=>spot(r,who,"BTC","buy",100,20_000));assert.throws(()=>spot(r,who,"BTC","buy",100_001,1000));assert.throws(()=>spot(r,who,"BTC","sell",100,1000));assertRoom(r);});
 test("long and short isolated PnL, liquidation math, leverage boundaries",()=>{const r=setup();for(const side of ["long","short"] as const){openPosition(r,who,"BTC",side,10_000,10,side,1000);const p=r.members[0].positions!.at(-1)!;assert.equal(pnl(p,p.entry*(side==="long"?1.05:.95)),5000);assert.equal(liqPrice(p),p.entry*(side==="long"?.9:1.1));assert.equal(equity(p,p.entry),10_000);}assertRoom(r);assert.throws(()=>openPosition(r,who,"BTC","long",100,201,"x",1000));});
