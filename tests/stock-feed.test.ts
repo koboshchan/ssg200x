@@ -16,13 +16,13 @@ function setup() {
   const feed=new AlpacaIexFeed({env:{ALPACA_KEY_ID:"fixture-key",ALPACA_SECRET:"fixture-secret"},permitted:()=>permitted,isLeader:()=>leader,now:()=>now,
     socket:url=>{assert.equal(url,"wss://stream.data.alpaca.markets/v2/iex");const s=new Socket();sockets.push(s);return s;},onTick:t=>ticks.push(t),onState:s=>states.push(s)});
   const print=(overrides={})=>({T:"t",S:"AAPL",p:200,s:100,c:["@"],t:new Date(now-100).toISOString(),...overrides});
-  function connect(){assert.equal(feed.start(),true);const s=sockets.at(-1)!;s.onopen?.();s.message([{T:"success",msg:"authenticated"}]);s.message([{T:"subscription",trades:["AAPL","TSLA","NVDA","MSFT","AMD"],quotes:["AAPL","TSLA","NVDA","MSFT","AMD"]}]);return s;}
+  function connect(){assert.equal(feed.start(),true);const s=sockets.at(-1)!;s.onopen?.();s.message([{T:"success",msg:"authenticated"}]);s.message([{T:"subscription",trades:["AAPL","TSLA","NVDA","MSFT","AMD","SPCX"],quotes:["AAPL","TSLA","NVDA","MSFT","AMD","SPCX"]}]);return s;}
   return {feed,sockets,ticks,states,print,connect,setLeader:(v:boolean)=>leader=v,setPermission:(v:boolean)=>permitted=v};
 }
 test("auth then subscribe, array trades filtered, no bars/quotes as execution",()=>{
   const h=setup(),s=h.connect();
   assert.deepEqual(JSON.parse(s.sent[0]),{action:"auth",key:"fixture-key",secret:"fixture-secret"});
-  assert.deepEqual(JSON.parse(s.sent[1]),{action:"subscribe",trades:["AAPL","TSLA","NVDA","MSFT","AMD"],quotes:["AAPL","TSLA","NVDA","MSFT","AMD"]});
+  assert.deepEqual(JSON.parse(s.sent[1]),{action:"subscribe",trades:["AAPL","TSLA","NVDA","MSFT","AMD","SPCX"],quotes:["AAPL","TSLA","NVDA","MSFT","AMD","SPCX"]});
   s.message([h.print(),h.print(),h.print({S:"GOOG"}),h.print({T:"q"}),h.print({T:"b"}),h.print({p:-1}),h.print({c:["T"]}),h.print({t:"2026-10-19T14:59:00Z"})]);
   assert.equal(h.ticks.length,1);
   assert.doesNotMatch(JSON.stringify(h.ticks),/fixture-/);
@@ -57,15 +57,15 @@ test("missing credentials never construct upstream sockets",()=>{
   assert.equal(feed.start(),false);assert.equal(called,false);
 });
 
-test("one pooled connection emits independent same-timestamp trades for all five symbols",()=>{
+test("one pooled connection emits independent same-timestamp trades for all six symbols",()=>{
   const h=setup(),s=h.connect();
-  s.message(["AAPL","TSLA","NVDA","MSFT","AMD"].map(S=>h.print({S})));
-  assert.deepEqual(h.ticks.map(t=>t.symbol),["AAPL","TSLA","NVDA","MSFT","AMD"]);
-  s.message(["AAPL","TSLA","NVDA","MSFT","AMD"].map(S=>h.print({S})));
-  assert.equal(h.ticks.length,5);assert.equal(h.sockets.length,1);
+  s.message(["AAPL","TSLA","NVDA","MSFT","AMD","SPCX"].map(S=>h.print({S})));
+  assert.deepEqual(h.ticks.map(t=>t.symbol),["AAPL","TSLA","NVDA","MSFT","AMD","SPCX"]);
+  s.message(["AAPL","TSLA","NVDA","MSFT","AMD","SPCX"].map(S=>h.print({S})));
+  assert.equal(h.ticks.length,6);assert.equal(h.sockets.length,1);
   s.onerror?.();const next=h.connect();
   assert.equal(h.sockets.length,2);
-  assert.deepEqual(JSON.parse(next.sent[1]).trades,["AAPL","TSLA","NVDA","MSFT","AMD"]);
+  assert.deepEqual(JSON.parse(next.sent[1]).trades,["AAPL","TSLA","NVDA","MSFT","AMD","SPCX"]);
   h.feed.stop();
 });
 test("partial pooled subscription is not ready",()=>{

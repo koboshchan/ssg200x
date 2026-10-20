@@ -17,7 +17,7 @@ test("no key or legacy Massive flag enables unfinished shared hooks", () => {
   assert.doesNotMatch(JSON.stringify(result), /mock-|secret|old/);
 });
 
-test("exact five-equity pool is separate from cryptocurrency configuration",()=>{
-  assert.deepEqual(STOCK_SYMBOLS,["AAPL","TSLA","NVDA","MSFT","AMD"]);
+test("exact six-equity pool is separate from cryptocurrency configuration",()=>{
+  assert.deepEqual(STOCK_SYMBOLS,["AAPL","TSLA","NVDA","MSFT","AMD","SPCX"]);
   assert.deepEqual(stockPrerequisites({}).symbols,STOCK_SYMBOLS);
 });
