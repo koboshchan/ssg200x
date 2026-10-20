@@ -10,6 +10,7 @@ export const CODE_TTL_MS=10*60_000;
 type ReceiveCode={_id:string;hash:string;generation:string;expiresAt:Date;amount:number;note:string};
 export type Transfer={kind?:"airdrop";_id:string;sender:string;recipient:string;senderName:string;recipientName:string;amount:number;note:string;at:number;fingerprint:string;senderBefore:number;senderAfter:number;recipientBefore:number;recipientAfter:number};
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
+// Keep the v2 hash domain and accept legacy four-word requests until they expire.
 const codeHash=(code:string)=>hash("ssg200x.payment-request.v2\0"+code);
 const words=new Set(wordlist);
 export function parseTransferAmount(input:unknown){
@@ -17,13 +18,15 @@ export function parseTransferAmount(input:unknown){
  const [whole,fraction=""]=input.split(".");const amount=Number(BigInt(whole)*100n+BigInt(fraction.padEnd(2,"0")));
  ensure(Number.isSafeInteger(amount)&&amount>0&&amount<=100_000_000,"Send $0.01–$1,000,000.");return amount;
 }
-export function normalizeReceiveCode(input:unknown){ensure(typeof input==="string"&&input.length<=100,"Enter the four-word payment request code.");const code=input.trim().toLowerCase().replace(/\s+/g," ");ensure(/^[a-z]+ [a-z]+ [a-z]+ [a-z]+$/.test(code)&&code.split(" ").every(w=>words.has(w)),"Enter the four-word payment request code.");return code;}
+export function normalizeReceiveCode(input:unknown){ensure(typeof input==="string"&&input.length<=100,"Enter the two-word payment request code.");const code=input.trim().toLowerCase().replace(/\s+/g," ");ensure(/^[a-z]+ [a-z]+(?: [a-z]+ [a-z]+)?$/.test(code)&&code.split(" ").every(w=>words.has(w)),"Enter the two-word payment request code.");return code;}
 export function transferNote(input:unknown){ensure(input===undefined||typeof input==="string","Invalid note.");const note=(input??"").trim();ensure(note.length<=160&&!/[\u0000-\u001f\u007f<>]/.test(note),"Use a plain-text note of at most 160 characters.");return note;}
 let indexed:Db|undefined;
 export async function transferIndexes(d:Db){if(indexed===d)return;await Promise.all([d.collection("transfer_codes").createIndex({hash:1},{unique:true}),d.collection("transfer_codes").createIndex({expiresAt:1},{expireAfterSeconds:0}),d.collection("transfers").createIndex({sender:1,at:-1}),d.collection("transfers").createIndex({recipient:1,at:-1}),d.collection("transfers").createIndex({at:-1})]);indexed=d;}
 function member(r:Room,id:string){const m=r.members.find(m=>m.id===id);ensure(m?.approved&&!m.accessRevoked,"Player unavailable.",403);return m;}
 export async function createReceiveCode(who:Identity,input:{amount:unknown;note?:unknown},database?:Db){const amount=parseTransferAmount(input.amount),note=transferNote(input.note);const d=database??await db();await transferIndexes(d);const r=await d.collection<Room>("rooms").findOne({_id:"main"});ensure(r,"Room unavailable.",503);member(r,who.id);
- for(let i=0;i<5;i++){const code=Array.from({length:4},()=>wordlist[randomInt(wordlist.length)]).join(" "),expiresAt=new Date(Date.now()+CODE_TTL_MS);try{await d.collection<ReceiveCode>("transfer_codes").updateOne({_id:who.id},{$set:{hash:codeHash(code),generation:randomUUID(),expiresAt,amount,note}},{upsert:true});return {code,amount,note,expiresAt:expiresAt.getTime()};}catch(e){if((e as {code?:number}).code!==11000)throw e;}}
+ // The existing unique hash index is the atomic arbiter, including concurrent issuers.
+ // Leave expired rows to TTL rather than racing a delete against a refreshed request.
+ for(let i=0;i<5;i++){const code=Array.from({length:2},()=>wordlist[randomInt(wordlist.length)]).join(" "),expiresAt=new Date(Date.now()+CODE_TTL_MS);try{await d.collection<ReceiveCode>("transfer_codes").updateOne({_id:who.id},{$set:{hash:codeHash(code),generation:randomUUID(),expiresAt,amount,note}},{upsert:true});return {code,amount,note,expiresAt:expiresAt.getTime()};}catch(e){if((e as {code?:number}).code!==11000)throw e;}}
  throw new AppError("Could not create a receive code. Try again.",503);
 }
 export async function resolveReceiveCode(who:Identity,input:unknown,database?:Db){const d=database??await db(),code=normalizeReceiveCode(input);const entry=await d.collection<ReceiveCode>("transfer_codes").findOne({hash:codeHash(code),expiresAt:{$gt:new Date()}});ensure(entry,"Code expired or unavailable.",404);ensure(entry._id!==who.id,"You cannot send to yourself.");const r=await d.collection<Room>("rooms").findOne({_id:"main"});ensure(r,"Room unavailable.",503);member(r,who.id);const recipient=member(r,entry._id);return {name:recipient.name,publicId:recipient.publicId,amount:entry.amount,note:entry.note,expiresAt:entry.expiresAt.getTime()};}

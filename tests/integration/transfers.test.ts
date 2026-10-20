@@ -1,11 +1,11 @@
 import {test,before,after,beforeEach} from "node:test";
 import assert from "node:assert/strict";
-import {randomUUID} from "node:crypto";
+import {createHash,randomUUID} from "node:crypto";
 import {db,closeDatabase,readRoom} from "../../lib/db";
 import {visit,mutate,move} from "../../lib/store";
 import {assertRoom} from "../../lib/poker";
 import {openPosition} from "../../lib/finance";
-import {createReceiveCode,sendTransfer,resolveReceiveCode,transferHistory} from "../../lib/transfers";
+import {createReceiveCode,sendTransfer,resolveReceiveCode,transferHistory,transferIndexes,CODE_TTL_MS} from "../../lib/transfers";
 import type {Identity} from "../../lib/types";
 if(!process.env.MONGODB_DB?.startsWith("fakebucks_test_transfer_"))throw new Error("Refusing non-test database");
 const alice:Identity={id:"a",name:"Alice",email:"a@example.test",admin:false},bob={...alice,id:"b",name:"Bob"},carol={...alice,id:"c",name:"Carol"};
@@ -27,4 +27,94 @@ test("recipient confirmation mismatch and revoked membership fail without moving
 test("regeneration and confirmation serialize on the same generation document",async()=>{const i=await input();const out=await Promise.allSettled([sendTransfer(alice,i),createReceiveCode(bob,{amount:"100"})]);assert.equal(out[1].status,"fulfilled");const r=await readRoom();assertRoom(r);assert.ok(r.members[0].wallet===90000||r.members[0].wallet===100000);assert.equal((await transferHistory(alice)).length,out[0].status==="fulfilled"?1:0);await assert.rejects(()=>sendTransfer(alice,{...i,requestId:randomUUID()}),/Code expired/);if(out[0].status==="fulfilled")assert.equal((await sendTransfer(alice,i))?.id,out[0].value?.id);});
 test("code storage is domain-separated hash only, failed funds preserve code",async()=>{const i=await input(bob,"1000.01"),d=await db();const stored=await d.collection("transfer_codes").findOne({_id:bob.id as never});assert.ok(stored);assert.ok(!JSON.stringify(stored).includes(i.code));const {createHash}=await import("node:crypto");assert.equal(stored.hash,createHash("sha256").update("ssg200x.payment-request.v2\0"+i.code).digest("hex"));assert.ok(stored.generation);await assert.rejects(()=>sendTransfer(alice,i),/available cash/);assert.equal((await resolveReceiveCode(alice,i.code)).name,"Bob");});
 
-test("receiver fixes amount and note, sender cannot override",async()=>{const i=await input(bob,"12.34");assert.equal(i.code.split(" ").length,4);const preview=await resolveReceiveCode(alice,i.code);assert.equal(preview.amount,1234);assert.equal(preview.note,"thanks");await assert.rejects(()=>sendTransfer(alice,{...i,amount:"1"} as never),/receiver fixes/);await sendTransfer(alice,i);assert.equal((await readRoom()).members[1].wallet,101234);});
+test("receiver fixes amount and note, sender cannot override",async()=>{const i=await input(bob,"12.34");assert.equal(i.code.split(" ").length,2);const preview=await resolveReceiveCode(alice,i.code);assert.equal(preview.amount,1234);assert.equal(preview.note,"thanks");await assert.rejects(()=>sendTransfer(alice,{...i,amount:"1"} as never),/receiver fixes/);await sendTransfer(alice,i);assert.equal((await readRoom()).members[1].wallet,101234);});
+
+test("new two-word requests retain the ten-minute lifetime and unique TTL indexes",async()=>{
+ const start=Date.now(),request=await createReceiveCode(bob,{amount:"1"});
+ assert.equal(request.code.split(" ").length,2);
+ assert.ok(request.expiresAt>=start+CODE_TTL_MS&&request.expiresAt<=Date.now()+CODE_TTL_MS);
+ const indexes=await(await db()).collection("transfer_codes").indexes();
+ assert.ok(indexes.some(i=>i.key.hash===1&&i.unique));
+ assert.ok(indexes.some(i=>i.key.expiresAt===1&&i.expireAfterSeconds===0));
+});
+
+test("legacy four-word active codes survive index setup, resolve, send and replay",async()=>{
+ const d=await db(),code="cat dog fish bird";
+ const hash=createHash("sha256").update("ssg200x.payment-request.v2\0"+code).digest("hex");
+ await d.collection("transfer_codes").insertOne({_id:bob.id as never,hash,generation:randomUUID(),expiresAt:new Date(Date.now()+CODE_TTL_MS),amount:1234,note:"legacy"});
+ await transferIndexes(d);
+ const preview=await resolveReceiveCode(alice," CAT  dog Fish bird ");
+ assert.equal(preview.amount,1234);assert.equal(preview.note,"legacy");
+ const i={code,recipient:preview.publicId!,requestId:randomUUID()};
+ const sent=await sendTransfer(alice,i);assert.equal((await sendTransfer(alice,i))?.id,sent?.id);
+ assert.equal((await readRoom()).members[1].wallet,101234);
+ await assert.rejects(()=>resolveReceiveCode(alice,code),/Code expired/);
+});
+
+test("concurrent issuers receive distinct active codes enforced by Mongo",async()=>{
+ const d=await db(),people=Array.from({length:32},(_,i)=>({...alice,id:"issuer"+i,name:"Issuer "+i}));
+ for(const p of people)await visit(p);
+ const requests=await Promise.all(people.map(p=>createReceiveCode(p,{amount:"1"},d)));
+ assert.equal(new Set(requests.map(r=>r.code)).size,people.length);
+ assert.equal(await d.collection("transfer_codes").countDocuments({expiresAt:{$gt:new Date()}}),people.length);
+ const stored=await d.collection("transfer_codes").findOne({_id:people[0].id as never});
+ await assert.rejects(()=>d.collection("transfer_codes").insertOne({...stored!,_id:"collision" as never}),{code:11000});
+});
+
+test("an actual unique-index collision retries without replacing the other active request",async()=>{
+ const d=await db(),codes=d.collection("transfer_codes");
+ let attempts=0;
+ // Interpose a competing issuer exactly after generation, before the real Mongo write.
+ // Both writes still go through the real unique index, not a mocked duplicate error.
+ const wrapped=new Proxy(d,{get(target,key){
+  if(key==="collection")return(name:string)=>name!=="transfer_codes"?target.collection(name):new Proxy(codes,{get(c,k){
+   if(k==="updateOne")return async(filter:object,update:{$set:{hash:string}},options:object)=>{
+    attempts++;if(attempts===1)await codes.insertOne({_id:carol.id as never,...update.$set});
+    return c.updateOne(filter,update,options);
+   };
+   const value=Reflect.get(c,k);return typeof value==="function"?value.bind(c):value;
+  }});
+  const value=Reflect.get(target,key);return typeof value==="function"?value.bind(target):value;
+ }});
+ const request=await createReceiveCode(bob,{amount:"2"},wrapped);
+ assert.equal(attempts,2);
+ assert.equal((await resolveReceiveCode(alice,request.code,d)).name,"Bob");
+ const competing=await codes.findOne({_id:carol.id as never}),winner=await codes.findOne({_id:bob.id as never});
+ assert.notEqual(competing!.hash,winner!.hash);assert.equal(competing!.amount,200);
+});
+
+test("collision retries are bounded and leave an existing request intact",async()=>{
+ const d=await db(),old=await createReceiveCode(bob,{amount:"3"},d),codes=d.collection("transfer_codes");
+ const occupied=await createReceiveCode(carol,{amount:"1"},d);
+ const occupiedRow=await codes.findOne({_id:carol.id as never});let attempts=0;
+ const wrapped=new Proxy(d,{get(target,key){
+  if(key==="collection")return(name:string)=>name!=="transfer_codes"?target.collection(name):new Proxy(codes,{get(c,k){
+   if(k==="updateOne")return async(filter:object,update:{$set:{hash:string}},options:object)=>{
+    attempts++;return c.updateOne(filter,{$set:{...update.$set,hash:occupiedRow!.hash}},options);
+   };
+   const value=Reflect.get(c,k);return typeof value==="function"?value.bind(c):value;
+  }});
+  const value=Reflect.get(target,key);return typeof value==="function"?value.bind(target):value;
+ }});
+ await assert.rejects(()=>createReceiveCode(bob,{amount:"99"},wrapped),/Could not create/);
+ assert.equal(attempts,5);
+ assert.equal((await resolveReceiveCode(alice,old.code,d)).amount,300);
+ assert.equal((await resolveReceiveCode(alice,occupied.code,d)).amount,100);
+});
+
+test("payment guess limits still enforce user, source and aggregate budgets",async()=>{
+ const {limitTransferGuess,transferSource}=await import("../../lib/transfer-rate-limit");
+ const d=await db(),request=new Request("https://test.invalid");
+ const budgets=[["transfer-guess:user:a",10],["transfer-guess:source:"+transferSource(request),30],["transfer-guess:global",120]] as const;
+ for(const [id,cap] of budgets){
+  await d.collection("limits").deleteMany({});
+  const minute=Math.floor(Date.now()/60_000);
+  await d.collection("limits").insertOne({_id:(id+":"+minute) as never,count:cap-1,expiresAt:new Date((minute+3)*60_000)});
+  await limitTransferGuess(request,alice.id);
+  await assert.rejects(()=>limitTransferGuess(request,alice.id),(e:unknown)=>(e as {status:number}).status===429);
+ }
+ await d.collection("limits").deleteMany({});
+ const {rateLimit}=await import("../../lib/store");
+ await Promise.all(Array.from({length:20},()=>rateLimit("transfers:a",20)));
+ await assert.rejects(()=>rateLimit("transfers:a",20),(e:unknown)=>(e as {status:number}).status===429);
+});
