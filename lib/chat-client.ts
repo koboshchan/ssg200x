@@ -1,32 +1,39 @@
 // TableTalk client state machine. Pure logic with injected transport and key store so the same code
 // runs in the browser (socket.io + IndexedDB) and in Node tests against the real chat service.
-import {createIdentity,importEpochKey,newEpochKey,makeWrap,openMessage,openWrap,registerData,restoreIdentity,sealMessage,sha256Hex,signText,MAX_TEXT_BYTES,type Identity,type ServerIdentity,type WireMessage,type WireWrap} from "./chat-crypto";
+import {createIdentity,newEpochKey,makeWrap,openMessage,openWrap,registerData,restoreIdentity,sealMessage,sha256Hex,signText,MAX_TEXT_BYTES,bundleFingerprint,type Identity,type ServerIdentity,type WireMessage,type WireWrap} from "./chat-crypto";
 
-export type Pin={deviceId:string;signPublic:string;dhPublic:string;known:string[]};
+type Binding={deviceId:string;signPublic:string;dhPublic:string};
+export type Pin=Binding&{known:string[];bindings?:Binding[]};
+export type Setup={identity:Identity;body:Awaited<ReturnType<typeof createIdentity>>["body"];confirmed:boolean};
+export type SendPayload=Awaited<ReturnType<typeof sealMessage>>;
+export type BootstrapPayload=Awaited<ReturnType<typeof makeWrap>>;
 export interface ChatStore{
  getIdentity(user:string):Promise<Identity|undefined>;putIdentity(user:string,identity:Identity):Promise<void>;clearIdentity(user:string):Promise<void>;
  getEpoch(user:string,epoch:string):Promise<CryptoKey|undefined>;putEpoch(user:string,epoch:string,key:CryptoKey):Promise<void>;
+ getSetup(user:string):Promise<Setup|undefined>;putSetup(user:string,setup:Setup):Promise<void>;clearSetup(user:string):Promise<void>;
+ getBootstrap(user:string,epoch:string):Promise<BootstrapPayload|undefined>;putBootstrap(user:string,epoch:string,key:CryptoKey,wrap:BootstrapPayload):Promise<void>;clearBootstrap(user:string,epoch:string):Promise<void>;
  getPin(user:string,other:string):Promise<Pin|undefined>;putPin(user:string,other:string,pin:Pin):Promise<void>;
 }
 export type Transport=(event:string,payload:unknown)=>Promise<any>;
 export type Phase="loading"|"setup"|"words"|"recover"|"waiting"|"ready"|"error";
 export type MessageStatus="ok"|"pending"|"failed"|"unverified"|"keychanged"|"undecryptable";
 export type ChatMessage={key:string;id:string;senderUserId:string;publicId:string;mine:boolean;ts:number;serverTs:number;cursor:number;epoch:string;text:string|null;status:MessageStatus};
-export type ChatMember={userId:string;publicId:string;mine:boolean;fingerprint:string;changed:boolean};
+export type ChatMember={userId:string;publicId:string;mine:boolean;fingerprint:string;changed:boolean;historical?:boolean};
 export type Snapshot={phase:Phase;error:string|null;words:string[]|null;messages:ChatMessage[];members:ChatMember[];hasMore:boolean;busy:boolean};
 type Device={deviceId:string;dhPublic:string;signPublic:string;fingerprint:string};
-type View={revision:number;epoch:string;status:"unclaimed"|"claimed"|"active";owner:{userId:string;deviceId:string}|null;leaseUntil:number;members:{userId:string;devices:Device[]}[];wraps?:WireWrap[]};
+type View={revision:number;epoch:string;status:"unclaimed"|"claimed"|"active";owner:{userId:string;deviceId:string}|null;leaseUntil:number;members:{userId:string;devices:Device[]}[];wraps?:WireWrap[];nextWrapCursor?:string|null};
 const codeOf=(e:unknown)=>e instanceof Error?e.message:"unavailable";
 const PAGE=50;
 
 export class ChatClient{
  private snap:Snapshot={phase:"loading",error:null,words:null,messages:[],members:[],hasMore:false,busy:false};
  private listeners=new Set<()=>void>();
- private identity:Identity|undefined;private serverIdentity:ServerIdentity|undefined;private pendingIdentity:Identity|undefined;
+ private identity:Identity|undefined;private serverIdentity:ServerIdentity|undefined;
  private registered=false;private chain:Promise<unknown>=Promise.resolve();private timer:ReturnType<typeof setTimeout>|undefined;private hintTimer:ReturnType<typeof setTimeout>|undefined;
  private keys=new Map<string,CryptoKey>();private attempted=new Set<string>();private cursors=new Map<string,number|null>();
  private raw=new Map<string,WireMessage>();private local=new Map<string,ChatMessage>();private shown=new Map<string,ChatMessage>();
  private changed=new Map<string,Device>();private publicIds=new Map<string,string>();private pins=new Map<string,Pin>();private lastView:View|undefined;
+ private ambiguous=new Set<string>();private sealed=new Map<string,SendPayload>();private historical=new Map<string,Device>();
  private closed=false;
  constructor(private user:string,private request:Transport,private store:ChatStore,private now:()=>number=Date.now){}
  subscribe=(fn:()=>void)=>{this.listeners.add(fn);return()=>{this.listeners.delete(fn);};};
@@ -39,18 +46,27 @@ export class ChatClient{
  start=()=>this.run(()=>this.sync());
  private later(ms:number){clearTimeout(this.timer);if(!this.closed)this.timer=setTimeout(()=>{void this.start();},ms);}
 
+ private clearSession(){
+  this.keys.clear();this.attempted.clear();this.cursors.clear();this.raw.clear();this.local.clear();this.sealed.clear();this.ambiguous.clear();
+  this.lastView=undefined;this.set({messages:[],hasMore:false});
+ }
  private async sync(){
   if(this.closed||this.snap.phase==="words")return;
   try{
+   const setup=await this.store.getSetup(this.user);
+   if(setup){
+    if(!setup.confirmed){this.set({phase:"recover",error:"setup_words_lost"});return;}
+    await this.publish(setup);
+   }
    const {identity:server}=await this.request("keys:get",{v:1}) as {identity:ServerIdentity|null};
    let local=await this.store.getIdentity(this.user);
    if(!server){
     if(local){await this.store.clearIdentity(this.user);this.registered=false;}
-    this.identity=undefined;this.serverIdentity=undefined;this.set({phase:"setup",error:null});return;
+    this.clearSession();this.identity=undefined;this.serverIdentity=undefined;this.set({phase:"setup",error:null});return;
    }
-   if(!local||local.deviceId!==server.deviceId||local.keyVersion!==server.keyVersion||local.signPublic!==server.signPublic){
+   if(!local||local.deviceId!==server.deviceId||local.keyVersion!==server.keyVersion||local.signPublic!==server.signPublic||local.dhPublic!==server.dhPublic){
     if(local){await this.store.clearIdentity(this.user);this.registered=false;}
-    this.identity=undefined;this.serverIdentity=server;this.set({phase:"recover",error:null});return;
+    this.clearSession();this.identity=undefined;this.serverIdentity=server;this.set({phase:"recover",error:null});return;
    }
    this.identity=local;this.serverIdentity=server;
    if(!this.registered){
@@ -67,13 +83,15 @@ export class ChatClient{
   this.set({phase:"error",error:code});this.later(10000);
  }
  private async converge(me:Identity){
-  let view=await this.request("state",{v:1}) as View;
+  let view=await this.readView();
+  this.historical.clear();
   await this.syncPins(view);
   await this.unwrapAll(me,view);
   const have=()=>this.keys.has(view.epoch);
-  if(!have()){
+  if(!have()||view.status!=="active"){
    const stale=view.status==="claimed"&&view.leaseUntil<=this.now();
-   if(view.status==="unclaimed"||stale)view=await this.bootstrap(me,view);
+   const owned=view.owner?.userId===this.user&&view.owner.deviceId===me.deviceId;
+   if(view.status==="unclaimed"||stale||(view.status==="claimed"&&owned))view=await this.bootstrap(me,view);
    else{this.set({phase:"waiting",error:null});this.later(view.status==="claimed"?Math.max(1500,view.leaseUntil-this.now()+500):4000);return;}
   }
   if(view.status!=="active"||!have()){this.set({phase:"waiting",error:null});this.later(3000);return;}
@@ -82,14 +100,57 @@ export class ChatClient{
   await this.refresh(me,view);
   this.set({phase:"ready",error:null});
  }
+ /** Enumerate retained grants, discarding mixed-revision pages rather than merging stale state. */
+ private async readView():Promise<View>{
+  for(let attempt=0;attempt<3;attempt++){
+   const first=await this.request("state",{v:1}) as View;
+   const wraps=new Map<string,WireWrap>();
+   const add=(v:View)=>{for(const w of v.wraps||[])wraps.set(JSON.stringify([w.epoch,w.toUserId,w.toDeviceId]),w);};
+   add(first);let cursor=first.nextWrapCursor;const seen=new Set<string>();let coherent=true;
+   while(cursor){
+    if(seen.has(cursor))throw new Error("bad_pagination");seen.add(cursor);
+    const page=await this.request("state",{v:1,beforeWrap:cursor}) as View;
+    if(page.revision!==first.revision||page.epoch!==first.epoch||page.status!==first.status){coherent=false;break;}
+    add(page);cursor=page.nextWrapCursor;
+   }
+   if(coherent)return {...first,wraps:[...wraps.values()],nextWrapCursor:null};
+  }
+  throw new Error("stale_revision");
+ }
  private async bootstrap(me:Identity,view:View){
-  const claimed=await this.request("claim",{v:1,revision:view.revision,epoch:view.epoch,deviceId:me.deviceId}) as View;
-  const key=await newEpochKey();
-  const wrap=await makeWrap(me,this.user,{revision:claimed.revision,epoch:claimed.epoch,toUserId:this.user,toDeviceId:me.deviceId},me.dhPublic,key);
-  await this.request("wrap",wrap);
-  const stored=await importEpochKey(new Uint8Array(await crypto.subtle.exportKey("raw",key)));
-  await this.store.putEpoch(this.user,claimed.epoch,stored);this.keys.set(claimed.epoch,stored);
-  return await this.request("state",{v:1}) as View;
+  let pending=await this.store.getBootstrap(this.user,view.epoch);
+  let claimed=view;
+  if(!pending||view.owner?.userId!==this.user||view.owner.deviceId!==me.deviceId||view.leaseUntil<=this.now()){
+   claimed=await this.request("claim",{v:1,revision:view.revision,epoch:view.epoch,deviceId:me.deviceId}) as View;
+   pending=await this.store.getBootstrap(this.user,claimed.epoch);
+  }
+  if(!pending){
+   const key=await newEpochKey();
+   pending=await makeWrap(me,this.user,{revision:claimed.revision,epoch:claimed.epoch,toUserId:this.user,toDeviceId:me.deviceId},me.dhPublic,key);
+   // This transaction completes BEFORE the server is allowed to activate the epoch.
+   await this.store.putBootstrap(this.user,claimed.epoch,key,pending);
+  }
+  try{await this.request("wrap",pending);}
+  catch(e){
+   // An activation may have committed before its ACK was lost or membership advanced.
+   const fresh=await this.readView();
+   await this.syncPins(fresh);await this.unwrapAll(me,fresh);
+   if(fresh.epoch===pending.epoch&&fresh.status==="active"&&this.keys.has(fresh.epoch)){
+    await this.store.clearBootstrap(this.user,pending.epoch);return fresh;
+   }
+   // Definitive stale rejection permits a new envelope with the SAME persisted secret.
+   if(codeOf(e)==="stale_revision"&&fresh.epoch===pending.epoch&&fresh.status==="claimed"&&fresh.owner?.userId===this.user&&fresh.owner.deviceId===me.deviceId){
+    const key=await this.store.getEpoch(this.user,fresh.epoch);
+    if(!key)throw new Error("waiting");
+    const updated=await makeWrap(me,this.user,{revision:fresh.revision,epoch:fresh.epoch,toUserId:this.user,toDeviceId:me.deviceId},me.dhPublic,key);
+    await this.store.putBootstrap(this.user,fresh.epoch,key,updated);
+   }
+   throw e;
+  }
+  const fresh=await this.readView();
+  await this.syncPins(fresh);await this.unwrapAll(me,fresh);
+  await this.store.clearBootstrap(this.user,pending.epoch);
+  return fresh;
  }
  private async syncPins(view:View){
   this.changed.clear();
@@ -108,16 +169,33 @@ export class ChatClient{
    return {userId:m.userId,publicId:this.publicIds.get(m.userId)!,mine:m.userId===this.user,fingerprint:d?d.fingerprint:"",changed:this.changed.has(m.userId)};
   })});
  }
- private senderOf(view:View,userId:string,deviceId:string){
-  if(this.changed.has(userId))return undefined;
-  return view.members.find(m=>m.userId===userId)?.devices.find(d=>d.deviceId===deviceId);
+ private async candidate(user:string,d:Device){
+  const key=user+":"+d.fingerprint;this.historical.set(key,d);
+  this.publicIds.set(user,(await sha256Hex(user)).slice(0,16));
+  const others=this.snap.members.filter(m=>!(m.userId===user&&m.historical&&m.fingerprint===d.fingerprint));
+  this.set({members:[...others,{userId:user,publicId:this.publicIds.get(user)!,mine:user===this.user,fingerprint:d.fingerprint,changed:true,historical:true}]});
+ }
+ private async pinFor(user:string){
+  let pin=this.pins.get(user);
+  if(!pin){pin=await this.store.getPin(this.user,user);if(pin)this.pins.set(user,pin);}
+  return pin;
+ }
+ private async senderOf(view:View,w:WireWrap){
+  const current=view.members.find(m=>m.userId===w.senderUserId)?.devices.find(d=>d.deviceId===w.deviceId);
+  const d=w.senderDhPublic&&w.senderSignPublic?{deviceId:w.deviceId,dhPublic:w.senderDhPublic,signPublic:w.senderSignPublic,fingerprint:""}:current;
+  if(!d)return;
+  if(w.senderUserId===this.user&&d.deviceId===this.identity?.deviceId&&d.signPublic===this.identity.signPublic&&d.dhPublic===this.identity.dhPublic)return d;
+  const pin=await this.pinFor(w.senderUserId);
+  if(pin&&[pin,...(pin.bindings||[])].some(p=>p.deviceId===d.deviceId&&p.signPublic===d.signPublic&&p.dhPublic===d.dhPublic))return d;
+  if(current&&current.dhPublic===d.dhPublic&&current.signPublic===d.signPublic)return;
+  await this.candidate(w.senderUserId,{...d,fingerprint:await bundleFingerprint(w.senderUserId,d)});
  }
  private async unwrapAll(me:Identity,view:View){
   for(const w of view.wraps||[]){
    if(this.keys.has(w.epoch))continue;
    const have=await this.store.getEpoch(this.user,w.epoch);
    if(have){this.keys.set(w.epoch,have);continue;}
-   const sender=this.senderOf(view,w.senderUserId,w.deviceId);if(!sender)continue;
+   const sender=await this.senderOf(view,w);if(!sender)continue;
    try{
     const key=await openWrap(me,this.user,w,sender);
     await this.store.putEpoch(this.user,w.epoch,key);this.keys.set(w.epoch,key);
@@ -168,18 +246,25 @@ export class ChatClient{
   const out=new Map<string,ChatMessage>();
   for(const [k,m] of this.raw){
    const mine=m.senderUserId===this.user,key=this.keys.get(m.epoch);
-   const pin=mine?undefined:this.pins.get(m.senderUserId);
+   const self=mine&&m.senderSignPublic===this.identity?.signPublic;
+   const pin=self?undefined:await this.pinFor(m.senderUserId);
    let status:MessageStatus="ok",text:string|null=null;
    if(!key)status="undecryptable";
    else{
     const opened=await openMessage(m,key);
     if(!opened.ok)status=opened.reason==="signature"?"unverified":"undecryptable";
-    else if(!mine&&(!pin||!pin.known.includes(m.senderSignPublic)))status="keychanged";
+    else if(!self&&(!pin||!pin.known.includes(m.senderSignPublic))){
+     status="keychanged";
+     if(this.changed.get(m.senderUserId)?.signPublic!==m.senderSignPublic)await this.candidate(m.senderUserId,{deviceId:m.deviceId,signPublic:m.senderSignPublic,dhPublic:"",fingerprint:await sha256Hex(m.senderSignPublic)});
+    }
     if(opened.ok&&status==="ok")text=opened.text;
    }
    out.set(k,{key:k,id:m.id,senderUserId:m.senderUserId,publicId:this.publicIds.get(m.senderUserId)||"",mine,ts:m.ts,serverTs:m.serverTs,cursor:m.cursor,epoch:m.epoch,text,status});
   }
-  for(const [k,m] of this.local){if(!out.has(k))out.set(k,m);}
+  for(const [k,m] of this.local){
+   if([...this.raw.values()].some(r=>r.senderUserId===this.user&&r.id===m.id)){this.local.delete(k);this.sealed.delete(m.id);this.ambiguous.delete(m.id);}
+   else out.set(k,m);
+  }
   const all=[...out.values()].sort((a,b)=>a.serverTs-b.serverTs||a.cursor-b.cursor||a.ts-b.ts);
   const more=[...this.cursors.values()].some(c=>c!=null);
   this.set({messages:all,hasMore:more});
@@ -194,14 +279,24 @@ export class ChatClient{
    for(let attempt=0;attempt<2;attempt++){
     try{
      const cur=this.lastView!,key=this.keys.get(cur.epoch);if(!key)throw new Error("waiting");
-     const sealed=await sealMessage(me,this.user,{revision:cur.revision,epoch:cur.epoch,id,ts:this.now()},body,key);
+     let sealed=this.sealed.get(id);
+     if(!sealed){sealed=await sealMessage(me,this.user,{revision:cur.revision,epoch:cur.epoch,id,ts:this.now()},body,key);this.sealed.set(id,sealed);}
      const res=await this.request("send",sealed) as {message:WireMessage};
      this.raw.set(res.message.epoch+":"+res.message.senderUserId+":"+res.message.id,res.message);
-     this.local.delete(lk);await this.render();return true;
+     for(const [k,m] of this.local)if(m.id===id)this.local.delete(k);this.sealed.delete(id);this.ambiguous.delete(id);await this.render();return true;
     }catch(e){
      const code=codeOf(e);
      // Revision or epoch moved under us: refresh the room view once and reseal with the same message id.
-     if(attempt===0&&(code==="stale_revision"||code==="waiting")){try{await this.sync();}catch{}continue;}
+     if(attempt===0&&code==="stale_revision"){
+      // Check history before resealing: the old request might already be committed.
+      await this.sync();
+      if([...this.raw.values()].some(m=>m.senderUserId===this.user&&m.id===id)){this.local.delete(lk);this.sealed.delete(id);this.ambiguous.delete(id);await this.render();return true;}
+      // A stale response to a later retry does NOT establish that the first attempt failed.
+      if(this.ambiguous.has(id))break;
+      this.sealed.delete(id);continue;
+     }
+     if([...this.raw.values()].some(m=>m.senderUserId===this.user&&m.id===id)){this.local.delete(lk);this.sealed.delete(id);this.ambiguous.delete(id);await this.render();return true;}
+     if(this.sealed.has(id))this.ambiguous.add(id);
      break;
     }
    }
@@ -210,40 +305,71 @@ export class ChatClient{
   });
  }
  retry(m:ChatMessage){return m.text?this.send(m.text,m.id):false;}
- dismiss(m:ChatMessage){this.local.delete(m.key);return this.render();}
- /** Setup: create a fresh identity (also used to reset). Words are shown once, then confirmed. */
+ dismiss(m:ChatMessage){this.sealed.delete(m.id);this.ambiguous.delete(m.id);this.local.delete(m.key);return this.render();}
+ /** Stage keys locally; never publish before the recovery words have been saved. */
  async createIdentity(){
   return this.run(async()=>{
    this.set({busy:true,error:null});
    try{
-    const expected=this.serverIdentity?.keyVersion??0;
-    const made=await createIdentity(this.user,expected);
-    await this.request("keys:put",made.body);
-    this.pendingIdentity=made.identity;this.set({phase:"words",words:made.words});
+    const existing=await this.store.getSetup(this.user);
+    if(existing)throw new Error("setup_words_lost");
+    const made=await createIdentity(this.user,this.serverIdentity?.keyVersion??0);
+    await this.store.putSetup(this.user,{identity:made.identity,body:made.body,confirmed:false});
+    this.set({phase:"words",words:made.words});
    }catch(e){this.set({error:codeOf(e)});}finally{this.set({busy:false});}
   });
  }
- /** The person has written the words down; persist the private keys on this device and go live. */
+ private async publish(setup:Setup){
+  await this.request("keys:put",setup.body);
+  await this.store.putIdentity(this.user,setup.identity);
+  await this.store.clearSetup(this.user);this.registered=false;
+ }
  async confirmWords(){
-  const id=this.pendingIdentity;if(!id)return;
-  await this.store.putIdentity(this.user,id);this.pendingIdentity=undefined;this.registered=false;
-  this.set({words:null,phase:"loading"});await this.start();
+  return this.run(async()=>{
+   this.set({busy:true,error:null});
+   try{
+    const setup=await this.store.getSetup(this.user);if(!setup)return;
+    await this.store.putSetup(this.user,{...setup,confirmed:true});
+    this.set({words:null,phase:"loading"});
+    await this.sync();
+   }catch(e){this.fail(e);}finally{this.set({busy:false});}
+  });
+ }
+ /** Caller must obtain explicit destructive confirmation. Old authorized history is lost. */
+ async resetIdentity(){
+  return this.run(async()=>{
+   const {identity:server}=await this.request("keys:get",{v:1}) as {identity:ServerIdentity|null};
+   this.serverIdentity=server||undefined;
+   await this.store.clearSetup(this.user);await this.store.clearIdentity(this.user);
+   this.identity=undefined;this.registered=false;
+   this.clearSession();
+   this.set({phase:"setup",words:null,messages:[],error:null});
+  });
  }
  async recover(input:string){
   return this.run(async()=>{
-   const server=this.serverIdentity;if(!server)return;
+   const setup=await this.store.getSetup(this.user);
+   const server=setup?{...setup.body,v:1 as const}:this.serverIdentity;if(!server)return;
    this.set({busy:true,error:null});
    try{
     const id=await restoreIdentity(this.user,server,input);
+    if(setup){await this.store.putSetup(this.user,{...setup,identity:id,confirmed:true});await this.publish({...setup,identity:id,confirmed:true});}
     await this.store.putIdentity(this.user,id);this.registered=false;this.set({phase:"loading"});
     await this.sync();
    }catch(e){this.set({error:codeOf(e)==="wrong_words"||codeOf(e)==="bad_words"?codeOf(e):"unavailable"});}
    finally{this.set({busy:false});}
   });
  }
- async trust(userId:string){
-  const d=this.changed.get(userId);if(!d)return;
-  const old=this.pins.get(userId),pin={deviceId:d.deviceId,signPublic:d.signPublic,dhPublic:d.dhPublic,known:[...new Set([...(old?.known||[]),d.signPublic])]};
+ async trust(userId:string,fingerprint?:string){
+  const entry=[...this.historical].find(([k,d])=>k.startsWith(userId+":")&&(!fingerprint||d.fingerprint===fingerprint));
+  const current=this.changed.get(userId);
+  const d=fingerprint?(current?.fingerprint===fingerprint?current:entry?.[1]):current||entry?.[1];if(!d)return;
+  const historical=d!==current;
+  const old=await this.pinFor(userId);
+  // A message-only approval has no DH binding and cannot authorize an epoch wrap.
+  const binding={deviceId:d.deviceId,signPublic:d.signPublic,dhPublic:d.dhPublic};
+  const pin:Pin={...((historical&&old)||!d.dhPublic?old||binding:binding),known:[...new Set([...(old?.known||[]),d.signPublic])],
+   bindings:[...(old?.bindings||[]),...(old?[{deviceId:old.deviceId,signPublic:old.signPublic,dhPublic:old.dhPublic}]:[]),...(d.dhPublic?[binding]:[])]};
   await this.store.putPin(this.user,userId,pin);this.pins.set(userId,pin);await this.start();
  }
 }

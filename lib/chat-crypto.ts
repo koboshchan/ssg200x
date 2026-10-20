@@ -114,7 +114,7 @@ export async function makeWrap(me:Identity,user:string,fields:Omit<WrapFields,"r
  p.signature=await signText(me.signPrivate,signedWrap(user,p));
  return p;
 }
-export type WireWrap={v:1;room:string;revision:number;epoch:string;senderUserId:string;deviceId:string;toUserId:string;toDeviceId:string;salt:string;iv:string;ciphertext:string;signature:string};
+export type WireWrap={senderDhPublic?:string;senderSignPublic?:string;v:1;room:string;revision:number;epoch:string;senderUserId:string;deviceId:string;toUserId:string;toDeviceId:string;salt:string;iv:string;ciphertext:string;signature:string};
 /** Verify the sender signature, then unwrap. Throws on any mismatch. */
 export async function openWrap(me:Identity,user:string,w:WireWrap,sender:{signPublic:string;dhPublic:string}){
  if(w.toUserId!==user||w.toDeviceId!==me.deviceId||w.room!==ROOM)throw new Error("wrong_recipient");
