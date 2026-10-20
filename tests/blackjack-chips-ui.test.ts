@@ -35,9 +35,18 @@ test("mounted blackjack uses roulette chip buttons on desktop and mobile",async(
    await place([1,5]);assert.equal(await total.textContent(),"$6");
    await page.getByRole("button",{name:"Clear"}).click();assert.equal(await total.textContent(),"$0");
    assert.equal(await page.getByRole("button",{name:/^Bet/}).isDisabled(),true);
-   for(let i=0;i<10;i++)await chip(100).click();
+   const geo=await chip(1).evaluate((e:HTMLElement)=>{const c=getComputedStyle(e),r=e.getBoundingClientRect();return {w:r.width,h:r.height,br:c.borderRadius,bg:c.backgroundColor,bs:c.borderStyle};});
+   assert.equal(geo.w,geo.h);assert.ok(geo.w>=48&&geo.w<=60);assert.equal(geo.br,"50%");assert.equal(geo.bs,"dashed");assert.notEqual(geo.bg,"rgba(0, 0, 0, 0)");
+   if(vp.width<400)assert.equal(geo.w,50);
+   await chip(100).click();assert.equal(await total.textContent(),"$100");
+   for(let i=0;i<9;i++)await chip(100).click();
    assert.equal(await total.textContent(),"$1,000");assert.equal(await chip(1).isDisabled(),true);
-   assert.equal((await posts()).length,3);
+   await page.getByRole("button",{name:"Clear"}).click();
+   await page.evaluate(()=>{const b=[...document.querySelectorAll("button")].find(x=>x.getAttribute("aria-label")==="$1 chip") as HTMLButtonElement;for(let i=0;i<1000;i++)b.click();});
+   await page.waitForFunction(()=>document.querySelector('[data-testid="bj-total"]')?.textContent==="$1,000");
+   assert.equal(await chip(1).isDisabled(),true);
+   await page.getByRole("button",{name:/^Bet/}).click();await page.waitForFunction(()=>(window as any).posts?.length===4);
+   assert.equal((await posts()).length,4);const big=(await posts())[3];assert.equal(big.body.amount,100000);assert.equal(big.body.chips.length,1000);
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
    assert.deepEqual(errors,[]);await page.close();
   }
