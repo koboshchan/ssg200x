@@ -42,17 +42,20 @@ test("parallel duplicate leave credits bankroll once and readiness-leave race is
  assert.equal(result.filter(x=>x.status==="fulfilled").length,1);
  r=await readRoom();assertRoom(r);
  if(!r.seats[0])await move(who,{type:"join",seat:0,buyIn:20000},randomUUID(),r.handNumber,null,Date.now());
- // Reset readiness using the actual worker and a deterministic server clock.
- const original=Date.now,now=original();
+ // Expire the ready window using the actual worker and a deterministic server clock.
+ const original=Date.now,now=original(),otherId=r.seats[1]!.userId;
  try{
  await mutate(r=>{r.seats[0]!.ready=true;r.readyDeadline=now+READY_MS;});
  Date.now=()=>now+READY_MS-1;await tickRoom();
  assert.equal((await readRoom()).seats[0]!.ready,true);
  assert.equal((await readRoom()).seats.filter(Boolean).length,2);
  Date.now=()=>now+READY_MS;await tickRoom();
- r=await readRoom();assert.equal(r.seats[0]!.ready,false);assert.equal(r.readyDeadline,null);
+ r=await readRoom();assert.equal(r.seats[0]!.ready,true);assert.equal(r.readyDeadline,null);
+ assert.equal(r.seats.filter(Boolean).length,1);assert.equal(r.members.find(m=>m.id===otherId)!.wallet,100000);
  assert.equal(r.members.find(m=>m.id===who.id)!.wallet,80000);assertRoom(r);
  }finally{Date.now=original;}
+ const other=[player(2),player(3)].find(p=>!r.seats.some(s=>s?.userId===p.id))!;
+ await move(other,{type:"join",seat:1,buyIn:20000},randomUUID(),r.handNumber,null,Date.now());
 });
 test("parallel duplicate ready starts exactly one hand and locks leaving",async()=>{
  let r=await readRoom();const first=player(1),other=r.seats.find(s=>s&&s.userId!==first.id)!;

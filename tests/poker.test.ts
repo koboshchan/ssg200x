@@ -76,8 +76,8 @@ test("joining never deals; all seated players must explicitly ready, with one-wa
  assert.throws(()=>applyAction(r,user(0),{type:"leave"},3000));
  applyAction(r,user(1),{type:"ready"},3000);assert.equal(r.street,"waiting");
  tick(r,2000+READY_MS-1);assert.ok(r.seats[0]?.ready);assert.ok(r.seats[1]?.ready);
- tick(r,2000+READY_MS);assert.equal(r.readyDeadline,null);assert.ok(r.seats[0]);assert.ok(r.seats[1]);assert.equal(r.seats[0]?.ready,false);
- applyAction(r,user(0),{type:"leave"},2000+READY_MS);assert.equal(r.members[0].wallet,100000);assertRoom(r);
+ tick(r,2000+READY_MS);assert.equal(r.readyDeadline,null);assert.ok(r.seats[0]);assert.ok(r.seats[1]);assert.equal(r.seats[0]?.ready,true);
+ assert.equal(r.seats[2],null);assert.equal(r.members[2].wallet,100000);assert.equal(r.street,"preflop");assertRoom(r);
 });
 test("legacy waiting seats never autostart; legacy active leaveAfter cashes only after hand",()=>{
  const r=setup();r.seats[0]!.leaveAfter=true;delete r.seats[0]!.ready;
@@ -89,7 +89,7 @@ test("ready player with missing legacy deadline gets bounded timer rather than i
  const r=freshRoom();register(r,user(0),1000);applyAction(r,user(0),{type:"join",seat:0,buyIn:20000},1000);
  r.seats[0]!.ready=true;delete r.readyDeadline;tick(r,1000000);
  assert.equal(r.readyDeadline,1000000+READY_MS);assert.ok(r.seats[0]);
- tick(r,1000000+READY_MS);assert.equal(r.seats[0]!.ready,false);assertRoom(r);
+ tick(r,1000000+READY_MS);assert.equal(r.seats[0]!.ready,true);assert.equal(r.readyDeadline,null);assert.equal(r.street,"waiting");assertRoom(r);
 });
 test("leaving unready last blocker starts the remaining ready seats atomically",()=>{
  const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
@@ -104,15 +104,16 @@ test("folded players cannot leave before hand settlement; readiness clears on se
  applyAction(r,user(i),{type:"leave"},3000);assert.equal(r.seats[i],null);assertRoom(r);
 });
 
-test("ready at expiry resets old readiness before accepting new consent, and joining never extends timer",()=>{
+test("ready at expiry cannot rescue an unready seat, and joining never extends timer",()=>{
  const r=freshRoom();for(let i=0;i<3;i++)register(r,user(i),1000);
  for(let i=0;i<2;i++)applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);
  applyAction(r,user(0),{type:"ready"},2000);const expiry=r.readyDeadline!;
  register(r,user(0),3000);applyAction(r,user(2),{type:"join",seat:2,buyIn:20000},3000);
  assert.equal(r.readyDeadline,expiry);for(const s of r.seats)if(s)s.seen=expiry;
- applyAction(r,user(1),{type:"ready"},expiry);
- assert.equal(r.seats[0]!.ready,false);assert.equal(r.seats[1]!.ready,true);
- assert.equal(r.readyDeadline,expiry+READY_MS);assert.equal(r.handNumber,0);assertRoom(r);
+ assert.throws(()=>applyAction(r,user(1),{type:"ready"},expiry),/Choose a seat/);
+ assert.equal(r.seats[0]!.ready,true);assert.equal(r.seats[1],null);assert.equal(r.seats[2],null);
+ assert.equal(r.members[1].wallet,100000);assert.equal(r.members[2].wallet,100000);
+ assert.equal(r.readyDeadline,null);assert.equal(r.handNumber,0);assertRoom(r);
 });
 
 test("showdown inHand is historical: cashout is allowed after settlement without waiting for reveal",()=>{
@@ -135,9 +136,10 @@ test("readiness window protects idle unready blockers for the full five minutes"
  assert.equal(r.seats.filter(Boolean).length,3);assert.equal(r.handNumber,0);
  assert.equal(r.seats[2]!.ready,false);assert.equal(r.readyDeadline,expiry);
  tick(r,expiry);
- assert.equal(r.seats.filter(Boolean).length,3);assert.ok(r.seats.every(s=>!s||(!s.ready&&s.seen===expiry)));
- assert.equal(r.readyDeadline,null);assert.equal(r.handNumber,0);
- tick(r,expiry+90001);assert.equal(r.seats.filter(Boolean).length,3);assertRoom(r);
+ assert.equal(r.seats.filter(Boolean).length,2);assert.ok(r.seats.slice(0,2).every(s=>s?.ready));
+ assert.equal(r.seats[2],null);assert.equal(r.members[2].wallet,100000);
+ assert.equal(r.readyDeadline,null);assert.equal(r.handNumber,1);assert.equal(r.street,"preflop");
+ tick(r,expiry+1);assert.equal(r.seats.filter(Boolean).length,2);assertRoom(r);
 });
 test("readiness window still cleans revoked seats rather than locking them until expiry",()=>{
  const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
@@ -156,4 +158,30 @@ test("last unready player cashing out starts the remaining two ready players",()
  assert.equal(r.seats[2],null);assert.equal(r.members[2].wallet,100000);
  assert.equal(r.seats.filter(Boolean).length,2);assert.equal(r.street,"preflop");assert.equal(r.handNumber,1);assert.equal(r.readyDeadline,null);
  assert.ok(r.seats.slice(0,2).every(s=>s?.inHand));assertRoom(r);
+});
+
+
+test("persisted all-unready window cashes everyone out once without creating pot money",()=>{
+ const r=freshRoom();
+ for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:10000*(i+1)},1000);}
+ r.readyDeadline=2000+READY_MS;
+ const restarted=JSON.parse(JSON.stringify(r)) as Room;
+ tick(restarted,restarted.readyDeadline!-1);assert.equal(restarted.seats.filter(Boolean).length,3);
+ tick(restarted,restarted.readyDeadline!);
+ assert.ok(restarted.seats.every(s=>s===null));assert.ok(restarted.members.every(m=>m.wallet===100000));
+ assert.equal(restarted.readyDeadline,null);assert.equal(pot(restarted),0);assert.equal(restarted.pokerCarry??0,0);
+ const once=JSON.stringify(restarted);assert.equal(tick(restarted,1000000),false);assert.equal(JSON.stringify(restarted),once);assertRoom(restarted);
+});
+test("ready expiry leaves lone ready player locked and never cashes players out during a hand",()=>{
+ const r=freshRoom();
+ for(let i=0;i<2;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
+ applyAction(r,user(0),{type:"ready"},2000);const expiry=r.readyDeadline!;
+ tick(r,expiry);assert.ok(r.seats[0]?.ready);assert.equal(r.seats[1],null);assert.equal(r.members[0].wallet,80000);
+ assert.throws(()=>applyAction(r,user(0),{type:"leave"},expiry),/only leave/);
+ applyAction(r,user(1),{type:"join",seat:1,buyIn:20000},expiry+1);
+ applyAction(r,user(1),{type:"ready"},expiry+2);
+ // A stale persisted waiting deadline must never refund participants in an active hand.
+ r.readyDeadline=expiry;const wallets=r.members.map(m=>m.wallet);
+ tick(r,expiry+3);assert.equal(r.street,"preflop");assert.ok(r.seats[0]);assert.ok(r.seats[1]);
+ assert.deepEqual(r.members.map(m=>m.wallet),wallets);assertRoom(r);
 });

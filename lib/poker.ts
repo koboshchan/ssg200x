@@ -239,7 +239,9 @@ export function tick(r: Room, now: number) {
    r.readyDeadline = now + READY_MS; changed = true;
   }
   if (r.readyDeadline != null && now >= r.readyDeadline) {
-   for (const s of r.seats) if (s) { s.ready = false; s.seen = now; }
+   // Waiting-window expiry is a normal cash-out, not an in-game forfeit.
+   // The room CAS commits seat removal and its wallet credit together.
+   for (let i=0;i<r.seats.length;i++) if (r.seats[i] && !r.seats[i]!.ready) cashOut(r,i);
    r.readyDeadline = null; changed = true;
   }
   if (r.street === "showdown" && now >= (r.nextDeal ?? Infinity)) {
