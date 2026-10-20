@@ -238,3 +238,44 @@ test("an ambiguous send followed by stale retry never creates a different cipher
   assert.equal(sends.length,2);assert.deepEqual(sends[0],sends[1]);
  }finally{c.close();}
 });
+
+test("throttled history is retried and never reported complete while epochs are missing",async()=>{
+ const {a,store}=await seeded(),key=await newEpochKey(),epochs=Array.from({length:40},()=>crypto.randomUUID());
+ const grants=await Promise.all(epochs.map(e=>wire(a.identity,"a",a.identity,e,key)));
+ const current=epochs[39],base=view(a.identity,current);
+ const msgs=new Map(await Promise.all(epochs.map(async e=>[e,await makeMessage(a.identity,"a",e,key,"m-"+e)] as const)));
+ const tries=new Map<string,number>();let blocked=new Set<string>();
+ const limited=()=>Object.assign(new Error("rate_limited"),{retryAfter:0});
+ const client=new ChatClient("a",async(event,p:any)=>{
+  if(event==="keys:get")return {identity:server(a)};
+  if(event==="register")return {};
+  if(event==="state")return {...base,wraps:grants,nextWrapCursor:null};
+  if(event==="history"){
+   const n=(tries.get(p.epoch)||0)+1;tries.set(p.epoch,n);
+   if(blocked.has(p.epoch)||(p.epoch!==current&&n===1))throw limited();
+   return {messages:[msgs.get(p.epoch)!],nextCursor:null};
+  }
+  throw new Error(event);
+ },store);
+ try{
+  await client.start();
+  let s=client.getSnapshot();assert.equal(s.historyIncomplete,false);assert.equal(new Set(s.messages.map(m=>m.epoch)).size,40);
+  // exhausted retries: cursor not stored, flagged incomplete, recovered on the next sync
+  client.close();
+ }finally{client.close();}
+ const c2=new ChatClient("a",async(event,p:any)=>{
+  if(event==="keys:get")return {identity:server(a)};
+  if(event==="register")return {};
+  if(event==="state")return {...base,wraps:grants,nextWrapCursor:null};
+  if(event==="history"){if(blocked.has(p.epoch))throw limited();return {messages:[msgs.get(p.epoch)!],nextCursor:null};}
+  throw new Error(event);
+ },store);
+ blocked=new Set(epochs.slice(0,5));
+ try{
+  await c2.start();
+  let s=c2.getSnapshot();assert.equal(s.historyIncomplete,true);assert.equal(s.phase,"ready");assert.equal(new Set(s.messages.map(m=>m.epoch)).size,35);
+  blocked=new Set();await c2.start();
+  s=c2.getSnapshot();assert.equal(s.historyIncomplete,false);assert.equal(new Set(s.messages.map(m=>m.epoch)).size,40);
+ }finally{c2.close();}
+});
+

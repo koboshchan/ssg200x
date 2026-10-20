@@ -19,15 +19,17 @@ export type Phase="loading"|"setup"|"words"|"recover"|"waiting"|"ready"|"error";
 export type MessageStatus="ok"|"pending"|"failed"|"unverified"|"keychanged"|"undecryptable";
 export type ChatMessage={key:string;id:string;senderUserId:string;publicId:string;mine:boolean;ts:number;serverTs:number;cursor:number;epoch:string;text:string|null;status:MessageStatus};
 export type ChatMember={userId:string;publicId:string;mine:boolean;fingerprint:string;changed:boolean;historical?:boolean};
-export type Snapshot={phase:Phase;error:string|null;words:string[]|null;messages:ChatMessage[];members:ChatMember[];hasMore:boolean;busy:boolean};
+export type Snapshot={phase:Phase;error:string|null;words:string[]|null;messages:ChatMessage[];members:ChatMember[];hasMore:boolean;busy:boolean;historyIncomplete:boolean};
 type Device={deviceId:string;dhPublic:string;signPublic:string;fingerprint:string};
 type View={revision:number;epoch:string;status:"unclaimed"|"claimed"|"active";owner:{userId:string;deviceId:string}|null;leaseUntil:number;members:{userId:string;devices:Device[]}[];wraps?:WireWrap[];nextWrapCursor?:string|null};
 const codeOf=(e:unknown)=>e instanceof Error?e.message:"unavailable";
-const PAGE=50;
+const PAGE=50,HISTORY_TRIES=4,BACKOFF_MS=500,MAX_WAIT_MS=8000;
+const retryMs=(e:unknown,n:number)=>{const r=(e as {retryAfter?:number})?.retryAfter;const base=typeof r==="number"&&r>=0?(r<=120?r*1000:r):BACKOFF_MS*2**n;return Math.min(MAX_WAIT_MS,base);};
+const sleep=(ms:number)=>new Promise<void>(r=>setTimeout(r,ms));
 export const RENDER_CAP=500,RENDER_TRIM=400,OPEN_CACHE_MAX=600;
 
 export class ChatClient{
- private snap:Snapshot={phase:"loading",error:null,words:null,messages:[],members:[],hasMore:false,busy:false};
+ private snap:Snapshot={phase:"loading",error:null,words:null,messages:[],members:[],hasMore:false,busy:false,historyIncomplete:false};
  private listeners=new Set<()=>void>();
  private identity:Identity|undefined;private serverIdentity:ServerIdentity|undefined;
  private registered=false;private chain:Promise<unknown>=Promise.resolve();private timer:ReturnType<typeof setTimeout>|undefined;private hintTimer:ReturnType<typeof setTimeout>|undefined;
@@ -49,8 +51,8 @@ export class ChatClient{
  private later(ms:number){clearTimeout(this.timer);if(!this.closed)this.timer=setTimeout(()=>{void this.start();},ms);}
 
  private clearSession(){
-  this.keys.clear();this.attempted.clear();this.cursors.clear();this.raw.clear();this.local.clear();this.sealed.clear();this.ambiguous.clear();this.opened.clear();this.inflight.clear();this.windowStart=0;this.extra=0;
-  this.lastView=undefined;this.set({messages:[],hasMore:false});
+  this.keys.clear();this.attempted.clear();this.cursors.clear();this.missed.clear();this.raw.clear();this.local.clear();this.sealed.clear();this.ambiguous.clear();this.opened.clear();this.inflight.clear();this.windowStart=0;this.extra=0;
+  this.lastView=undefined;this.set({messages:[],hasMore:false,historyIncomplete:false});
  }
  private async sync(){
   if(this.closed||this.snap.phase==="words")return;
@@ -222,19 +224,33 @@ export class ChatClient{
   }
  }
  private async fetchPage(me:Identity,epoch:string,before?:number){
-  const res=await this.request("history",{v:1,epoch,deviceId:me.deviceId,...(before===undefined?{}:{before}),limit:PAGE}) as {messages:WireMessage[];nextCursor:number|null};
+  let res!:{messages:WireMessage[];nextCursor:number|null};
+  for(let n=0;;n++){
+   try{res=await this.request("history",{v:1,epoch,deviceId:me.deviceId,...(before===undefined?{}:{before}),limit:PAGE}) as typeof res;break;}
+   catch(e){if(codeOf(e)!=="rate_limited"||n+1>=HISTORY_TRIES||this.closed)throw e;await sleep(retryMs(e,n));}
+  }
   for(const m of res.messages)this.raw.set(m.epoch+":"+m.senderUserId+":"+m.id,m);
   return res.nextCursor;
  }
+ private missed=new Set<string>();
  private async refresh(me:Identity,view:View){
+  const missed=new Set(this.missed);let throttled=false;
   for(const epoch of this.keys.keys()){
    if(this.cursors.has(epoch)&&epoch!==view.epoch)continue;
    try{
     const next=await this.fetchPage(me,epoch);
     if(!this.cursors.has(epoch))this.cursors.set(epoch,next);
-   }catch(e){if(epoch===view.epoch)throw e;}
+    missed.delete(epoch);
+   }catch(e){
+    if(epoch===view.epoch)throw e;
+    // Never skip silently: no cursor is stored, so the next sync refetches this epoch.
+    missed.add(epoch);throttled=throttled||codeOf(e)==="rate_limited";
+   }
   }
+  this.missed=missed;
   await this.render();
+  this.set({historyIncomplete:missed.size>0});
+  if(missed.size>0)this.later(throttled?15000:5000);
  }
  async loadMore(){
   return this.run(async()=>{

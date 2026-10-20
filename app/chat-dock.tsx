@@ -10,7 +10,7 @@ const errorText:Record<string,string>={setup_words_lost:"Setup was interrupted. 
 const friendly=(code:string|null)=>code?errorText[code]||"Chat is unavailable right now.":null;
 const group=(f:string)=>(f.match(/.{1,5}/g)||[]).join(" ");
 const time=(ts:number)=>new Date(ts).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
-const idle:Snapshot={phase:"loading",error:null,words:null,messages:[],members:[],hasMore:false,busy:false};
+const idle:Snapshot={phase:"loading",error:null,words:null,messages:[],members:[],hasMore:false,busy:false,historyIncomplete:false};
 
 export default function ChatDock(){
  const {user,isLoaded}=useUser(),live=useLive(),userId=user?.id;
