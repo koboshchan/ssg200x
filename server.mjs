@@ -62,6 +62,7 @@ async function pushState(socket,force=false,profiles){
  if(socket.data.expires<=Date.now()){socket.disconnect(true);return;}
  socket.data.busy=true;
  try{
+  await checkChatSession(socket);
   if(!profiles){
    const room=await collection.findOne({_id:"main"},{projection:{"members.id":1}});
    profiles=await loadClerkProfiles(clerk,[socket.data.identity.id,...(room?.members||[]).map(m=>m.id),...(socket.data.chatNameIds||[])]);
@@ -81,7 +82,7 @@ async function pushState(socket,force=false,profiles){
   emitRoomState(socket,data,force);
   emitChartState(socket,data,force);
   socket.data.initialized=true;
- }catch{socket.emit("live:error",{error:"Live state unavailable. Retrying."});}
+ }catch(error){if(error.message==="session"){socket.disconnect(true);return;}socket.emit("live:error",{error:"Live state unavailable. Retrying."});}
  finally{socket.data.busy=false;}
 }
 io.on("connection",socket=>{

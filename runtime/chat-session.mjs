@@ -4,6 +4,12 @@ export function sessionGuard(clerk,{now=Date.now,maxAge=10000}={}){
   if(data.sessionCheckedAt&&now()-data.sessionCheckedAt<maxAge)return;
   const session=await clerk.sessions.getSession(data.sessionId);
   if(session.status!=='active'||session.userId!==data.identity.id)throw Error('session');
+  // Refresh administrator status together with the live session.
+  const user=await clerk.users.getUser(data.identity.id);
+  const {verifiedSocketIdentity}=await import('./socket-identity.mjs');
+  const identity=verifiedSocketIdentity(user,data.identity.id);
+  if(!identity)throw Error('session');
+  data.identity=identity;
   data.sessionCheckedAt=now();
  };
 }

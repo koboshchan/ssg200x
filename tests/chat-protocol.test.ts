@@ -21,7 +21,7 @@ test('established chat session is revalidated after bounded cache and rejects re
  // @ts-expect-error runtime module
  const {sessionGuard}=await import('../runtime/chat-session.mjs');
  let clock=100000,status='active',calls=0;
- const guard=sessionGuard({sessions:{getSession:async()=>{calls++;return {status,userId:'user_a'};}}},{now:()=>clock,maxAge:10000});
+ const guard=sessionGuard({users:{getUser:async()=>({firstName:'Player',emailAddresses:[{id:'e',emailAddress:'a@example.test',verification:{status:'verified'}}],primaryEmailAddressId:'e',externalAccounts:[{provider:'google',emailAddress:'a@example.test'}],passwordEnabled:false,privateMetadata:{}})},sessions:{getSession:async()=>{calls++;return {status,userId:'user_a'};}}},{now:()=>clock,maxAge:10000});
  const socket={connected:true,data:{expires:200000,sessionId:'sess_a',identity:{id:'user_a'}}};
  await guard(socket);status='revoked';clock+=9999;await guard(socket);assert.equal(calls,1);
  clock+=2;await assert.rejects(guard(socket),/session/);assert.equal(calls,2);

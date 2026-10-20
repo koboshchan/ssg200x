@@ -49,14 +49,14 @@ function Landing({setup=false}:{setup?:boolean}){
  return <main className="landing"><section><h1>Poker with friends.</h1><p className="intro">No-limit hold’em with play money. Everyone starts with $1,000 and a seat at the table.</p>{setup?<p className="setup" role="status">The table is being set. Clerk keys are needed before sign-in opens.</p>:<SignInButton mode="modal"><button className="primary google"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.8 12.2c0-.7-.1-1.4-.2-2.1H12v4h5.5a4.7 4.7 0 0 1-2 3.1v2.6h3.3c1.9-1.8 3-4.4 3-7.6ZM12 22c2.7 0 5-.9 6.7-2.5l-3.3-2.6c-.9.6-2.1.9-3.4.9-2.6 0-4.8-1.8-5.6-4.1H3v2.7A10 10 0 0 0 12 22ZM6.4 13.7a6 6 0 0 1 0-3.4V7.6H3a10 10 0 0 0 0 8.8l3.4-2.7ZM12 6.2c1.5 0 2.8.5 3.8 1.5l2.9-2.9A9.7 9.7 0 0 0 12 2a10 10 0 0 0-9 5.6l3.4 2.7A6 6 0 0 1 12 6.2Z"/></svg>Continue with Google</button></SignInButton>}<p className="fine"><Link href="/leaderboard">View the public leaderboard</Link></p></section></main>;
 }
 
-type Member={publicId:string;name:string;email:string;wallet?:number};
+type Member={publicId:string;name:string;wallet?:number};
 type AdminUser=PublicRoom["adminUsers"][number];
 function Guest({m,u,self=false,busy,post}:{m:Member;u?:AdminUser;self?:boolean;busy:boolean;post:(path:string,body:object)=>Promise<void>}){
  const [delta,setDelta]=useState(""),[confirm,setConfirm]=useState(false);
  const cents=Math.round(Number(delta)*100),valid=delta.trim()!==""&&Number.isFinite(cents)&&cents!==0&&Number.isSafeInteger(cents);
  const after=(m.wallet??0)+cents;
  async function submit(){await post("/api/admin",{type:"balance",publicId:m.publicId,delta:cents,requestId:crypto.randomUUID(),requestAt:Date.now()});setDelta("");setConfirm(false);}
- return <div className="guest guest-admin"><div><strong>{m.name}</strong><span>{m.email}</span>{typeof m.wallet==="number"?<span>Wallet {money(m.wallet)}{u?" · Net worth "+money(u.netWorth):""}</span>:null}</div>
+ return <div className="guest guest-admin"><div><strong>{m.name}</strong>{typeof m.wallet==="number"?<span>Wallet {money(m.wallet)}{u?" · Net worth "+money(u.netWorth):""}</span>:null}</div>
   <div className="guest-actions">
    <div className="adjust"><label><span className="sr-only">Balance change in dollars for {m.name}</span><div className="input-wrap"><span>$</span><input type="number" inputMode="decimal" step=".01" placeholder="+50 or -20" value={delta} onChange={e=>{setDelta(e.target.value);setConfirm(false);}}/></div></label>
     {confirm&&valid?<><span className="adjust-note" role="status">{cents>0?"Add ":"Remove "}{money(Math.abs(cents))}{typeof m.wallet==="number"?", new balance "+money(after):""}</span><button className="primary" disabled={busy||after<0} onClick={submit}>Confirm</button><button disabled={busy} onClick={()=>setConfirm(false)}>Cancel</button></>:<button disabled={busy||!valid} onClick={()=>setConfirm(true)}>Adjust balance</button>}
