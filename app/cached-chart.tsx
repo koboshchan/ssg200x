@@ -45,7 +45,7 @@ export default function CachedChart({symbol,quote}:{symbol:Symbol;quote?:LiveQuo
  if(!response.ok)throw new Error(data.error||"Chart unavailable");if(closed)return;
  if(receivedSnapshot)return;
  render(data.candles as Row[]);
- setStatus(data.status==="unavailable"?"Available cached candles; no Coinbase history for this symbol":data.status==="cached"?"Cached candles, updating live":data.candles.length?"Showing available history while backfill continues":"No cached history yet. Live candles remain available");
+ setStatus(data.candles.length?"Stored candles, updating live":"No stored candles yet. Live observations appear as they arrive");
  }catch(e){if(!closed){setStatus(e instanceof Error?e.message:"Chart unavailable")}}}
  await load();
  }

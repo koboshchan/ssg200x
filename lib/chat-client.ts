@@ -24,7 +24,6 @@ type Device={deviceId:string;dhPublic:string;signPublic:string;fingerprint:strin
 type View={revision:number;epoch:string;status:"unclaimed"|"claimed"|"active";owner:{userId:string;deviceId:string}|null;leaseUntil:number;members:{userId:string;devices:Device[]}[];wraps?:WireWrap[];nextWrapCursor?:string|null};
 const codeOf=(e:unknown)=>e instanceof Error?e.message:"unavailable";
 const PAGE=50;
-export const RENDER_CAP=500,RENDER_TRIM=400,OPEN_CACHE_MAX=600;
 
 export class ChatClient{
  private snap:Snapshot={phase:"loading",error:null,words:null,messages:[],members:[],hasMore:false,busy:false};
@@ -36,8 +35,7 @@ export class ChatClient{
  private changed=new Map<string,Device>();private publicIds=new Map<string,string>();private pins=new Map<string,Pin>();private lastView:View|undefined;
  private ambiguous=new Set<string>();private sealed=new Map<string,SendPayload>();private historical=new Map<string,Device>();
  private closed=false;
- private opened=new Map<string,{key:CryptoKey;res:Awaited<ReturnType<typeof openMessage>>}>();private inflight=new Map<string,Promise<Awaited<ReturnType<typeof openMessage>>>>();private windowStart=0;private extra=0;
- constructor(private user:string,private request:Transport,private store:ChatStore,private now:()=>number=Date.now,private open:typeof openMessage=openMessage){}
+ constructor(private user:string,private request:Transport,private store:ChatStore,private now:()=>number=Date.now){}
  subscribe=(fn:()=>void)=>{this.listeners.add(fn);return()=>{this.listeners.delete(fn);};};
  getSnapshot=()=>this.snap;
  private set(patch:Partial<Snapshot>){this.snap={...this.snap,...patch};this.listeners.forEach(l=>l());}
@@ -49,7 +47,7 @@ export class ChatClient{
  private later(ms:number){clearTimeout(this.timer);if(!this.closed)this.timer=setTimeout(()=>{void this.start();},ms);}
 
  private clearSession(){
-  this.keys.clear();this.attempted.clear();this.cursors.clear();this.raw.clear();this.local.clear();this.sealed.clear();this.ambiguous.clear();this.opened.clear();this.inflight.clear();this.windowStart=0;this.extra=0;
+  this.keys.clear();this.attempted.clear();this.cursors.clear();this.raw.clear();this.local.clear();this.sealed.clear();this.ambiguous.clear();
   this.lastView=undefined;this.set({messages:[],hasMore:false});
  }
  private async sync(){
@@ -240,21 +238,9 @@ export class ChatClient{
   return this.run(async()=>{
    const me=this.identity;if(!me||this.snap.busy)return;
    this.set({busy:true});
-   try{for(const [epoch,c] of [...this.cursors]){if(c==null||!this.keys.has(epoch))continue;this.cursors.set(epoch,await this.fetchPage(me,epoch,c));}this.extra+=PAGE;await this.render();}
+   try{for(const [epoch,c] of [...this.cursors]){if(c==null||!this.keys.has(epoch))continue;this.cursors.set(epoch,await this.fetchPage(me,epoch,c));}await this.render();}
    catch(e){this.fail(e);}finally{this.set({busy:false});}
   });
- }
- /** Verify+decrypt once per authenticated content and epoch key; cache never outlives the session or key object. */
- private openCached(k:string,m:WireMessage,key:CryptoKey){
-  const ck=JSON.stringify([this.user,k,m.room,m.revision,m.deviceId,m.ts,m.iv,m.ciphertext,m.signature,m.senderSignPublic]);
-  const hit=this.opened.get(ck);
-  if(hit&&hit.key===key){this.opened.delete(ck);this.opened.set(ck,hit);return Promise.resolve(hit.res);}
-  const pending=this.inflight.get(ck);if(pending)return pending;
-  const p=this.open(m,key).then(res=>{
-   if(this.inflight.get(ck)===p){this.opened.set(ck,{key,res});while(this.opened.size>OPEN_CACHE_MAX)this.opened.delete(this.opened.keys().next().value as string);}
-   return res;
-  }).finally(()=>{if(this.inflight.get(ck)===p)this.inflight.delete(ck);});
-  this.inflight.set(ck,p);return p;
  }
  private async render(){
   const out=new Map<string,ChatMessage>();
@@ -265,7 +251,7 @@ export class ChatClient{
    let status:MessageStatus="ok",text:string|null=null;
    if(!key)status="undecryptable";
    else{
-    const opened=await this.openCached(k,m,key);
+    const opened=await openMessage(m,key);
     if(!opened.ok)status=opened.reason==="signature"?"unverified":"undecryptable";
     else if(!self&&(!pin||!pin.known.includes(m.senderSignPublic))){
      status="keychanged";
@@ -279,10 +265,7 @@ export class ChatClient{
    if([...this.raw.values()].some(r=>r.senderUserId===this.user&&r.id===m.id)){this.local.delete(k);this.sealed.delete(m.id);this.ambiguous.delete(m.id);}
    else out.set(k,m);
   }
-  const sorted=[...out.values()].sort((a,b)=>a.serverTs-b.serverTs||a.cursor-b.cursor||a.ts-b.ts);
-  // Bounded view only; raw ciphertext history stays on the server and older pages can be fetched again.
-  if(sorted.length-this.windowStart-this.extra>RENDER_CAP){this.windowStart=sorted.length-RENDER_TRIM;this.extra=0;}
-  const all=sorted.slice(Math.max(0,Math.min(this.windowStart,sorted.length)-this.extra));
+  const all=[...out.values()].sort((a,b)=>a.serverTs-b.serverTs||a.cursor-b.cursor||a.ts-b.ts);
   const more=[...this.cursors.values()].some(c=>c!=null);
   this.set({messages:all,hasMore:more});
  }
@@ -387,6 +370,6 @@ export class ChatClient{
   const binding={deviceId:d.deviceId,signPublic:d.signPublic,dhPublic:d.dhPublic};
   const pin:Pin={...((historical&&old)||!d.dhPublic?old||binding:binding),known:[...new Set([...(old?.known||[]),d.signPublic])],
    bindings:[...(old?.bindings||[]),...(old?[{deviceId:old.deviceId,signPublic:old.signPublic,dhPublic:old.dhPublic}]:[]),...(d.dhPublic?[binding]:[])]};
-  await this.store.putPin(this.user,userId,pin);this.pins.set(userId,pin);this.opened.clear();await this.start();
+  await this.store.putPin(this.user,userId,pin);this.pins.set(userId,pin);await this.start();
  }
 }

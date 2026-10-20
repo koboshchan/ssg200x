@@ -5,7 +5,7 @@ import {chartSelection,chartSnapshotCache} from "../lib/chart-snapshot";
 import {mergeChartCandles,tickCandle} from "../lib/live-candle";
 import type {candleRead} from "../lib/candles";
 test("chart subscriptions exactly allowlist symbols and intervals",()=>{
- for(const values of [["BTC","1h"],["HYPE","1m"]])assert.ok(chartSelection(...values as [string,string]));
+ for(const values of [["BTC","1h"],["ETH","1m"],["BNB","5m"],["XRP","15m"],["SOL","6h"],["LTC","1d"]])assert.ok(chartSelection(...values as [string,string]));
  for(const values of [["BTC","__proto__"],["NOTREAL","1h"],[{$ne:null},"1h"],["BTC",{}]])assert.equal(chartSelection(...values as [unknown,unknown]),null);
 });
 test("server snapshot reads coalesce across subscribers and refresh without fetching upstream",async()=>{
@@ -54,5 +54,5 @@ test("chart snapshot delivery uses existing websocket, never tick-triggered HTTP
  assert.doesNotMatch(chart,/setInterval\(|fetch\(.*coinbase|fetch\(.*binance/);
  assert.doesNotMatch(stream,/fetch\(/);
  assert.match(chart,/if\(latest.current\)push.current\?\.\(latest.current\);/);
- assert.match(readFileSync("app/api/candles/route.ts","utf8"),/candleEnsure\(.*\.catch\(/);
+ assert.doesNotMatch(readFileSync("app/api/candles/route.ts","utf8"),/candleEnsure|fetch\(/);
 });

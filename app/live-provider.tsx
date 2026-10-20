@@ -2,20 +2,19 @@
 import {createContext,useContext,useEffect,useMemo,useRef,useState} from "react";
 import {useAuth} from "@clerk/nextjs";
 import type {Socket} from "socket.io-client";
-export type MaintenanceStatus={admin:boolean;active:boolean;blocked:boolean;manual:boolean;backfill:boolean;background?:boolean};
-export type HistoryStatus={status:string;reason?:string;source:string;overall:{done:number;total:number;percent:number;etaSeconds:number|null};symbols:{symbol:string;done:number;total:number;percent:number;unavailable:boolean;monthsDownloaded:number;monthsMissing:number;monthsDone:number;monthsTotal:number;daysDone:number;daysTotal:number;currentSource:string;etaSeconds:number|null}[]};
+export type MaintenanceStatus={admin:boolean;active:boolean;blocked:boolean;manual:boolean};
 export type Connection="connecting"|"connected"|"disconnected";
 /* Server contract (one authenticated socket.io websocket, auth:{token} = fresh Clerk session token):
-   room:state PublicRoom, market:update MarketSnapshot, maintenance:state MaintenanceStatus, history:state HistoryStatus (admins).
+   room:state PublicRoom, market:update MarketSnapshot, maintenance:state MaintenanceStatus.
    Non-admin blocked by maintenance: middleware rejects with Error("maintenance") (or emits maintenance:state {blocked:true} then disconnects).
    Server disconnects at token expiry; client reconnects with a fresh token. */
-type Live={connection:Connection;maintenance?:MaintenanceStatus;history?:HistoryStatus;lastMessageAt:number;subscribe:(event:string,handler:(payload:any)=>void)=>()=>void;emit:(event:string,payload?:unknown)=>void;request:(event:string,payload?:unknown)=>Promise<any>};
+type Live={connection:Connection;maintenance?:MaintenanceStatus;lastMessageAt:number;subscribe:(event:string,handler:(payload:any)=>void)=>()=>void;emit:(event:string,payload?:unknown)=>void;request:(event:string,payload?:unknown)=>Promise<any>};
 const Context=createContext<Live|null>(null);
 export function useLive(){const v=useContext(Context);if(!v)throw new Error("LiveProvider missing");return v;}
 export function useLiveEvent(event:string,handler:(payload:any)=>void){const live=useLive(),ref=useRef(handler);ref.current=handler;useEffect(()=>live.subscribe(event,p=>ref.current(p)),[live,event]);}
 export default function LiveProvider({children}:{children:React.ReactNode}){
  const {getToken}=useAuth(),tokenRef=useRef(getToken);tokenRef.current=getToken;
- const [connection,setConnection]=useState<Connection>("connecting"),[maintenance,setMaintenance]=useState<MaintenanceStatus>(),[history,setHistory]=useState<HistoryStatus>(),[lastMessageAt,setLast]=useState(0);
+ const [connection,setConnection]=useState<Connection>("connecting"),[maintenance,setMaintenance]=useState<MaintenanceStatus>(),[lastMessageAt,setLast]=useState(0);
  const socketRef=useRef<Socket>(undefined),listeners=useRef(new Map<string,Set<(p:any)=>void>>()),latest=useRef(new Map<string,unknown>());
  const api=useMemo(()=>({subscribe(event:string,handler:(p:any)=>void){let set=listeners.current.get(event);if(!set){set=new Set();listeners.current.set(event,set);}set.add(handler);if(latest.current.has(event)&&event!=="market:update")handler(latest.current.get(event));return()=>{set!.delete(handler);};},emit(event:string,payload?:unknown){socketRef.current?.connected&&socketRef.current.emit(event,payload);},request(event:string,payload?:unknown){
    const socket=socketRef.current;
@@ -34,15 +33,14 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    socketRef.current=socket;
    socket.on("connect",()=>{attempts=0;setConnection("connected");});
    socket.on("disconnect",()=>{setConnection("disconnected");later();});
-   socket.on("connect_error",e=>{setConnection("disconnected");if(e.message==="maintenance")setMaintenance(m=>({admin:false,active:true,manual:false,backfill:false,...m,blocked:true}));later();});
+   socket.on("connect_error",e=>{setConnection("disconnected");if(e.message==="maintenance")setMaintenance(m=>({admin:false,active:true,manual:false,...m,blocked:true}));later();});
    socket.io.on("reconnect_attempt",()=>setConnection("connecting"));
    socket.on("maintenance:state",(p:MaintenanceStatus)=>{setMaintenance(p);dispatch("maintenance:state",p);});
-   socket.on("history:state",(p:HistoryStatus)=>{setHistory(p);dispatch("history:state",p);});
    for(const event of ["room:state","market:update","candles:state","chat:changed"])socket.on(event,(p:unknown)=>dispatch(event,p));
   }).catch(()=>setConnection("disconnected"));
   return()=>{closed=true;clearTimeout(retry);socket?.disconnect();socketRef.current=undefined;};
  },[]);
- const value=useMemo<Live>(()=>({connection,maintenance,history,lastMessageAt,...api}),[connection,maintenance,history,lastMessageAt,api]);
+ const value=useMemo<Live>(()=>({connection,maintenance,lastMessageAt,...api}),[connection,maintenance,lastMessageAt,api]);
  return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 export function ConnectionBadge(){const {connection}=useLive();return <p className="connection-status" role="status" data-state={connection}>{connection==="connected"?"Live":connection==="connecting"?"Connecting…":"Disconnected. Trading is paused until the connection returns."}</p>;}

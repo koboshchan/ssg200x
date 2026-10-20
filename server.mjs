@@ -50,8 +50,7 @@ async function pushState(socket,force=false){
   if(!response.ok)throw new Error("Live snapshot unavailable");
   const data=await response.json();
   if(!socket.connected||socket.data.expires<=Date.now())return;
-  for(const [key,event] of [["maintenance","maintenance:state"],["history","history:state"]]){
-   if(key==="history"&&!socket.data.identity.admin)continue;
+  for(const [key,event] of [["maintenance","maintenance:state"]]){
    const fingerprint=JSON.stringify(data[key]);
    if(force||socket.data[key]!==fingerprint){socket.emit(event,data[key]);socket.data[key]=fingerprint;}
   }
@@ -92,7 +91,7 @@ const timer=setInterval(async()=>{
   const r=await collection.findOne({_id:"main"},{projection:{version:1}});
   const now=Date.now();
   await Promise.all([...io.sockets.sockets.values()].map(socket=>{
-   // Maintenance/backfill can change without the room version changing.
+   // Manual maintenance can change without the room version changing.
    if(!socket.data.initialized||socket.data.version!==r?.version||now-(socket.data.statusAt||0)>=1000){
     socket.data.statusAt=now;return pushState(socket,!socket.data.initialized);
    }

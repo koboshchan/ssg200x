@@ -6,7 +6,6 @@ const Roulette=dynamic(()=>import("./roulette-client"));
 import {SignInButton,UserButton,useUser} from "@clerk/nextjs";
 import LiveProvider,{useLive,useLiveEvent,ConnectionBadge} from "./live-provider";
 import MaintenanceGate from "./maintenance-gate";
-import HistoryProgress from "./history-progress";
 import ChatDock from "./chat-dock";
 import {useState,useEffect,useRef} from "react";
 import {usePathname,useRouter} from "next/navigation";
@@ -126,7 +125,7 @@ function Game({tab}:{tab:RoomTab}){
  const readyClock=Math.floor(readySeconds/60)+":"+String(readySeconds%60).padStart(2,"0");
  const canReady=room.street==="waiting"&&mySeat&&!mySeat.ready;
  const canCashOut=mySeat&&!mySeat.ready&&!(mySeat.inHand&&room.street!=="waiting"&&room.street!=="showdown");
- return <main className="game-main">{me.admin?<HistoryProgress/>:null}<section className="game-top"><div><h1>{"Good to see you, "+me.name+"."}</h1><p>No-limit hold’em · Six seats · $1 / $2 / $5</p></div><div className="wallet"><span>Wallet</span><strong>{money(me.wallet)}</strong><small>+ {money(mySeat?.stack||0)} at the table</small></div></section>
+ return <main className="game-main"><section className="game-top"><div><h1>{"Good to see you, "+me.name+"."}</h1><p>No-limit hold’em · Six seats · $1 / $2 / $5</p></div><div className="wallet"><span>Wallet</span><strong>{money(me.wallet)}</strong><small>+ {money(mySeat?.stack||0)} at the table</small></div></section>
  <div className="room-status"><span className="connection"><span className="status-dot"/> {connection==="connected"?"LIVE ROOM":connection==="connecting"?"CONNECTING":"OFFLINE"}</span></div>
  <ConnectionBadge/>
  {marketNotice?<div className="winner-note" role="status" aria-live="polite">{marketNotice}<button aria-label="Dismiss market notice" onClick={()=>setMarketNotice("")}>×</button></div>:null}

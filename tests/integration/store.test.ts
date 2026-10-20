@@ -106,7 +106,7 @@ test("manual site maintenance persists independently and records administrator a
  assert.equal((await siteMaintenance(true)).manual,true);
  await mutate(r=>{audit(r,admin,"site-maintenance","global",true,false);r.siteMaintenance=false;});
  assert.equal((await siteMaintenance(false)).manual,false);
- assert.equal((await siteMaintenance(false)).backfill,true);
+ assert.equal((await siteMaintenance(false)).blocked,false);
  const events=await(await db()).collection("audit").find({what:"site-maintenance"}).toArray();
  assert.equal(events.length,2);assert.equal(events[0].who,admin.id);
  assert.ok(events.some(e=>e.old===false&&e.new===true));assert.ok(events.some(e=>e.old===true&&e.new===false));

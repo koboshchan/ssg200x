@@ -33,14 +33,6 @@ export function setLimits(r:Room,who:Identity,maxTrade:number,maxLeverage:number
  const limits={maxTrade,maxLeverage};audit(r,who,"trading-limits","global",r.limits||{maxTrade:1000000,maxLeverage:200},limits);r.limits=limits;
 }
 
-/** The override only affects admission, never job state or the backfill worker. */
-export function goLiveNow(r:Room,who:Identity){
- ensure(who.admin,"Administrator access required.",403);
- if(r.backfillInBackground===true&&r.siteMaintenance!==true)return;
- audit(r,who,"backfill-go-live","global",{manual:r.siteMaintenance===true,background:r.backfillInBackground===true},{manual:false,background:true});
- r.siteMaintenance=false;r.backfillInBackground=true;
-}
-
 // Keep the member ledger and historical ownership; never delete the denial.
 export function setMemberAccess(r:Room,who:Identity,publicId:string,allowed:boolean){
  ensure(who.admin,"Administrator access required.",403);
