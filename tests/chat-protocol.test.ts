@@ -17,3 +17,12 @@ test("real WebCrypto canonical signed ciphertext rejects tampering and plaintext
  assert.throws(()=>shape({v:1,plaintext:"secret"},["v"]));assert.throws(()=>binary("AA==",1));assert.equal(CHAT_MAX_PAYLOAD,16384);
  assert.equal(keys.privateKey.extractable,false);
 });
+test('established chat session is revalidated after bounded cache and rejects revocation',async()=>{
+ // @ts-expect-error runtime module
+ const {sessionGuard}=await import('../runtime/chat-session.mjs');
+ let clock=100000,status='active',calls=0;
+ const guard=sessionGuard({sessions:{getSession:async()=>{calls++;return {status,userId:'user_a'};}}},{now:()=>clock,maxAge:10000});
+ const socket={connected:true,data:{expires:200000,sessionId:'sess_a',identity:{id:'user_a'}}};
+ await guard(socket);status='revoked';clock+=9999;await guard(socket);assert.equal(calls,1);
+ clock+=2;await assert.rejects(guard(socket),/session/);assert.equal(calls,2);
+});

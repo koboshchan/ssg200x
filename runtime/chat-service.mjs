@@ -29,7 +29,7 @@ export function createChatService(db,{now=Date.now,clerk}={}){
  async function hasWrap(epoch,user,id){const state=await states.findOne({_id:'main',epoch});if(state?.bootstrap?.toUserId===user&&state.bootstrap.toDeviceId===id)return state.bootstrap;return wraps.findOne({_id:digest(JSON.stringify([epoch,user,id]))});}
  function view(s,user,ws){return {room:'main',revision:s.state.revision,epoch:s.state.epoch,status:s.state.status,owner:s.state.owner,leaseUntil:s.state.leaseUntil,members:s.members.map(userId=>({userId,devices:s.directory.filter(d=>d.userId===userId).map(d=>({deviceId:d.deviceId,dhPublic:d.dhPublic,signPublic:d.signPublic,fingerprint:bundleFingerprint(userId,d)}))})),wraps:ws};}
  const cleanWrap=d=>({v:1,room:'main',revision:d.revision,epoch:d.epoch,senderUserId:d.senderUserId,deviceId:d.deviceId,toUserId:d.toUserId,toDeviceId:d.toDeviceId,salt:d.salt,iv:d.iv,ciphertext:d.ciphertext,signature:d.signature});
- const cleanMessage=d=>({v:1,room:'main',revision:d.revision,epoch:d.epoch,senderUserId:d.senderUserId,deviceId:d.deviceId,id:d.id,ts:d.ts,iv:d.iv,ciphertext:d.ciphertext,signature:d.signature,serverTs:d.serverTs,cursor:d.cursor});
+ const cleanMessage=d=>({v:1,room:'main',revision:d.revision,epoch:d.epoch,senderUserId:d.senderUserId,deviceId:d.deviceId,id:d.id,ts:d.ts,iv:d.iv,ciphertext:d.ciphertext,signature:d.signature,senderSignPublic:d.senderSignPublic,serverTs:d.serverTs,cursor:d.cursor});
  async function perform(user,event,p){await ready;text(user);await rate(user);const s=await snapshot(user);
   if(event==='keys:get'){shape(p,['v']);if(!identity)fail('identity_unavailable');return identity.get(user);}
   if(event==='keys:put'){
@@ -82,7 +82,7 @@ export function createChatService(db,{now=Date.now,clerk}={}){
    const prior=await messages.findOne({epoch:p.epoch,senderUserId:user,id:p.id});if(prior){if(prior.content!==content)fail('conflict');await fence(s,user);return {message:cleanMessage(prior),duplicate:true};}
    if(Math.abs(now()-p.ts)>300000)fail('expired');await fence(s,user);
    const counter=await states.findOneAndUpdate({_id:'main',revision:p.revision,epoch:p.epoch,status:'active'},{$inc:{counter:1}},{returnDocument:'after'});if(!counter)fail('stale_revision');
-   const doc={_id:digest(content),v:1,room:'main',revision:p.revision,epoch:p.epoch,senderUserId:user,deviceId:p.deviceId,id:p.id,ts:p.ts,iv:p.iv,ciphertext:p.ciphertext,signature:p.signature,serverTs:now(),cursor:counter.counter,content};await messages.insertOne(doc);return {message:cleanMessage(doc),duplicate:false};
+   const doc={_id:digest(content),v:1,room:'main',revision:p.revision,epoch:p.epoch,senderUserId:user,deviceId:p.deviceId,id:p.id,ts:p.ts,iv:p.iv,ciphertext:p.ciphertext,signature:p.signature,senderSignPublic:d.signPublic,serverTs:now(),cursor:counter.counter,content};await messages.insertOne(doc);return {message:cleanMessage(doc),duplicate:false};
   }
   if(event==='history'){
    shape(p,['v','epoch','deviceId'],['before','limit']);uuid(p.epoch);await device(user,p.deviceId);if(!await hasWrap(p.epoch,user,p.deviceId))fail('waiting');

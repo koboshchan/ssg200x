@@ -65,7 +65,18 @@ test('real Mongo stores ciphertext only, bootstrap leases, wrapping, replay, str
  const secret='PLAINTEXT_CANARY_TABLETALK_68398';
  const p={v:1,room:'main',revision:state.revision,epoch:state.epoch,deviceId:a.deviceId,id:randomUUID(),ts:clock,iv:rand(12),ciphertext:'',signature:''};
  p.ciphertext=b64(await webcrypto.subtle.encrypt({name:'AES-GCM',iv:Buffer.from(p.iv,'base64url'),additionalData:bytes(JSON.stringify(messageHeader(a.user,p)))},roomkey,bytes(secret)));p.signature=await a.signature(signedMessage(a.user,p));
- const result=await chat.handle(a.user,'send',p);assert.equal(result.duplicate,false);assert.equal((await chat.handle(a.user,'send',p)).duplicate,true);
+ let resumeInsert!:()=>void, reachedInsert!:()=>void;
+ const reached=new Promise<void>(r=>{reachedInsert=r;}), resume=new Promise<void>(r=>{resumeInsert=r;});
+ const intercepted={collection:(name:string)=>{const c=db.collection(name);return new Proxy(c,{get(target,key){if(name==='chat_messages'&&key==='insertOne')return async(...args:any[])=>{reachedInsert();await resume;return (target.insertOne as any)(...args);};const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;}});}};
+ const concurrent=createChatService(intercepted,{now:()=>clock});
+ const pendingSend=concurrent.handle(a.user,'send',p);await reached;
+ const roomAtCutover=await db.collection('rooms').findOne({_id:'main' as never});
+ // Exact production membership CAS filter, attempted after authorization but before insert.
+ const blockedRemoval=await db.collection('rooms').updateOne({_id:'main' as never,version:roomAtCutover!.version,chatMutationLock:{$exists:false}},{$set:{members:[{id:a.user,approved:true}]},$inc:{version:1}});
+ assert.equal(blockedRemoval.matchedCount,0);
+ resumeInsert();const result=await pendingSend;
+ assert.equal((await db.collection('rooms').findOne({_id:'main' as never}))!.chatMutationLock,undefined);
+ assert.equal(result.duplicate,false);assert.equal((await chat.handle(a.user,'send',p)).duplicate,true);
  await assert.rejects(chat.handle(a.user,'send',{...p,plaintext:secret}),/malformed/);
  await assert.rejects(chat.handle(b.user,'send',p));
  await assert.rejects(chat.handle(a.user,'send',{...p,revision:0}),/stale_revision/);

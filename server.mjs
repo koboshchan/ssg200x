@@ -1,3 +1,4 @@
+import {sessionGuard} from "./runtime/chat-session.mjs";
 import {createChatService} from "./runtime/chat-service.mjs";
 import {CHAT_MAX_PAYLOAD} from "./runtime/chat-protocol.mjs";
 import {createServer} from "node:http";
@@ -27,13 +28,16 @@ io.use(async(socket,next)=>{
  const claims=await verifyToken(token,{secretKey:process.env.CLERK_SECRET_KEY,authorizedParties:[process.env.APP_ORIGIN]});
  const user=await clerk.users.getUser(claims.sub);
  const identity=verifiedSocketIdentity(user,claims.sub);if(!identity||!Number.isFinite(claims.exp)||claims.exp*1000<=Date.now())throw new Error();
- socket.data.identity=identity;socket.data.expires=claims.exp*1000;next();
+ socket.data.sessionId=claims.sid;socket.data.identity=identity;socket.data.expires=claims.exp*1000;next();
  }catch{next(new Error("Sign in with Google."));}
 });
 const client=new MongoClient(process.env.MONGODB_URI,{serverSelectionTimeoutMS:5000});await client.connect();
 const collection=client.db(process.env.MONGODB_DB||"pokerroom").collection("rooms");
 const chat=createChatService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
 await chat.ready;
+const checkChatSession=sessionGuard(clerk);
+let hintTimer;
+function hintChatChanged(){if(hintTimer)return;hintTimer=setTimeout(()=>{hintTimer=null;io.emit("chat:changed",{v:1});},100);hintTimer.unref();}
 async function pushState(socket,force=false){
  if(!socket.connected||socket.data.busy)return;
  if(socket.data.expires<=Date.now()){socket.disconnect(true);return;}
@@ -62,18 +66,19 @@ io.on("connection",socket=>{
  for(const event of ["register","state","claim","wrap","send","history","keys:get","keys:put"]){
   socket.on("chat:"+event,async(payload,ack)=>{
    if(typeof ack!=="function")return;
+   if((socket.data.chatPending||0)>=4){ack({ok:false,error:"busy"});return;}
+   socket.data.chatPending=(socket.data.chatPending||0)+1;
    try{
+    await checkChatSession(socket);
     if(!socket.connected||socket.data.expires<=Date.now()){socket.disconnect(true);return;}
     const result=await chat.handle(socket.data.identity.id,event,payload);
     if(socket.data.expires<=Date.now()){socket.disconnect(true);return;}
     ack({ok:true,...result});
     if(["register","claim","wrap","send"].includes(event)){
-     // Hints only. Payloads require a fresh authorized state/history request.
-     for(const peer of io.sockets.sockets.values()){
-      try{if(peer.data.expires<=Date.now())throw Error();await chat.authorized(peer.data.identity.id);peer.emit("chat:changed",{v:1});}catch{peer.disconnect(true);}
-     }
+     // Generic coalesced hints contain no membership, ciphertext or wrapped keys.
+     hintChatChanged();
     }
-   }catch(error){ack({ok:false,error:error.chatCode||"unavailable"});if(error.chatCode==="forbidden")socket.disconnect(true);}
+   }catch(error){ack({ok:false,error:error.chatCode||"unavailable"});if(error.chatCode==="forbidden"||error.message==="session")socket.disconnect(true);}finally{socket.data.chatPending--;}
   });
  }
  const expiry=setTimeout(()=>socket.disconnect(true),Math.max(0,socket.data.expires-Date.now()));
