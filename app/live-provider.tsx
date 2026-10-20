@@ -1,4 +1,6 @@
 "use client";
+import AirdropAnnouncement from "./airdrop-announcement";
+import {AIRDROP_EVENT,createAirdropReceiver} from "../runtime/airdrop-events.mjs";
 import {createContext,useContext,useEffect,useMemo,useRef,useState} from "react";
 import {useAuth} from "@clerk/nextjs";
 import {createStateReceiver,STATE_STREAMS} from "../runtime/state-stream.mjs";
@@ -17,6 +19,7 @@ export function useLiveEvent(event:string,handler:(payload:any)=>void){const {su
 export default function LiveProvider({children}:{children:React.ReactNode}){
  const {getToken}=useAuth(),tokenRef=useRef(getToken);tokenRef.current=getToken;
  const [connection,setConnection]=useState<Connection>("connecting"),[maintenance,setMaintenance]=useState<MaintenanceStatus>(),[lastMessageAt,setLast]=useState(0);
+ const airdropReceiver=useRef<ReturnType<typeof createAirdropReceiver>|null>(null);
  const socketRef=useRef<Socket>(undefined),listeners=useRef(new Map<string,Set<(p:any)=>void>>()),latest=useRef(new Map<string,unknown>());
  const api=useMemo(()=>({subscribe(event:string,handler:(p:any)=>void){let set=listeners.current.get(event);if(!set){set=new Set();listeners.current.set(event,set);}set.add(handler);if(latest.current.has(event)&&event!=="market:update")handler(latest.current.get(event));return()=>{set!.delete(handler);};},emit(event:string,payload?:unknown){socketRef.current?.connected&&socketRef.current.emit(event,payload);},request(event:string,payload?:unknown){
    const socket=socketRef.current;
@@ -27,7 +30,8 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
   }}),[]);
  useEffect(()=>{
   let closed=false,retry:ReturnType<typeof setTimeout>|undefined,attempts=0,socket:Socket|undefined;
-  const dispatch=(event:string,p:unknown)=>{latest.current.set(event,p);setLast(Date.now());listeners.current.get(event)?.forEach(h=>h(p));};
+  const dispatch=(event:string,p:unknown)=>{if(event!==AIRDROP_EVENT)latest.current.set(event,p);setLast(Date.now());listeners.current.get(event)?.forEach(h=>h(p));};
+  airdropReceiver.current??=createAirdropReceiver(p=>listeners.current.get(AIRDROP_EVENT)?.forEach(h=>h(p)));
   const receiver=createStateReceiver(event=>socket?.connected&&socket.emit("state:resync",event));
   const later=()=>{if(closed||!socket||socket.active)return;clearTimeout(retry);attempts++;retry=setTimeout(()=>socket?.connect(),Math.min(10000,500*2**Math.min(attempts,5)));};
   import("socket.io-client").then(({io})=>{
@@ -43,12 +47,13 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
     if(event==="maintenance:state")setMaintenance(result.value as MaintenanceStatus);
     dispatch(event,result.value);
    });
+   socket.on(AIRDROP_EVENT,(p:unknown)=>airdropReceiver.current?.(p));
    // TableTalk's encrypted protocol and invalidation hints stay untouched.
    socket.on("chat:changed",(p:unknown)=>dispatch("chat:changed",p));
   }).catch(()=>setConnection("disconnected"));
   return()=>{closed=true;receiver.clear();latest.current.clear();clearTimeout(retry);socket?.disconnect();socketRef.current=undefined;};
  },[]);
  const value=useMemo<Live>(()=>({connection,maintenance,lastMessageAt,...api}),[connection,maintenance,lastMessageAt,api]);
- return <Context.Provider value={value}>{children}</Context.Provider>;
+ return <Context.Provider value={value}>{children}<AirdropAnnouncement subscribe={api.subscribe}/></Context.Provider>;
 }
 export function ConnectionBadge(){const {connection}=useLive();return <p className="connection-status" role="status" data-state={connection}>{connection==="connected"?"Live":connection==="connecting"?"Connecting…":"Disconnected. Trading is paused until the connection returns."}</p>;}
