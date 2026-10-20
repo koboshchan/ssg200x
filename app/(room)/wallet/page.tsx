@@ -52,7 +52,7 @@ export default function Wallet(){
 
  async function resolve(){
   const c=words(code);
-  if(c.length!==4)throw new Error("Enter the four-word code.");
+  if(c.length!==2&&c.length!==4)throw new Error("Enter the two-word code.");
   setRecipient(await call("/api/transfers",{action:"resolve",code:c.join(" ")}));
  }
  async function send(){
@@ -84,7 +84,7 @@ export default function Wallet(){
   <header><p className={styles.eyebrow}>Play money only</p><h1>Wallet</h1><p className={styles.balance}>{room?money(room.me.wallet):"Loading…"}</p><p>Available cash. Open positions and table chips stay locked.</p></header>
   <div className={styles.columns}>
    <section aria-labelledby="receive-title"><h2 id="receive-title">Receive</h2>
-    <p>Set the amount you want, then share the four-word code with the sender. It expires in 10 minutes and works once. Generating a new code cancels the old one. This is not your chat recovery phrase.</p>
+    <p>Set the amount you want, then share the two-word code with the sender. It expires in 10 minutes and works once. Generating a new code cancels the old one. This is not your chat recovery phrase.</p>
     <form onSubmit={e=>{e.preventDefault();void run(async()=>{const n=note.trim();const created=await call("/api/transfers",{action:"code",amount:amount.trim(),...(n?{note:n}:{})});setNow(Date.now());setReceive(created);});}}>
      <label>Amount in dollars<input inputMode="decimal" autoComplete="off" value={amount} maxLength={32} required disabled={busy} onChange={e=>setAmount(e.target.value)} placeholder="0.00" pattern={AMOUNT}/></label>
      <label>Note <span>(optional)</span><input value={note} maxLength={160} disabled={busy} onChange={e=>setNote(e.target.value)}/></label>
@@ -94,7 +94,7 @@ export default function Wallet(){
    </section>
    <section aria-labelledby="send-title"><h2 id="send-title">Send</h2>
     <form onSubmit={e=>{e.preventDefault();void run(recipient?send:resolve);}}>
-     <label>Recipient’s four-word code<input autoComplete="off" autoCapitalize="none" spellCheck={false} value={code} maxLength={100} required disabled={busy} onChange={e=>{setCode(e.target.value);editSend();}} placeholder="word word word word"/></label>
+     <label>Recipient’s two-word code (older four-word codes also work)<input autoComplete="off" autoCapitalize="none" spellCheck={false} value={code} maxLength={100} required disabled={busy} onChange={e=>{setCode(e.target.value);editSend();}} placeholder="word word"/></label>
      {recipient?<div role="status" className={styles.preview}>{recipient.avatar?<img src={recipient.avatar} alt="" width={40} height={40} style={{borderRadius:"50%"}}/>:null}<p>Send <strong>{money(recipient.amount)}</strong> to <strong>{recipient.name}</strong>{recipient.note?<>. Note: “{recipient.note}”</>:null}. {expired?"Code expired. Ask for a new code.":"The amount is set by the receiver."}</p></div>:null}
      <button className="primary" disabled={busy||!ready||expired}>{busy?"Working…":recipient?"Confirm send to "+recipient.name:"Check code"}</button>{recipient?<button type="button" disabled={busy} onClick={editSend}>Cancel</button>:null}
     </form>

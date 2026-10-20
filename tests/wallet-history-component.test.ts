@@ -49,3 +49,39 @@ test("real Wallet and LiveProvider coalesce events, preserve balance, and cancel
   await room("unmount");await page.evaluate(()=>(window as any).walletHarness.unmount());await page.clock.runFor(10000);assert.equal(requests,stopped);
  }finally{await browser.close();await rm(temp,{recursive:true,force:true});}
 });
+
+test("Wallet requests two words while accepting legacy four-word payments",async()=>{
+ const bundle=await build({entryPoints:["tests/fixtures/wallet-live.tsx"],bundle:true,write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"empty"},plugins:[{name:"wallet-auth-socket",setup(b:any){
+  b.onResolve({filter:/^@clerk\/nextjs$/},()=>({path:"auth",namespace:"mock"}));
+  b.onLoad({filter:/.*/,namespace:"mock"},()=>({contents:"export function useAuth(){return {getToken:async()=> 'test'}}",loader:"js"}));
+  b.onResolve({filter:/^socket.io-client$/},()=>({path:resolve("tests/fixtures/wallet-socket.ts")}));
+ }}]});
+ const browser=await chromium.launch({headless:true,channel:"chromium"});
+ try{
+  const page=await browser.newPage(),resolved:string[]=[];
+  await page.route("https://wallet.test/**",async(route:any)=>{
+   if(route.request().url().includes("/api/transfers")){
+    const body=route.request().postDataJSON();
+    if(body?.action==="resolve")resolved.push(body.code);
+    const value=!body?{transfers:[]}:body.action==="code"?{code:"cat dog",expiresAt:Date.now()+600000,amount:100}:body.action==="resolve"?{name:"Bob",publicId:"bob",amount:100,expiresAt:Date.now()+600000}:{transfer:{id:"ok"}};
+    await route.fulfill({contentType:"application/json",body:JSON.stringify(value)});
+   }else await route.fulfill({contentType:"text/html",body:'<div id="root"></div>'});
+  });
+  await page.goto("https://wallet.test");await page.addScriptTag({content:bundle.outputFiles[0].text});
+  await page.waitForFunction(()=>Boolean((window as any).walletSocket));
+  await page.evaluate(()=>(window as any).walletSocket("room:state",{me:{wallet:10000,admin:false},transferHistoryKeys:{mine:"a",all:"a"}}));
+  await page.getByLabel("Amount in dollars",{exact:true}).fill("1");
+  await page.getByRole("button",{name:"Generate receive code"}).click();
+  await page.getByLabel("Your receive code").waitFor();assert.equal(await page.getByLabel("Your receive code").innerText(),"cat dog");
+  assert.match(await page.locator("main").innerText(),/share the two-word code/);
+  const field=page.getByPlaceholder("word word");
+  await field.fill(" CAT  dog ");await page.getByRole("button",{name:"Check code",exact:true}).click();
+  await page.getByRole("button",{name:"Confirm send to Bob"}).waitFor();assert.deepEqual(resolved,["cat dog"]);
+  await page.getByRole("button",{name:"Cancel",exact:true}).click();
+  await field.fill("cat dog fish bird");await page.getByRole("button",{name:"Check code",exact:true}).click();
+  await page.getByRole("button",{name:"Confirm send to Bob"}).click();
+  await page.getByText("Play money sent.",{exact:true}).waitFor();assert.deepEqual(resolved,["cat dog","cat dog fish bird"]);
+  await field.fill("cat dog fish");await page.getByRole("button",{name:"Check code",exact:true}).click();
+  await page.getByRole("alert").waitFor();assert.match(await page.getByRole("alert").innerText(),/two-word/);assert.equal(resolved.length,2);
+ }finally{await browser.close();}
+});
