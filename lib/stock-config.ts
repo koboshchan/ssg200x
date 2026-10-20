@@ -1,6 +1,11 @@
 /** Server-only prerequisites, never import provider credentials into client code. */
+export const STOCK_SYMBOLS = ["AAPL", "TSLA", "NVDA", "MSFT"] as const;
+export type StockSymbol = typeof STOCK_SYMBOLS[number];
+export function isStockSymbol(value: unknown): value is StockSymbol {
+  return typeof value === "string" && (STOCK_SYMBOLS as readonly string[]).includes(value);
+}
 export const STOCK_INSTRUMENT = {
-  symbol: "AAPL", assetClass: "us_equity", currency: "USD",
+  symbols: STOCK_SYMBOLS, assetClass: "us_equity", currency: "USD",
   feed: "alpaca-iex", coverage: "IEX single venue, not consolidated NBBO",
   recency: "real-time", websocketAvailable: true,
   timeZone: "America/New_York",
@@ -13,5 +18,5 @@ export function stockPrerequisites(env: StockEnvironment) {
   if (!env.AAPL_REDISTRIBUTION_APPROVAL_REFERENCE?.trim()) blockers.push("missing_redistribution_permission");
   // Adapter fixtures are implemented, but shared execution/calendar hooks are not.
   blockers.push("stock_runtime_not_integrated");
-  return {enabled: false as const, symbol: STOCK_INSTRUMENT.symbol, blockers};
+  return {enabled: false as const, symbols: STOCK_SYMBOLS, blockers};
 }

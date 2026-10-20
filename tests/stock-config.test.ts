@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {stockPrerequisites, STOCK_INSTRUMENT} from "../lib/stock-config";
+import {stockPrerequisites, STOCK_INSTRUMENT, STOCK_SYMBOLS} from "../lib/stock-config";
 test("free IEX is realtime but single venue, not NBBO", () => {
   assert.equal(STOCK_INSTRUMENT.feed, "alpaca-iex");
   assert.equal(STOCK_INSTRUMENT.recency, "real-time");
@@ -15,4 +15,9 @@ test("no key or legacy Massive flag enables unfinished shared hooks", () => {
   assert.equal(result.enabled, false);
   assert.deepEqual(result.blockers, ["stock_runtime_not_integrated"]);
   assert.doesNotMatch(JSON.stringify(result), /mock-|secret|old/);
+});
+
+test("exact four-equity pool is separate from cryptocurrency configuration",()=>{
+  assert.deepEqual(STOCK_SYMBOLS,["AAPL","TSLA","NVDA","MSFT"]);
+  assert.deepEqual(stockPrerequisites({}).symbols,STOCK_SYMBOLS);
 });

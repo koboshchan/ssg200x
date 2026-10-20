@@ -16,14 +16,14 @@ function setup() {
   const feed=new AlpacaIexFeed({env:{ALPACA_KEY_ID:"fixture-key",ALPACA_SECRET:"fixture-secret"},permitted:()=>permitted,isLeader:()=>leader,now:()=>now,
     socket:url=>{assert.equal(url,"wss://stream.data.alpaca.markets/v2/iex");const s=new Socket();sockets.push(s);return s;},onTick:t=>ticks.push(t),onState:s=>states.push(s)});
   const print=(overrides={})=>({T:"t",S:"AAPL",p:200,s:100,c:["@"],t:new Date(now-100).toISOString(),...overrides});
-  function connect(){assert.equal(feed.start(),true);const s=sockets.at(-1)!;s.onopen?.();s.message([{T:"success",msg:"authenticated"}]);s.message([{T:"subscription",trades:["AAPL"],quotes:["AAPL"]}]);return s;}
+  function connect(){assert.equal(feed.start(),true);const s=sockets.at(-1)!;s.onopen?.();s.message([{T:"success",msg:"authenticated"}]);s.message([{T:"subscription",trades:["AAPL","TSLA","NVDA","MSFT"],quotes:["AAPL","TSLA","NVDA","MSFT"]}]);return s;}
   return {feed,sockets,ticks,states,print,connect,setLeader:(v:boolean)=>leader=v,setPermission:(v:boolean)=>permitted=v};
 }
 test("auth then subscribe, array trades filtered, no bars/quotes as execution",()=>{
   const h=setup(),s=h.connect();
   assert.deepEqual(JSON.parse(s.sent[0]),{action:"auth",key:"fixture-key",secret:"fixture-secret"});
-  assert.deepEqual(JSON.parse(s.sent[1]),{action:"subscribe",trades:["AAPL"],quotes:["AAPL"]});
-  s.message([h.print(),h.print(),h.print({S:"MSFT"}),h.print({T:"q"}),h.print({T:"b"}),h.print({p:-1}),h.print({c:["T"]}),h.print({t:"2026-10-19T14:59:00Z"})]);
+  assert.deepEqual(JSON.parse(s.sent[1]),{action:"subscribe",trades:["AAPL","TSLA","NVDA","MSFT"],quotes:["AAPL","TSLA","NVDA","MSFT"]});
+  s.message([h.print(),h.print(),h.print({S:"GOOG"}),h.print({T:"q"}),h.print({T:"b"}),h.print({p:-1}),h.print({c:["T"]}),h.print({t:"2026-10-19T14:59:00Z"})]);
   assert.equal(h.ticks.length,1);
   assert.doesNotMatch(JSON.stringify(h.ticks),/fixture-/);
   assert.equal(h.feed.start(),false);
@@ -55,4 +55,22 @@ test("missing credentials never construct upstream sockets",()=>{
   let called=false;
   const feed=new AlpacaIexFeed({env:{},permitted:()=>true,isLeader:()=>true,now:()=>0,socket:()=>{called=true;return new Socket();},onTick:()=>{},onState:()=>{}});
   assert.equal(feed.start(),false);assert.equal(called,false);
+});
+
+test("one pooled connection emits independent same-timestamp trades for all four symbols",()=>{
+  const h=setup(),s=h.connect();
+  s.message(["AAPL","TSLA","NVDA","MSFT"].map(S=>h.print({S})));
+  assert.deepEqual(h.ticks.map(t=>t.symbol),["AAPL","TSLA","NVDA","MSFT"]);
+  s.message(["AAPL","TSLA","NVDA","MSFT"].map(S=>h.print({S})));
+  assert.equal(h.ticks.length,4);assert.equal(h.sockets.length,1);
+  s.onerror?.();const next=h.connect();
+  assert.equal(h.sockets.length,2);
+  assert.deepEqual(JSON.parse(next.sent[1]).trades,["AAPL","TSLA","NVDA","MSFT"]);
+  h.feed.stop();
+});
+test("partial pooled subscription is not ready",()=>{
+  const h=setup();h.feed.start();const s=h.sockets[0];
+  s.message([{T:"success",msg:"authenticated"}]);
+  s.message([{T:"subscription",trades:["AAPL"],quotes:["AAPL"]}]);
+  assert.equal(s.closed,true);assert.equal(h.states.includes("subscribed"),false);
 });

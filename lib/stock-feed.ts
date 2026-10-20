@@ -1,4 +1,4 @@
-import {ALPACA_IEX_URL, type StockEnvironment} from "./stock-config";
+import {ALPACA_IEX_URL, STOCK_SYMBOLS, isStockSymbol, type StockEnvironment} from "./stock-config";
 import type {StockTick} from "./stock-policy";
 export interface StockSocket {
   send(data: string): void; close(): void;
@@ -19,7 +19,7 @@ export class AlpacaIexFeed {
   private current: StockSocket | null = null;
   private authenticated = false;
   private subscribed = false;
-  private lastTimestamp = -Infinity;
+  private lastTimestamp = new Map<string, number>();
   private terminal = false;
   private attempt = 0;
   private handshake: ReturnType<typeof setTimeout> | null = null;
@@ -60,27 +60,27 @@ export class AlpacaIexFeed {
         if (m.T === "success" && m.msg === "authenticated") {
           if (this.authenticated) return fail();
           this.authenticated = true;
-          socket.send(JSON.stringify({action: "subscribe", trades: ["AAPL"], quotes: ["AAPL"]}));
+          socket.send(JSON.stringify({action: "subscribe", trades: STOCK_SYMBOLS, quotes: STOCK_SYMBOLS}));
         }
         if (m.T === "subscription") {
-          if (!this.authenticated || !Array.isArray(m.trades) || !m.trades.includes("AAPL") ||
-            !Array.isArray(m.quotes) || !m.quotes.includes("AAPL")) return fail();
+          if (!this.authenticated || !Array.isArray(m.trades) || !STOCK_SYMBOLS.every(symbol => (m.trades as unknown[]).includes(symbol)) ||
+            !Array.isArray(m.quotes) || !STOCK_SYMBOLS.every(symbol => (m.quotes as unknown[]).includes(symbol))) return fail();
           if (this.handshake) clearTimeout(this.handshake);
           this.handshake = null;
           this.subscribed = true; this.attempt = 0; o.onState("subscribed");
         }
-        if ((m.T === "c" || m.T === "x" || m.T === "s") && m.S === "AAPL") return fail();
+        if ((m.T === "c" || m.T === "x" || m.T === "s") && isStockSymbol(m.S)) return fail();
         // Quotes and bars are not executable last-trade prices. Only regular
         // sale prints are accepted; unknown conditions fail closed for that tick.
-        if (m.T !== "t" || !this.subscribed || m.S !== "AAPL") continue;
+        if (m.T !== "t" || !this.subscribed || !isStockSymbol(m.S)) continue;
         const now = o.now(), timestamp = typeof m.t === "string" ? Date.parse(m.t) : NaN;
         if (typeof m.p !== "number" || !Number.isFinite(m.p) || m.p <= 0 ||
           typeof m.s !== "number" || !Number.isFinite(m.s) || m.s <= 0 ||
           !Array.isArray(m.c) || m.c.length === 0 || !m.c.every(c => c === "@" || c === " ") ||
-          !Number.isFinite(now) || !Number.isFinite(timestamp) || timestamp <= this.lastTimestamp ||
+          !Number.isFinite(now) || !Number.isFinite(timestamp) || timestamp <= (this.lastTimestamp.get(m.S) ?? -Infinity) ||
           timestamp > now || now - timestamp > 15_000) continue;
-        this.lastTimestamp = timestamp;
-        o.onTick({symbol: "AAPL", price: m.p, timestamp, receivedAt: now, feed: "alpaca-iex"});
+        this.lastTimestamp.set(m.S, timestamp);
+        o.onTick({symbol: m.S, price: m.p, timestamp, receivedAt: now, feed: "alpaca-iex"});
       }
     };
     return true;
