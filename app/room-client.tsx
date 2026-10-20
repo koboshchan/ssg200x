@@ -36,7 +36,7 @@ function SignedInShell({children}:{children:React.ReactNode}){
  // Only the server-derived boolean is sent to the browser, never Clerk private metadata.
  return <Shell signedIn admin={maintenance?.admin===true} account={<UserButton/>}>{children}</Shell>;
 }
-function Shell({children,account,signedIn=false,admin=false}:{children:React.ReactNode;account?:React.ReactNode;signedIn?:boolean;admin?:boolean}){
+export function Shell({children,account,signedIn=false,admin=false}:{children:React.ReactNode;account?:React.ReactNode;signedIn?:boolean;admin?:boolean}){
  const path=usePathname()||"";
  return <><header className="mast"><a className="wordmark" href={signedIn?"/poker":"/"} aria-label="ssg200x home">ssg200x</a>{signedIn?<nav className="nav-links" aria-label="Sections">{routes.filter(r=>!("admin" in r&&r.admin)||admin).map(r=>{const on=path===r.href||path.startsWith(r.href+"/");return <a key={r.href} href={r.href} aria-current={on?"page":undefined}>{r.label}</a>;})}</nav>:<nav className="nav-links" aria-label="Sections"><a href="/leaderboard">Leaderboard</a></nav>}<div className="header-right">{signedIn?<a className="gear" href="/settings" aria-label="Settings" aria-current={path==="/settings"?"page":undefined}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg></a>:<span className="private-label">Private table</span>}{account}</div></header>{children}<footer><span>ssg200x</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span></footer></>;
 }

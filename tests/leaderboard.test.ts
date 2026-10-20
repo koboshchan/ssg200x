@@ -51,11 +51,14 @@ test("failed cache loads are retriable and never expose rejected error objects",
  let calls=0;const get=cachedLeaderboard(async()=>{if(++calls===1)throw Error("private database credentials");return null;});
  await assert.rejects(get());assert.deepEqual((await get()).rows,[]);assert.equal(calls,2);
 });
-test("public page bypass is exact, outside auth and maintenance, with narrow rendering and no public mutation API",()=>{
+test("public page reads the Clerk session without gating, stays outside maintenance, with narrow rendering and no public mutation API",()=>{
  const read=(p:string)=>readFileSync(p,"utf8"),proxy=read("proxy.ts"),page=read("app/leaderboard/page.tsx"),store=read("lib/leaderboard-store.ts"),client=read("app/room-client.tsx");
- assert.match(proxy,/pathname==="\/leaderboard"\)return NextResponse.next\(\)/);
- assert.ok(proxy.indexOf('pathname==="/leaderboard"')<proxy.indexOf("return clerk(request, event)"));
- assert.doesNotMatch(page,/RoomClient|LiveProvider|MaintenanceGate|useUser|currentUser|privateMetadata|publicId|\.email|dangerouslySetInnerHTML/);
+ // Session must reach the page, so no early exact bypass; clerkMiddleware only protects /api/*.
+ assert.doesNotMatch(proxy,/pathname\s*===\s*"\/leaderboard"/);
+ assert.match(proxy,/startsWith\("\/api\/"\)/);
+ assert.match(proxy,/return clerk\(request, event\)/);
+ assert.doesNotMatch(page,/RoomClient|LiveProvider|MaintenanceGate|useUser|publicId|dangerouslySetInnerHTML/);
+ assert.doesNotMatch(page,/\.email|privateMetadata\.(?!admin)/);
  assert.match(store,/findOne\(\{_id:"main"\}/);assert.match(store,/cachedLeaderboard/);
  assert.doesNotMatch(store,/await (readRoom|visit|mutate)|updateOne|insertOne|clerk/);
  assert.match(page,/snapshot\.rows\.map/);assert.match(page,/role="status"/);assert.match(page,/No players yet/);
