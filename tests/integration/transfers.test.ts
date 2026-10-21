@@ -133,12 +133,13 @@ test("collision retries are bounded and leave an existing request intact",async(
 test("payment guess limits still enforce user, source and aggregate budgets",async()=>{
  const {limitTransferGuess,transferSource}=await import("../../lib/transfer-rate-limit");
  const d=await db(),request=new Request("https://test.invalid");
- const budgets=[["transfer-guess:user:a",10],["transfer-guess:source:"+transferSource(request),30],["transfer-guess:global",120]] as const;
+ const budgets=[["transfer-guess:source:"+transferSource(request),30],["transfer-guess:global",120]] as const;
  for(const [id,cap] of budgets){
   await d.collection("limits").deleteMany({});
   const minute=Math.floor(Date.now()/60_000);
   await d.collection("limits").insertOne({_id:(id+":"+minute) as never,count:cap-1,expiresAt:new Date((minute+3)*60_000)});
   await limitTransferGuess(request,alice.id);
+  await d.collection("limits").updateOne({_id:"transfer-guess:rolling-user:a" as never},{$set:{nextAt:new Date(0)}});
   await assert.rejects(()=>limitTransferGuess(request,alice.id),(e:unknown)=>(e as {status:number}).status===429);
  }
  await d.collection("limits").deleteMany({});
@@ -219,4 +220,43 @@ test("revoked owners cannot list, issue or cancel; invalid inputs do not consume
  await assert.rejects(()=>activeReceiveCodes(bob),{status:403});
  await assert.rejects(()=>cancelReceiveCode(bob,request.id),{status:403});
  await assert.rejects(()=>createReceiveCode(bob,{amount:"2"}),{status:403});
+});
+
+
+test("guess user claim is atomic across independent database clients",async()=>{
+ const {claimTransferGuess}=await import("../../lib/transfer-rate-limit"),{MongoClient}=await import("mongodb");
+ const d=await db(),client=await new MongoClient(process.env.MONGODB_URI!).connect();
+ await d.collection("limits").deleteMany({});
+ try{
+  const results=await Promise.allSettled(Array.from({length:32},(_,i)=>claimTransferGuess(alice.id,i%2?client.db(process.env.MONGODB_DB):d)));
+  assert.equal(results.filter(r=>r.status==="fulfilled").length,1);
+  for(const r of results)if(r.status==="rejected")assert.equal(r.reason.status,429);
+  await claimTransferGuess(bob.id,d);
+ }finally{await client.close();}
+});
+test("guess attempts use a rolling two-second boundary, rejected calls do not slide it",async()=>{
+ const {claimTransferGuess,TRANSFER_GUESS_INTERVAL_MS}=await import("../../lib/transfer-rate-limit"),d=await db();
+ await d.collection("limits").deleteMany({});
+ await claimTransferGuess(alice.id);
+ const key={_id:"transfer-guess:rolling-user:a" as never};
+ const first=await d.collection("limits").findOne(key);
+ assert.equal(TRANSFER_GUESS_INTERVAL_MS,2000);
+ await assert.rejects(()=>claimTransferGuess(alice.id),{status:429});
+ assert.equal((await d.collection("limits").findOne(key))!.nextAt.getTime(),first!.nextAt.getTime());
+ await new Promise(r=>setTimeout(r,2050));
+ await claimTransferGuess(alice.id);
+ const second=await d.collection("limits").findOne(key);
+ assert.ok(second!.nextAt.getTime()>=first!.nextAt.getTime()+2000);
+});
+test("guess boundary compares server time inclusively and ignores the app clock",async()=>{
+ const {claimTransferGuess}=await import("../../lib/transfer-rate-limit"),d=await db(),key="transfer-guess:rolling-user:a";
+ await d.collection("limits").deleteMany({});
+ await claimTransferGuess(alice.id);
+ const limits=d.collection("limits");
+ // Use the exact Mongo expression with a fixed boundary for deterministic equality tests.
+ const row=await limits.findOne({_id:key as never});const boundary=row!.nextAt;
+ assert.equal((await limits.updateOne({_id:key as never,$expr:{$lte:["$nextAt",new Date(boundary.getTime()-1)]}},{$set:{boundaryHit:true}})).matchedCount,0);
+ assert.equal((await limits.updateOne({_id:key as never,$expr:{$lte:["$nextAt",boundary]}},{$set:{boundaryHit:true}})).matchedCount,1);
+ const realNow=Date.now;Date.now=()=>realNow()+24*60*60_000;
+ try{await assert.rejects(()=>claimTransferGuess(alice.id),{status:429});}finally{Date.now=realNow;}
 });

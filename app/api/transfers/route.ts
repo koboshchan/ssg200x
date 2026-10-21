@@ -23,7 +23,8 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
  // Generation uses its atomic rolling one-second throttle, not the send/guess minute cap.
  if(input.action==="code")return createReceiveCode(who,input);
  if(input.action==="cancel")return cancelReceiveCode(who,input.id);
- await rateLimit("transfers:"+who.id,input.action==="resolve"?10:20);
+ // Resolving uses the rolling two-second guess budget, not another 10/minute cap.
+ if(input.action==="send")await rateLimit("transfers:"+who.id,20);
  if(input.action==="resolve"){
   await limitTransferGuess(request,who.id);
   const preview=await resolveReceiveCode(who,input.code);

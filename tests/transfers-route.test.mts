@@ -46,10 +46,11 @@ test("send retains transfer minute cap and every guess limit",async()=>{
  assert.deepEqual(calls.slice(0,3),[["endpoint"],["rate","transfers:"+who.id,20],["guess",who.id]]);
  assert.deepEqual(calls[3],["send",who,input]);
 });
-test("resolve retains its tighter minute and guess caps and returns no owner code/id",async()=>{
+test("resolve uses rolling guess protection without the old per-user minute cap and returns no owner code/id",async()=>{
  const result=await(await POST(request({action:"resolve",code:"cat dog"}))).json();
  assert.equal(result.amount,100);assert.ok(!("code" in result));assert.ok(!("id" in result));
- assert.deepEqual(calls.slice(0,3),[["endpoint"],["rate","transfers:"+who.id,10],["guess",who.id]]);
+ assert.deepEqual(calls.slice(0,2),[["endpoint"],["guess",who.id]]);
+ assert.ok(!calls.some(c=>c[0]==="rate"));
 });
 test("unknown and cross-owner body fields fail strict schemas before service calls",async()=>{
  for(const input of [{action:"cancel",id:"id",ownerId:"other"},{action:"code",amount:"1",ownerId:"other"},{action:"list"},{action:"cancel",id:""}]){
