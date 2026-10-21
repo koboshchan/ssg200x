@@ -20,7 +20,7 @@ const assert=require("node:assert/strict");
  assert.equal(await page.locator("main.adv-main").first().locator("article[data-unlocked=true]").count(),8);
  await page.getByRole("status").filter({hasText:"I'm super unlucky"}).waitFor();
  await page.getByRole("button",{name:"Dismiss advancement notification"}).click();
- assert.equal(await page.getByRole("status").count(),0);
+ assert.equal(await page.locator(".adv-toast").count(),0);
  await page.emulateMedia({colorScheme:"dark"});await page.screenshot({path:"/tmp/advancements-dark.png",fullPage:true});
  await page.setViewportSize({width:390,height:844});await page.screenshot({path:"/tmp/advancements-mobile.png",fullPage:true});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);

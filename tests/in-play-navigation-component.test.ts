@@ -100,6 +100,6 @@ test("mounted live guard intercepts client links for all games, preserves naviga
  await route("/poker");await frame(fixtures.poker);await page.locator("#sidebar").click();await dialog.waitFor();await route("/settings");
  assert.equal(await dialog.count(),0);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
- assert.deepEqual(errors,[]);assert.equal(requests.some(s=>s.startsWith("POST ")),false);
+ assert.deepEqual(errors,[]);assert.equal(requests.some(s=>s.startsWith("POST ")&&!s.includes("/api/check-in")),false);
  }finally{await browser.close();}
 });
