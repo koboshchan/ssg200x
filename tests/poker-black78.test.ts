@@ -16,7 +16,7 @@ test("Black 78 requires exactly two distinct ranks, both black, in either order"
 
 test("server showdown Black 78 beats a royal flush and exposes exact result/history label",()=>{
  const r=pokerShowdown([1000,1000],[["7s","8c"],["Th","3h"]]);
- showdown(r,1000);assert.equal(r.seats[0]!.stack,2000);assert.equal(r.seats[1]!.stack,0);
+ showdown(r,Date.now());assert.equal(r.seats[0]!.stack,2000);assert.equal(r.seats[1]!.stack,0);
  assert.deepEqual(r.payouts,[{seat:0,amount:2000,description:"Black 78"}]);
  const view=publicRoom(r,pokerUser(1));
  assert.equal(view.payouts[0].description,"Black 78");
