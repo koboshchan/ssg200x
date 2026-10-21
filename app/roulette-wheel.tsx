@@ -8,7 +8,9 @@ import {poseAt} from '@/lib/roulette-physics';
 
 export default function RouletteWheel({spin,now,idleAnchor}:{spin:RouletteSpin|null;now:number;idleAnchor:IdleAnchor}){
  const canvas=useRef<HTMLCanvasElement>(null),clock=useRef({server:now,local:0});
- const [reduced,setReduced]=useState(false);
+ // Null is SSR/hydration-safe: never paint until the client reads its
+ // preference. A passive effect update cannot change this mount's closure.
+ const [reduced,setReduced]=useState<boolean|null>(null);
  useEffect(()=>{const q=matchMedia('(prefers-reduced-motion: reduce)'),update=()=>setReduced(q.matches);update();q.addEventListener('change',update);return()=>q.removeEventListener('change',update);},[]);
  useEffect(()=>{clock.current={server:now,local:performance.now()};},[now]);
  const physics=spin?.physics;
@@ -20,6 +22,7 @@ export default function RouletteWheel({spin,now,idleAnchor}:{spin:RouletteSpin|n
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[physics?.roundId,spin?.round]);
  useEffect(()=>{
+  if(reduced===null)return;
   const cv=canvas.current,ctx=cv?.getContext('2d');if(!cv||!ctx||trajectory.error)return;
   let frame=0;
   let offscreen:HTMLCanvasElement|undefined;
