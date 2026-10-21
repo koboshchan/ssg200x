@@ -1,0 +1,21 @@
+import {test,before,after} from "node:test";
+import assert from "node:assert/strict";
+import {db,readRoom,closeDatabase} from "../../lib/db";
+import {mutate} from "../../lib/store";
+import {register,assertRoom} from "../../lib/poker";
+import {rouletteState,rouletteAction,rouletteTick} from "../../lib/roulette";
+import {publicRoom} from "../../lib/public";
+if(!process.env.MONGODB_DB?.startsWith("fakebucks_test_"))throw new Error("Refusing non-test database");
+process.env.MONGODB_DB+="_advancements";
+const who={id:"adv-a",name:"Alice",email:"a@example.invalid",admin:false};
+before(async()=>{await(await db()).dropDatabase();await mutate(r=>{register(r,who);rouletteState(r,1000);r.members[0].advancements={streak:6,lastRound:0,unlocked:{}};rouletteAction(r,who,{type:"bet",bet:{kind:"red",amount:100}},1,"red",1000);});});
+after(async()=>{await(await db()).dropDatabase();await closeDatabase();});
+test("parallel Mongo CAS settlements unlock once, persist after reconnect, never leak a future result",async()=>{
+ await Promise.all(Array.from({length:8},()=>mutate(r=>rouletteTick(r,61000,()=>0))));
+ let r=await readRoom();assert.equal(publicRoom(r,who).advancements.streak,6);assert.deepEqual(publicRoom(r,who).advancements.unlocked,{});
+ await Promise.all(Array.from({length:8},()=>mutate(r=>rouletteTick(r,78000,()=>1))));
+ await closeDatabase();r=await readRoom();assert.equal(r.members[0].advancements!.streak,7);assert.deepEqual(r.members[0].advancements!.unlocked,{"7":73000});assertRoom(r);
+ await mutate(r=>rouletteAction(r,who,{type:"bet",bet:{kind:"red",amount:100}},2,"second",78000));
+ await mutate(r=>rouletteTick(r,138000,()=>1));await Promise.all(Array.from({length:6},()=>mutate(r=>rouletteTick(r,155000,()=>0))));
+ await closeDatabase();r=await readRoom();assert.equal(r.members[0].advancements!.streak,0);assert.deepEqual(r.members[0].advancements!.unlocked,{"7":73000});assertRoom(r);
+});
