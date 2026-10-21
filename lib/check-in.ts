@@ -1,5 +1,5 @@
 import type {Room,Member} from "./types";
-export const CHECK_IN_REWARDS=[5000,5000,10000,5000,10000,20000,20000] as const;
+export const CHECK_IN_REWARDS=[5000,5000,5000,10000,5000,10000,20000] as const;
 export type CheckInState={day:string;streak:number;claimedAt:number;bannerDay?:string};
 const formatter=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Vancouver",year:"numeric",month:"2-digit",day:"2-digit"});
 export function checkInDay(now:number){return formatter.format(now);}

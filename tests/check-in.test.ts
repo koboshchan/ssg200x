@@ -5,7 +5,7 @@ import {claimCheckIn,checkInView,checkInDay,markCheckInBanner,CHECK_IN_REWARDS} 
 function setup(){const r=freshRoom();register(r,{id:"a",name:"A",email:"a@test.invalid",admin:false});return {r,m:r.members[0]};}
 test("approved seven-day payouts, day8+, duplicate claims and missing-day reset",()=>{
  const {r,m}=setup();let expected=100000;
- assert.deepEqual([...CHECK_IN_REWARDS],[5000,5000,10000,5000,10000,20000,20000]);
+ assert.deepEqual([...CHECK_IN_REWARDS],[5000,5000,5000,10000,5000,10000,20000]);
  for(let i=0;i<10;i++){const now=Date.UTC(2026,9,1+i,19);const view=claimCheckIn(r,m,now);expected+=CHECK_IN_REWARDS[Math.min(i,6)];assert.equal(view.streak,i+1);assert.equal(m.wallet,expected);claimCheckIn(r,m,now+1000);assert.equal(m.wallet,expected);assertRoom(r);}
  assert.equal(r.auditPending!.length,10);
  assert.equal(claimCheckIn(r,m,Date.UTC(2026,9,12,19)).streak,1);assertRoom(r);
