@@ -62,7 +62,7 @@ for(const side of ["long","short"] as const)test(`unchanged-entry manual ${side}
  settleTriggers(r,1000);assert.equal(r.members[0].positions!.length,1);assert.deepEqual(r.members[0].activity,undefined);
  closePosition(r,who,"manual-entry",1000);
  const m=r.members[0];assert.equal(m.wallet,100000);
- assert.equal(m.activity![0],`Closed ${side} BTC · 20.00 returned · position manual-entry`);
+ assert.equal(m.activity![0],`Closed ${side} BTC · 20.00 returned · fees 0.00 · position manual-entry`);
  assert.equal(m.closedPositions![0].reason,"Manual");assert.equal(m.closedPositions![0].realizedPnl,0);
  assert.equal(m.closedPositions![0].exit,m.closedPositions![0].entry);
  assertRoom(r);

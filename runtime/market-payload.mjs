@@ -5,8 +5,8 @@ export function marketPayload(room,userId,now=Date.now()) {
  const holdings=(member.holdings||[]).map(h=>({symbol:h.symbol,units:h.units,cost:h.cost,value:quotes[h.symbol]?Number(BigInt(h.units)*BigInt(quotes[h.symbol].micro)/1_000_000_000_000n):h.cost}));
  const positions=(member.positions||[]).map(p=>{
   const pnl=quotes[p.symbol]?Math.floor(p.margin*p.leverage*(quotes[p.symbol].micro-p.entry)/p.entry*(p.side==="long"?1:-1)):0;
-  const m=p.maintenance||0,liquidation=p.liquidationOverride??(p.side==="long"?p.entry*(1-1/p.leverage)/(1-m):p.entry*(1+1/p.leverage)/(1+m));
-  return {id:p.id,symbol:p.symbol,side:p.side,margin:p.margin,leverage:p.leverage,entry:p.entry,opened:p.opened,...(p.takeProfit!==undefined?{takeProfit:p.takeProfit}:{}),...(p.stopLoss!==undefined?{stopLoss:p.stopLoss}:{}),liquidation,pnl,equity:Math.max(0,p.margin+pnl)};
+  const m=(p.maintenance||0)+(p.feePpm||0)/1e6,liquidation=p.liquidationOverride??(p.side==="long"?p.entry*(1-1/p.leverage)/(1-m):p.entry*(1+1/p.leverage)/(1+m));
+  return {id:p.id,symbol:p.symbol,side:p.side,margin:p.margin,leverage:p.leverage,entry:p.entry,opened:p.opened,feePpm:p.feePpm||0,openingFee:p.openingFee||0,...(p.takeProfit!==undefined?{takeProfit:p.takeProfit}:{}),...(p.stopLoss!==undefined?{stopLoss:p.stopLoss}:{}),liquidation,pnl,equity:Math.max(0,p.margin+pnl)};
  });
  const netWorthFor=m=>{
   const spot=(m.holdings||[]).reduce((n,h)=>n+(quotes[h.symbol]?Number(BigInt(h.units)*BigInt(quotes[h.symbol].micro)/1_000_000_000_000n):h.cost),0);
@@ -25,5 +25,5 @@ export function marketPayload(room,userId,now=Date.now()) {
   return [symbol,{executable,reason:executable?"fresh_regular_session":!session||!clock?.isOpen?"closed_or_calendar_unverified":"stale_or_invalid_tick",checkedAt:now,validUntil}];
  }));
 
- return {stockExecution,netWorth:netWorthFor(member),leaderboard,version:room.version,serverNow:now,quotes,holdings,positions,closedPositions:(member.closedPositions||[]).map(p=>({id:p.id,symbol:p.symbol,side:p.side,leverage:p.leverage,entry:p.entry,exit:p.exit,realizedPnl:p.realizedPnl,reason:p.reason,closedAt:p.closedAt})),wallet:member.wallet,activity:(member.activity||[]).slice(0,40)};
+ return {perpFeePpm:room.perpFeePpm||0,stockExecution,netWorth:netWorthFor(member),leaderboard,version:room.version,serverNow:now,quotes,holdings,positions,closedPositions:(member.closedPositions||[]).map(p=>({id:p.id,symbol:p.symbol,side:p.side,leverage:p.leverage,entry:p.entry,exit:p.exit,realizedPnl:p.realizedPnl,...(p.openingFee!==undefined?{openingFee:p.openingFee,closingFee:p.closingFee,assessedClosingFee:p.assessedClosingFee,waivedClosingFee:p.waivedClosingFee,grossPnl:p.grossPnl}:{}),reason:p.reason,closedAt:p.closedAt})),wallet:member.wallet,activity:(member.activity||[]).slice(0,40)};
 }
