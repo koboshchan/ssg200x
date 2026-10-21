@@ -4,6 +4,7 @@ import Wheel from '../app/roulette-wheel';
 import type {IdleAnchor} from '../lib/roulette-physics';
 import type {RouletteSpin} from '../lib/roulette-clock';
 import './roulette-demo.css';
+import PreviewTarget from './roulette-preview-target';
 
 type State={serverNow:number;idleAnchor:IdleAnchor;spin:RouletteSpin|null;busy:boolean};
 function Demo(){
@@ -13,12 +14,13 @@ function Demo(){
   void refresh();const poll=setInterval(refresh,500),tick=setInterval(()=>setNow(t=>t+50),50);
   return()=>{alive=false;clearInterval(poll);clearInterval(tick);};
  },[]);
- async function spin(){setError('');try{const r=await fetch('/api/round',{method:'POST'}),v=await r.json();if(!r.ok)throw Error(v.error);setState(v);setNow(v.serverNow);}catch(e){setError(String(e));}}
+ async function spin(){setError('');try{const target=PREVIEW_TARGET?(document.getElementById('preview-target') as HTMLSelectElement|null)?.value:undefined;const r=await fetch('/api/round'+(target?'?target='+encodeURIComponent(target):''),{method:'POST'}),v=await r.json();if(!r.ok)throw Error(v.error);setState(v);setNow(v.serverNow);}catch(e){setError(String(e));}}
  const active=!!state?.spin&&now<state.spin.nextAt;
  return <main><header><p className="eyebrow">SSG / integrated roulette branch</p><h1>Roulette physics lab</h1><p>Real app wheel, shared server physics. Test rounds only, no accounts or money.</p></header>
  <div className="wheel">{state?<Wheel spin={state.spin} now={now} idleAnchor={state.idleAnchor}/>:<p>Synchronizing wheel…</p>}</div>
+ {PREVIEW_TARGET?<PreviewTarget/>:null}
  <footer><button onClick={spin} disabled={!state||state.busy||active}>{active?'Round in progress':'Lock and spin'}</button><span role="status">{error||(!state?'Loading':state.busy?'Locked · solving':active?'Round '+state.spin!.round:state.spin?'Idle · last result '+state.spin.number:'Idle · wheel and ball drifting')}</span></footer>
  <p className="build">Commit <code>{BUILD_SHA}</code><br/>Source SHA-256 <code>{SOURCE_HASH}</code><br/>16 ms physics · production RouletteWheel component</p></main>;
 }
-declare const BUILD_SHA:string,SOURCE_HASH:string;
+declare const BUILD_SHA:string,SOURCE_HASH:string,PREVIEW_TARGET:boolean;
 createRoot(document.getElementById('root')!).render(<Demo/>);
