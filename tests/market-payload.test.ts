@@ -36,3 +36,9 @@ test("SPY socket execution status matches the shared stock policy",()=>{
  assert.equal(marketPayload(r,who.id,now).stockExecution.SPY.executable,publicStockState(r,now).SPY.executable);
  assert.equal(marketPayload(r,who.id,close).stockExecution.SPY.executable,false);
 });
+test("socket execution status uses persisted dynamic stock registry",()=>{
+ const r=freshRoom(),who={id:"registry",name:"Registry",email:"registry@test",admin:false};register(r,who);
+ r.marketSymbols={crypto:[],stocks:["GOOG"],delisted:["SPY"],revision:1};
+ assert.deepEqual(Object.keys(marketPayload(r,who.id).stockExecution),["GOOG"]);
+ assert.deepEqual(Object.keys(publicStockState(r)),["GOOG"]);
+});

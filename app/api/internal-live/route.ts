@@ -18,7 +18,7 @@ export async function POST(request:Request){
   const maintenance={...cached,admin:who.admin,blocked:!who.admin&&cached.active};
   // visit keeps connected seats alive (15s write throttle) and registers WS-only users.
   const room=maintenance.blocked?null:await visit(who);
-  const selection=chartSelection(request.headers.get("x-chart-symbol"),request.headers.get("x-chart-granularity"));
+  const selection=chartSelection(request.headers.get("x-chart-symbol"),request.headers.get("x-chart-granularity"),room??undefined);
   const candles=selection&&!maintenance.blocked?{...selection,candles:await chartSnapshot(selection).catch(()=>null)}:null;
   return NextResponse.json({maintenance,candles,room:room?.members.some(m=>m.id===who.id)?await publicRoom(room,who,profiles):null},{headers});
  }catch{return NextResponse.json({error:"Live state unavailable"},{status:503,headers});}

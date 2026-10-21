@@ -16,14 +16,14 @@ async function setup(player:string[],dealer:string[],tail:string[]=[]){
  const now=Date.now();
  await mutate(r=>{
   register(r,who,now);blackjackTablesAction(r,who,{type:'join',tableId:'lounge',seat:0},now);
-  blackjackTablesAction(r,who,{type:'bet',tableId:'lounge',amount:102},now);
+  blackjackTablesAction(r,who,{type:'bet',tableId:'lounge',amount:200,chips:[100,100]},now);
   r.blackjackTables!.tables.lounge!.shoe=[...Array(180).fill('2s'),...[player[0],dealer[0],player[1],dealer[1],...tail].reverse()];
  });
  return now;
 }
 for(const [player,dealer,payout] of [
- [['7s','8c'],['As','Kh'],255],
- [['7s','8c'],['8s','7c'],102],
+ [['7s','8c'],['As','Kh'],500],
+ [['7s','8c'],['8s','7c'],200],
  [['As','Kh'],['7s','8c'],0],
  [['7h','8c'],['As','Kh'],0],
  [['9s','Ac'],['7s','8c'],0],
@@ -31,9 +31,9 @@ for(const [player,dealer,payout] of [
  const original=Date.now,now=await setup(player,dealer);
  try{
   Date.now=()=>now+10000;await Promise.all(Array.from({length:6},()=>tickRoom()));await closeDatabase();
-  let r=await readRoom();assert.equal(r.members[0].wallet,100000-102+payout);assert.equal(r.house,102-payout);
+  let r=await readRoom();assert.equal(r.members[0].wallet,100000-200+payout);assert.equal(r.house,200-payout);
   assert.equal(r.blackjackTables!.tables.lounge!.seats[0]!.hands[0].payout,payout);assertRoom(r);
-  await Promise.all(Array.from({length:6},()=>tickRoom()));r=await readRoom();assert.equal(r.members[0].wallet,100000-102+payout);assertRoom(r);
+  await Promise.all(Array.from({length:6},()=>tickRoom()));r=await readRoom();assert.equal(r.members[0].wallet,100000-200+payout);assertRoom(r);
  }finally{Date.now=original;}
 });
 test('persisted Charlie uses real move receipt replay and CAS to pay 1:1 only once after fifth card',async()=>{
@@ -47,7 +47,7 @@ test('persisted Charlie uses real move receipt replay and CAS to pay 1:1 only on
    await Promise.all(Array.from({length:5},()=>blackjackMove(who,input)));
   }
   await closeDatabase();const r=await readRoom(),b=r.blackjackTables!.tables.lounge!,h=b.seats[0]!.hands[0];
-  assert.equal(b.phase,'settled');assert.equal(h.cards.length,5);assert.equal(h.result,'charlie');assert.equal(h.payout,204);
-  assert.equal(r.members[0].wallet,100102);assert.equal(r.house,-102);assertRoom(r);
+  assert.equal(b.phase,'settled');assert.equal(h.cards.length,5);assert.equal(h.result,'charlie');assert.equal(h.payout,400);
+  assert.equal(r.members[0].wallet,100200);assert.equal(r.house,-200);assertRoom(r);
  }finally{Date.now=original;}
 });

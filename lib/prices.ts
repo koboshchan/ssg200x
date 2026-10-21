@@ -1,3 +1,4 @@
+import {marketSymbols} from "./symbol-registry";
 import {StockRuntime} from "./stock-runtime";
 import type {StockSocket} from "./stock-feed";
 import {SYMBOLS} from "./market-shared";
@@ -11,10 +12,11 @@ import {ExchangeFeed,type Tick} from "./exchange-feed";
 type Worker={runOnce:()=>Promise<void>;ready:Promise<void>;owner:string;feed:ExchangeFeed;timer:ReturnType<typeof setInterval>;stop:()=>void};
 const globalWorker=globalThis as typeof globalThis & {exchangePriceWorker?:Worker};
 export async function persistExchangeTicks(ticks:Tick[]){
- ticks=ticks.filter(tick=>(SYMBOLS as readonly string[]).includes(tick.symbol));
+
  if(!ticks.length)return;
  await mutate(room=>{
   for(const tick of ticks){
+   if(!marketSymbols(room).crypto.includes(tick.symbol))continue;
    const previous=room.quotes?.[tick.symbol as keyof typeof room.quotes];
    if(previous&&previous.at>tick.at)continue;
    // Feed sequence validation proves these are newer trades, even within one millisecond.
@@ -30,10 +32,11 @@ export function startPriceWorker(){
  const owner=randomUUID();
  let running=false,leaseUntil=0,nextRest=0,stopped=false;
  let feed:ExchangeFeed;
- const makeFeed=()=>new ExchangeFeed({socket:()=>{if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Price lease unavailable");return new WebSocket("wss://ws-feed.exchange.coinbase.com");},apply:async ticks=>{if(stopped||Date.now()>=leaseUntil)throw new Error("Price lease expired");await persistExchangeTicks(ticks);},log:message=>console.warn(message)});
+ let symbols=marketSymbols();
+ const makeFeed=()=>new ExchangeFeed({symbols:()=>symbols.crypto,socket:()=>{if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Price lease unavailable");return new WebSocket("wss://ws-feed.exchange.coinbase.com");},apply:async ticks=>{if(stopped||Date.now()>=leaseUntil)throw new Error("Price lease expired");await persistExchangeTicks(ticks);},log:message=>console.warn(message)});
  feed=makeFeed();
  const stocks=new StockRuntime({
-  env:process.env,leaseUntil:()=>leaseUntil-1000,isLeader:()=>!stopped&&Date.now()<leaseUntil-1000,
+  symbols:()=>symbols.stocks,env:process.env,leaseUntil:()=>leaseUntil-1000,isLeader:()=>!stopped&&Date.now()<leaseUntil-1000,
   socket:url=>new WebSocket(url) as unknown as StockSocket,fetch,now:Date.now,
   publish:async(states,tick)=>{
    if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Stock lease unavailable");
@@ -61,6 +64,7 @@ export function startPriceWorker(){
      stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;return;
     }
    }
+   symbols=marketSymbols(await readRoom());
    void stocks.step();
    feed.step();feed.retryPending();
    const stale=feed.staleSymbols();
@@ -74,7 +78,7 @@ export function startPriceWorker(){
     if(response.status===429){nextRest=Date.now()+Math.max(1000,Math.min(60000,Number(response.headers.get("retry-after"))*1000||5000));await budget.updateOne({_id:"coinbase-history-budget"},{$max:{nextAt:nextRest}});}
     return;
    }
-   const quotes=decodeRates(await response.json(),Date.now());
+   const quotes=decodeRates(await response.json(),Date.now(),symbols.crypto);
    const fallback:typeof quotes={};
    const current=await readRoom();
    for(const symbol of feed.staleSymbols()){

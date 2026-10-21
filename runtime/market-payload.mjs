@@ -17,7 +17,7 @@ export function marketPayload(room,userId,now=Date.now()) {
   return m.wallet+spot+perps+blackjack+roulette+(seat?seat.stack+(active?seat.committed:0):0);
  };
  const leaderboard=room.members.map(m=>{const netWorth=netWorthFor(m);return {publicId:m.publicId,name:m.name,netWorth,pnl:netWorth-100000-(m.adjustments||0)};}).sort((a,b)=>b.netWorth-a.netWorth||a.name.localeCompare(b.name));
- const stockExecution=Object.fromEntries(["AAPL","TSLA","NVDA","MSFT","AMD","SPCX","SPY"].map(symbol=>{
+ const stockExecution=Object.fromEntries((room.marketSymbols?.stocks??["AAPL","TSLA","NVDA","MSFT","AMD","SPCX","SPY"]).map(symbol=>{
   const state=room.stockExecution?.[symbol],q=quotes[symbol],tick=state?.tick,clock=state?.clock;
   const session=state?.sessions?.find(s=>now>=s.open&&now<s.close);
   const validUntil=Math.min(state?.leaseUntil||0,(tick?.timestamp||0)+60000,(tick?.receivedAt||0)+60000,(clock?.receivedAt||0)+60000,session?.close||0);

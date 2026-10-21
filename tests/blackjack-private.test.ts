@@ -79,7 +79,7 @@ test("public projections exclude poisoned nested state, even for administrator",
 });
 test("private audit read rejects non-admin before database access and is separate from public routes",async()=>{
  await assert.rejects(()=>blackjackAudit(a),{status:403});assert.match(readFileSync("app/api/admin/blackjack-audit/route.ts","utf8"),/endpoint\(request/);assert.match(readFileSync("lib/blackjack-audit.ts","utf8"),/ensure\(who.admin/);
- const source=readFileSync("app/api/blackjack/route.ts","utf8");assert.match(source,/amount:z.number\(\).int\(\).min\(100\).max\(100000\)/);assert.doesNotMatch(source,/privatePolicy|seed|drawPolicy/);
+ const source=readFileSync("app/api/blackjack/route.ts","utf8");assert.match(source,/amount:z.number\(\).int\(\).min\(100\).max\(CASINO_LIMIT_MAX_CENTS\)/);assert.doesNotMatch(source,/privatePolicy|seed|drawPolicy/);
 });
 test("canonical chip multisets admit non-denomination totals, while custom placements and malformed lists stay accepted privately",()=>{
  for(const [amount,chips,valid] of [[200,[100,100],true],[600,[100,500],true],[2500,[500,2000],true],[200,undefined,false],[600,undefined,false],[2500,undefined,false],[500,undefined,true],[101,undefined,false],[200,[200],false],[600,[100],false],[600,[100,"500"],false],[600,null,false],[600,{},false],[600,[100.5,499.5],false],[600,[NaN],false],[600,[],false],[600,[100,100],false]] as [number,unknown,boolean][]){

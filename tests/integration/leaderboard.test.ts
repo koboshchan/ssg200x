@@ -11,7 +11,8 @@ test("anonymous reads never initialize rooms, and cached maintenance snapshots e
  assert.equal(await collection.countDocuments(),0);
  assert.deepEqual((await getLeaderboard()).rows,[]);
  assert.equal(await collection.countDocuments(),0);
- // New process below bypasses the deliberately cached empty result.
+ // No Clerk profile is available in this isolated fixture. Saved names must not leak.
+ // A new process also independently exercises the anonymous read.
  const room=freshRoom();register(room,{id:"user_private123",name:"Public Tester",email:"hidden@private.test",admin:true});
  room.siteMaintenance=true;await collection.insertOne(room);
  const before=await collection.findOne({_id:"main"});
@@ -19,7 +20,7 @@ test("anonymous reads never initialize rooms, and cached maintenance snapshots e
  const json=await new Promise<string>((resolve,reject)=>{
   execFile(process.execPath,["--import","tsx","-e",`const {getLeaderboard}=require("./lib/leaderboard-store");const {closeDatabase}=require("./lib/db");getLeaderboard().then(s=>{console.log(JSON.stringify(s));return closeDatabase();}).catch(()=>process.exit(1))`],{env:process.env},(error,stdout)=>error?reject(error):resolve(stdout));
  });
- assert.deepEqual(JSON.parse(json).rows,[{rank:1,name:"Public Tester",avatar:"PT",netWorth:100000}]);
+ assert.deepEqual(JSON.parse(json).rows,[{rank:1,name:"Player",avatar:"P",netWorth:100000}]);
  assert.deepEqual(await collection.findOne({_id:"main"}),before);
  assert.equal(await collection.countDocuments(),1);
  for(const secret of ["user_private123","hidden@private.test",room.members[0].publicId])assert.equal(json.includes(secret),false);

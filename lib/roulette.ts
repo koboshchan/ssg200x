@@ -1,3 +1,4 @@
+import {casinoLimits,CASINO_LIMIT_MAX_CENTS} from "./casino-limits";
 import {ROULETTE_CHIPS} from "./roulette-chips";
 import {audit} from "./audit";
 import {isWholeCasinoAmount} from "./casino-amount";
@@ -13,7 +14,7 @@ export type RouletteState={round:number;started:number;spin?:RouletteSpin;settle
 // Private, persisted engine metadata never crosses the public serializer.
 const chipAmounts=new Set<number>(ROULETTE_CHIPS.map(chip=>chip.value*100));
 function publicBet(b:Bet):Bet{return {kind:b.kind,...(b.pick===undefined?{}:{pick:b.pick}),amount:b.amount};}
-function returnedFor(w:RouletteWager,number:number){return w.dead===true?0:payout(w.bet,number);}
+function returnedFor(w:RouletteWager,number:number){return w.dead===true?0:payout(w.bet,number,CASINO_LIMIT_MAX_CENTS);}
 function repeatable(b:RouletteState,userId:string){
  // Keep the original individual chip multiset, never infer provenance from an aggregate.
  // Unknown historical custom totals and forfeited placements cannot become payable chips.
@@ -50,8 +51,8 @@ export function rouletteAction(r:Room,who:Identity,action:RouletteAction,round:n
   const previous=repeatable(b,who.id);ensure(previous.length,'No bets from the previous round.');
   ensure(previous.every(w=>isWholeCasinoAmount(w.bet.amount)),'Last bet contains a fractional dollar. Choose new chips.');
   const stake=previous.reduce((n,w)=>n+w.bet.amount,0);
-  ensure(previous.length<=20&&stake<=100_000,'Total roulette bet cannot exceed the table limits.');
-  for(const w of previous)payout(w.bet,0);
+  ensure(previous.length<=20&&stake<=casinoLimits(r).rouletteMaxTotal,'Total roulette bet cannot exceed the table limits.');
+  for(const w of previous)payout(w.bet,0,CASINO_LIMIT_MAX_CENTS);
   ensure(m.wallet>=stake,'Not enough cash to repeat the last bet.');
   m.wallet-=stake;b.bets.push(...previous.map(w=>({id:randomUUID(),userId:who.id,bet:publicBet(w.bet)})));return;
  }
@@ -59,9 +60,9 @@ export function rouletteAction(r:Room,who:Identity,action:RouletteAction,round:n
  if(action.type!=='bet')ensure(old,'Bet not found.',404);
  if(action.type==='cancel'){m.wallet+=old!.bet.amount;b.bets=b.bets.filter(w=>w!==old);return;}
  ensure(isWholeCasinoAmount(action.bet.amount),'Bet must be whole dollars.');
- payout(action.bet,0); // Validate even losing selections before taking any chips.
+ payout(action.bet,0,CASINO_LIMIT_MAX_CENTS); // Validate even losing selections before taking any chips.
  const mine=b.bets.filter(w=>w.userId===who.id),stake=mine.reduce((n,w)=>n+w.bet.amount,0)-(old?.bet.amount||0)+action.bet.amount;
- ensure(stake<=100_000,'Total roulette bet cannot exceed $1,000.');ensure(old||mine.length<20,'Maximum 20 bets per round.');
+ ensure(stake<=casinoLimits(r).rouletteMaxTotal,'Total roulette bet exceeds the current table limit.');ensure(old||mine.length<20,'Maximum 20 bets per round.');
  const diff=action.bet.amount-(old?.bet.amount||0);ensure(m.wallet>=diff,'Not enough cash.');m.wallet-=diff;
  const dead=!chipAmounts.has(action.bet.amount);
  if(old){old.bet=publicBet(action.bet);if(dead)old.dead=true;else delete old.dead;}

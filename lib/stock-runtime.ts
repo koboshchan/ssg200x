@@ -3,6 +3,7 @@ import {STOCK_SYMBOLS, type StockEnvironment, type StockSymbol} from "./stock-co
 import {parseStockCalendar, parseStockClock, type StockClock, type StockSession} from "./stock-session";
 import type {StockExecutionState, StockTick} from "./stock-policy";
 export type StockRuntimeOptions = {
+  symbols?:()=>readonly string[];
   env: StockEnvironment;
   /** Supplied by the EXISTING price worker lease. This module acquires no lock. */
   isLeader: () => boolean;
@@ -31,7 +32,7 @@ export class StockRuntime {
   private readonly feed:AlpacaIexFeed;
   constructor(private readonly o:StockRuntimeOptions) {
     this.feed=new AlpacaIexFeed({
-      env:o.env,isLeader:()=>!this.stopped&&o.isLeader(),permitted:()=>true,
+      symbols:o.symbols,env:o.env,isLeader:()=>!this.stopped&&o.isLeader(),permitted:()=>true,
       socket:o.socket,now:o.now,
       onState:state=>{
         this.connected=state==="subscribed";
@@ -45,7 +46,7 @@ export class StockRuntime {
   snapshot():Record<StockSymbol,StockExecutionState> {
     const authorized=!!this.o.env.ALPACA_KEY_ID?.trim()&&!!this.o.env.ALPACA_SECRET?.trim();
     const result={} as Record<StockSymbol,StockExecutionState>;
-    for(const symbol of STOCK_SYMBOLS)result[symbol]={
+    for(const symbol of this.o.symbols?.()??STOCK_SYMBOLS)result[symbol]={
       symbol,leaseUntil:this.o.leaseUntil?.()??this.o.now(),connected:this.connected,leader:!this.stopped&&this.o.isLeader(),authorized,
       tick:this.ticks.get(symbol)??null,
       clock:this.clock,sessions:this.sessions,
@@ -69,6 +70,7 @@ export class StockRuntime {
     if(this.busy)return;this.busy=true;
     const revision=this.revision;
     try{
+      this.feed.sync();
       const now=this.o.now();
       if(now>=this.nextMetadata){
         this.nextMetadata=now+30_000;

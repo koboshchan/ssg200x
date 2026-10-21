@@ -1,6 +1,8 @@
 "use client";
 import {getTabHeaders} from "@/lib/tab-identity";
 import {useEffect,useState} from "react";
+import MarketSymbolSettings from "./market-symbol-settings";
+import CasinoLimitSettings from "./casino-limit-settings";
 type Mode="price"|"pnl";
 const options:{value:Mode;label:string;hint:string}[]=[
  {value:"price",label:"Price",hint:"Type the exact price where a take-profit or stop-loss should close."},
@@ -19,6 +21,8 @@ export default function SettingsClient(){
   <fieldset className="settings-group" disabled={mode===null}><legend>Take-profit and stop-loss input</legend>
    {options.map(o=><label key={o.value} className="settings-row"><input type="radio" name="triggerInputMode" value={o.value} checked={mode===o.value} onChange={()=>choose(o.value)}/><span><strong>{o.label}</strong><small>{o.hint}</small></span></label>)}
   </fieldset>
+  <MarketSymbolSettings/>
+  <CasinoLimitSettings/>
   {error?<div className="error" role="alert">{error}<button aria-label="Dismiss error" onClick={()=>setError("")}>×</button></div>:null}
  </main>;
 }

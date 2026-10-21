@@ -2,10 +2,14 @@ import test,{mock} from "node:test";
 import assert from "node:assert/strict";
 import {AppError} from "../lib/errors";
 import {STOCK_SYMBOLS} from "../lib/stock-config";
+import {freshRoom} from "../lib/poker";
+import {marketSymbols} from "../lib/symbol-registry";
 import {SYMBOLS} from "../lib/market-shared";
 
 // Isolated authenticated fixture only. Production auth and storage are never changed.
 // Exercise the actual route and candleRead; mock only identity/rate limit and DB I/O.
+const room=freshRoom();
+room.marketSymbols=marketSymbols();
 const rows:Record<string,unknown>[]=[];
 let reads=0,requestedLimit=0;
 mock.module("../lib/api.ts",{namedExports:{endpoint:async(_request:Request,handler:(who:{id:string})=>Promise<unknown>)=>{
@@ -13,7 +17,7 @@ mock.module("../lib/api.ts",{namedExports:{endpoint:async(_request:Request,handl
  catch(e){if(e instanceof AppError)return Response.json({error:e.message},{status:e.status});throw e;}
 }}});
 mock.module("../lib/store.ts",{namedExports:{rateLimit:async()=>{}}});
-mock.module("../lib/db.ts",{namedExports:{db:async()=>({collection:()=>({
+mock.module("../lib/db.ts",{namedExports:{readRoom:async()=>room,db:async()=>({collection:()=>({
  createIndex:async()=>{},
  find:(query:Record<string,any>)=>{
   reads++;
@@ -68,4 +72,12 @@ test("pagination stays capped at 1000 bars even with caller-supplied limit",asyn
  assert.equal(response.status,200,JSON.stringify(await response.clone().json()));
  const body=await response.json();assert.equal(body.candles.length,1000);
  assert.equal(body.candles[0].time,from+2);assert.equal(body.candles[999].time,from+1001);
+});
+
+test("admin-added symbols load charts and removed default symbols are rejected",async()=>{
+ room.marketSymbols!.crypto.push("ADA");
+ room.marketSymbols!.stocks.push("GOOG");
+ for(const symbol of ["ADA","GOOG"])assert.equal((await GET(request(symbol))).status,200);
+ room.marketSymbols!.crypto=room.marketSymbols!.crypto.filter(s=>s!=="BTC");
+ assert.equal((await GET(request("BTC"))).status,400);
 });

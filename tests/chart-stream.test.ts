@@ -56,3 +56,12 @@ test("chart snapshot delivery uses existing websocket, never tick-triggered HTTP
  assert.match(chart,/if\(latest.current\)push.current\?\.\(latest.current\);/);
  assert.doesNotMatch(readFileSync("app/api/candles/route.ts","utf8"),/candleEnsure|fetch\(/);
 });
+test("dynamic registry chart selection and socket validation support provider punctuation and 15 character symbols",async()=>{
+ const context={marketSymbols:{crypto:["ADA"],stocks:["BRK.B","LONGSYMBOL12345"],delisted:["BTC"],revision:1}};
+ assert.ok(chartSelection("BRK.B","1m",context));assert.ok(chartSelection("ADA","1h",context));
+ assert.equal(chartSelection("BTC","1m",context),null);
+ const {subscribeChart}=await import("../runtime/chart-stream.mjs");
+ const socket={data:{} as any,emit(){}};
+ subscribeChart(socket,{symbol:"BRK.B",granularity:"1h"},1000);assert.equal(socket.data.chart.symbol,"BRK.B");
+ subscribeChart(socket,{symbol:"../bad",granularity:"1h"},1200);assert.equal(socket.data.chart.symbol,"BRK.B");
+});

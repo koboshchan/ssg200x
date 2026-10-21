@@ -10,9 +10,9 @@ export type StockExecutionState = {
   halt?: "clear" | "halted" | "unknown"; corporateActionsReconciled?: boolean;
   tick: StockTick | null; clock: StockClock | null; sessions: readonly StockSession[];
 };
-export function stockExecutionPolicy(state: StockExecutionState, now: number) {
+export function stockExecutionPolicy(state: StockExecutionState, now: number, symbols?:readonly string[]) {
   const deny = (reason: string) => ({executable: false as const, reason});
-  if (!isStockSymbol(state.symbol)) return deny("unsupported_stock");
+  if (!(symbols?symbols.includes(state.symbol):isStockSymbol(state.symbol))) return deny("unsupported_stock");
   if (!Number.isFinite(now)) return deny("invalid_time");
   if (!state.authorized) return deny("unauthorized_feed");
   if (state.leaseUntil!==undefined&&(!Number.isFinite(state.leaseUntil)||now>=state.leaseUntil)) return deny("lease_expired");
