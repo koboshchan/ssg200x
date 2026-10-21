@@ -3,7 +3,7 @@ import {useEffect,useRef,useState} from "react";
 import type {PublicDoudizhu} from "@/lib/doudizhu";
 import {getTabHeaders} from "@/lib/tab-identity";
 import "./doudizhu.css";
-import {BeanAmount,Crown,DealFlight,FxLayer,Settlement,TableArt,trickKey,useDoudizhuFx,type SettleRow} from "./doudizhu-fx";
+import {BeanAmount,BeanIcon,Crown,DealFlight,FxLayer,Settlement,TableArt,trickKey,useDoudizhuFx,type SettleRow} from "./doudizhu-fx";
 const money=(c:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:2}).format(c/100);
 const beansFmt=(n:number)=>new Intl.NumberFormat("en-US",{maximumFractionDigits:2}).format(Math.round(n*100)/100);
 const beans=(n:number)=><BeanAmount v={beansFmt(n)}/>;
@@ -40,7 +40,7 @@ export default function Doudizhu({transport=api,fxPreview=false}: {transport?:Tr
   {error?<div role="alert" className="error">{error}<button aria-label="Dismiss error" onClick={()=>setError("")}>×</button></div>:null}
   {!fresh?<p role="status">Connecting to the room…</p>:null}
   {!g?<div className="dd-lobby"><section><h2>Create a room</h2><p>Set the rate before inviting your friends.</p>
-   <fieldset className="dd-label dd-beans"><legend>Happy Beans per $1</legend><div className="dd-presets">{PRESETS.map(n=><button type="button" key={n} aria-pressed={Number(rate)===n} onClick={()=>setRate(String(n))}><B n={n}/></button>)}<label className="dd-custom"><span>Custom</span><input aria-label="Custom beans per dollar" type="number" inputMode="numeric" min={1} max={maxBeans} step={1} value={rate} onChange={e=>setRate(e.target.value)}/></label></div></fieldset>
+   <fieldset className="dd-label dd-beans"><legend>Happy Beans per $1</legend><div className="dd-presets">{PRESETS.map(n=><button type="button" key={n} aria-pressed={Number(rate)===n} onClick={()=>setRate(String(n))}><B n={n}/></button>)}<label className="dd-custom"><span>Custom</span><input aria-label="Custom beans per dollar" type="number" inputMode="numeric" min={1} max={maxBeans} step={1} value={rate} onChange={e=>setRate(e.target.value)}/><BeanIcon/></label></div></fieldset>
    <p className="dd-example"><B n={Number(rate)||1000}/> = $1. Score = base <B n={baseBeans}/> × bid × bombs × spring. Example: bid 3 with one bomb is <B n={baseBeans*3*2}/>, or {money(baseBeans*3*2/(Number(rate)||1000)*100)}. Admin maximum <B n={maxBeans}/> per $1.</p>
    <label className="dd-label">Maximum loss per player ($)<input type="number" aria-label="Maximum loss per player dollars" value={cap} min={1} max={1000000} step={1} onChange={e=>setCap(e.target.value)}/></label>
    <p>Loss cap {money(Number(cap)*100||0)} (about <B n={(Number(cap)||0)*(Number(rate)||1000)}/>) is reserved from each wallet. Bids, bombs and spring multiply the score, but no one can lose more than the cap.</p>
