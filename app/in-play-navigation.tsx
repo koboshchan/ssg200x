@@ -5,7 +5,7 @@ import {useLiveEvent} from "./live-provider";
 import {mergeRoom} from "@/lib/room-sync";
 import {internalLeaveTarget,moneyInPlay} from "@/lib/in-play-navigation";
 import type {PublicRoom} from "@/lib/public";
-import "./in-play-navigation.css";
+import styles from "./in-play-navigation.module.css";
 
 const money=(cents:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:cents%100===0?0:2}).format(cents/100);
 type Pending={href:string;from:string;trigger:HTMLAnchorElement};
@@ -55,9 +55,9 @@ export default function InPlayNavigation(){
   router.push(href);
  }
  const exposure=moneyInPlay(room,pathname);
- return <dialog ref={dialogRef} className="in-play-navigation" aria-labelledby="in-play-navigation-title" aria-describedby="in-play-navigation-description" onCancel={event=>{event.preventDefault();dismiss();}} onClose={()=>setPending(null)}>
+ return <dialog ref={dialogRef} className={styles.dialog} aria-labelledby="in-play-navigation-title" aria-describedby="in-play-navigation-description" onCancel={event=>{event.preventDefault();dismiss();}} onClose={()=>setPending(null)}>
   <h2 id="in-play-navigation-title">You have {money(exposure)} in play, leave anyway?</h2>
   <p id="in-play-navigation-description">Leaving this page does not cash out or cancel your bets.</p>
-  <div className="in-play-navigation-actions"><button onClick={leave}>Leave</button><button ref={stayRef} className="primary" autoFocus onClick={dismiss}>Stay</button></div>
+  <div className={styles.actions}><button onClick={leave}>Leave</button><button ref={stayRef} className="primary" autoFocus onClick={dismiss}>Stay</button></div>
  </dialog>;
 }

@@ -32,6 +32,8 @@ test("mounted live guard intercepts client links for all games, preserves naviga
  function App(){const path=usePathname(),router=useRouter();const link=(href,id,text,props={})=><a id={id} href={href} {...props} onClick={e=>{if(!e.defaultPrevented&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&e.button===0&&!props.target&&!props.download){e.preventDefault();router.push(href)}}}>{text}</a>;return <LiveProvider><header>{link("/wallet?from=header#send","header","Wallet")}</header><aside>{link("/markets","sidebar","Markets")}</aside><main><output id="path">{path}</output>{link(path+"#same","same","Same page")}{link("/wallet","blank","New tab",{target:"_blank"})}{link("/wallet","download","Download",{download:"receipt"})}<a id="external" href="https://elsewhere.test/">External</a>{link("/wallet","modified","Modified")}</main><Guard/></LiveProvider>}
  createRoot(document.getElementById("root")).render(<App/>);
  `,resolveDir:process.cwd(),loader:"tsx"},bundle:true,write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".css":"empty"},plugins:[{name:"guard-fixtures",setup(b:any){
+ b.onResolve({filter:/in-play-navigation\.module\.css$/},()=>({path:"styles",namespace:"guard-css"}));
+ b.onLoad({filter:/.*/,namespace:"guard-css"},()=>({contents:'export default {dialog:"in-play-navigation",actions:"in-play-navigation-actions"}',loader:"js"}));
  b.onResolve({filter:/^@clerk\/nextjs$/},()=>({path:"auth",namespace:"fixture"}));
  b.onLoad({filter:/auth/,namespace:"fixture"},()=>({contents:'export function useAuth(){return {getToken:async()=>"test"}}',loader:"js"}));
  b.onResolve({filter:/^next\/navigation$/},()=>({path:"navigation",namespace:"fixture"}));
@@ -53,7 +55,7 @@ test("mounted live guard intercepts client links for all games, preserves naviga
  page.on("dialog",(dialog:any)=>{errors.push("unexpected browser dialog "+dialog.type());dialog.dismiss();});
  await page.route("https://guard.test/**",async(route:any)=>{requests.push(route.request().method()+" "+route.request().url());await route.fulfill({contentType:"text/html",body:'<!doctype html><meta charset="utf-8"><div id="root"></div>'});});
  await page.goto("https://guard.test/poker");
- await page.addStyleTag({content:readFileSync("app/globals.css","utf8")+"\n"+readFileSync("app/in-play-navigation.css","utf8")});
+ await page.addStyleTag({content:readFileSync("app/globals.css","utf8")+"\n"+readFileSync("app/in-play-navigation.module.css","utf8").replaceAll(".dialog",".in-play-navigation").replaceAll(".actions",".in-play-navigation-actions")});
  await page.addScriptTag({content:bundle.outputFiles[0].text});
  await page.waitForFunction(()=>Boolean((window as any).walletSocket));
  const fixtures=snapshots();let version=1;
