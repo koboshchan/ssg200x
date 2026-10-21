@@ -1,3 +1,4 @@
+import {sellAllSpot} from "@/lib/spot-sell-all";
 import {rouletteBetSchema as bet} from "@/lib/casino-schemas";
 import {randomUUID} from "node:crypto";
 import {z} from "zod";
@@ -18,6 +19,7 @@ const triggerMode=z.enum(["price","pnl"]);
 const openTriggers={triggerInputMode:triggerMode.optional(),takeProfit:triggerPrice.optional(),stopLoss:triggerPrice.optional(),takeProfitPnl:triggerPrice.optional(),stopLossPnl:triggerPrice.optional()};
 const editTriggers={triggerInputMode:triggerMode.optional(),takeProfit:triggerPrice.nullable().optional(),stopLoss:triggerPrice.nullable().optional(),takeProfitPnl:triggerPrice.nullable().optional(),stopLossPnl:triggerPrice.nullable().optional()};
 const schema=z.discriminatedUnion("type",[
+ z.object({...base,type:z.literal("sell-all-spot"),symbol}).strict(),
  z.object({...base,type:z.literal("redeem-legacy"),symbol}).strict(),
  z.object({...base,type:z.literal("spin"),bets:z.array(bet).min(1).max(20)}).strict(),
  z.object({...base,type:z.literal("spot"),symbol,side:z.enum(["buy","sell"]),amount:money}).strict(),
@@ -36,6 +38,7 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
   const result=redeemLegacyHolding(r,who,input.symbol);
   audit(r,who,"finance-legacy-redeem",input.symbol,{requestId:input.requestId,...result.old},{requestId:input.requestId,units:0,returned:result.returned,quote:result.quote,wallet:result.wallet});
  }
+ else if(input.type==="sell-all-spot")sellAllSpot(r,who,input.symbol);
  else if(input.type==="spot")spot(r,who,input.symbol,input.side,input.amount);
  else if(input.type==="open"){
   const member=register(r,who),now=Date.now();
