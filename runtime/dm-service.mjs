@@ -21,6 +21,11 @@ export function createDmService(db,{now=Date.now,generateUsername=generate}={}){
  async function backfill(members){for(const user of members)await ensureName(user);}
  async function active(user,id,version){const pointer=await versions.findOne({_id:user,status:'active'});if(!pointer||!Number.isSafeInteger(pointer.version)||pointer.version<1)fail('identity_required');const d=await devices.findOne({userId:user,keyVersion:pointer.version,...(id?{deviceId:id}:{})});if(!d||(version!==undefined&&version!==d.keyVersion))fail('identity_required');return d;}
  async function blocked(a,b){return !!await blocks.findOne({$or:[{owner:a,peer:b},{owner:b,peer:a}]});}
+ async function unchanged(user,d){
+  const current=await active(user,d.deviceId,d.keyVersion);
+  // Compare the entire authenticated bundle, not only the device/version labels.
+  if(['deviceId','keyVersion','dhPublic','signPublic'].some(k=>current[k]!==d[k]))fail('identity_conflict');
+ }
  const pair=(a,b)=>digest(canonical([a,b].sort()));
  async function perform(user,event,p){await ready;text(user);await rate(user,'all',120);const members=await membership(user);
   if(event==='profile'){shape(p,['v']);await backfill(members);await membership(user);return {username:await ensureName(user)};}
@@ -42,8 +47,10 @@ export function createDmService(db,{now=Date.now,generateUsername=generate}={}){
   if(event==='send'){
    shape(p,wireFields);uuid(p.id);text(p.toUserId);uuid(p.senderDeviceId);uuid(p.recipientDeviceId);for(const v of [p.senderKeyVersion,p.recipientKeyVersion])if(!Number.isSafeInteger(v)||v<1)fail();binary(p.salt,32);binary(p.iv,12);binary(p.ciphertext,17,4112);binary(p.signature,64);await rate(user,'send',30);
    await membership(user,p.toUserId);if(await blocked(user,p.toUserId))fail('unavailable');const sender=await active(user,p.senderDeviceId,p.senderKeyVersion),recipient=await active(p.toUserId,p.recipientDeviceId,p.recipientKeyVersion);const content=dmSignedData(user,p);if(!await verify(sender.signPublic,content,p.signature))fail('invalid_signature');
-   const prior=await messages.findOne({senderUserId:user,id:p.id});if(prior){if(prior.content!==content||prior.signature!==p.signature)fail('conflict');await membership(user,p.toUserId);return {message:clean(prior),duplicate:true};}
-   await membership(user,p.toUserId);if(await blocked(user,p.toUserId))fail('unavailable');await active(user,p.senderDeviceId,p.senderKeyVersion);await active(p.toUserId,p.recipientDeviceId,p.recipientKeyVersion);
+   const prior=await messages.findOne({senderUserId:user,id:p.id});if(prior&&(prior.content!==content||prior.signature!==p.signature))fail('conflict');
+   await membership(user,p.toUserId);if(await blocked(user,p.toUserId))fail('unavailable');await unchanged(user,sender);await unchanged(p.toUserId,recipient);
+   await membership(user,p.toUserId);if(await blocked(user,p.toUserId))fail('unavailable');
+   if(prior)return {message:clean(prior),duplicate:true};
    const serverTs=now();const doc={_id:randomUUID(),...Object.fromEntries(wireFields.map(k=>[k,p[k]])),senderUserId:user,senderDhPublic:sender.dhPublic,senderSignPublic:sender.signPublic,recipientDhPublic:recipient.dhPublic,recipientSignPublic:recipient.signPublic,serverTs,cursor:String(serverTs).padStart(16,'0')+'-'+randomUUID(),pair:pair(user,p.toUserId),content};await messages.insertOne(doc);return {message:clean(doc),duplicate:false};
   }
   fail('unknown_event');

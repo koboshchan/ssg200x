@@ -49,3 +49,60 @@ test('strict canonical base64, per-user rate limits and bounded queue',async()=>
  for(let i=0;i<120;i++)await dm.handle('rate_user','profile',{v:1});await assert.rejects(dm.handle('rate_user','profile',{v:1}),/rate_limited/);
  clock+=60000;const results=await Promise.allSettled(Array.from({length:140},()=>dm.handle('rate_user','profile',{v:1})));assert.ok(results.some(r=>r.status==='rejected'&&r.reason.message==='busy'));
 });
+
+test('lookup triggers collision backfill and Mongo enforces unique handles, replay and block indexes',async()=>{
+ await db.collection('dm_usernames').deleteMany({});
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{members:[{id:'lookup_a',approved:true},{id:'lookup_b',approved:true}]}});
+ let calls=0;const dm=createDmService(db,{generateUsername:()=>++calls<=2?'abandon ability able about':'above absent absorb abstract'});await dm.ready;
+ assert.deepEqual(await dm.handle('lookup_a','lookup',{v:1,username:'above absent absorb abstract'}),{peer:null});
+ assert.equal(calls,3);assert.equal(await db.collection('dm_usernames').countDocuments(),2);
+ await assert.rejects(db.collection('dm_usernames').insertOne({_id:'collision' as never,username:'abandon ability able about'}),{code:11000});
+ for(const [collection,key,unique] of [['dm_usernames',{username:1},true],['dm_messages',{senderUserId:1,id:1},true],['dm_messages',{pair:1,cursor:-1},false],['dm_blocks',{owner:1,peer:1},true]] as const){
+  const indexes=await db.collection(collection).indexes();assert.ok(indexes.some(i=>JSON.stringify(i.key)===JSON.stringify(key)&&!!i.unique===unique));
+ }
+});
+
+test('send rechecks full active bundles, pointer revocation and membership after signature verification',async()=>{
+ const a=(await createIdentity('race_a',0)).identity,b=(await createIdentity('race_b',0)).identity,changed=(await createIdentity('changed',0)).identity;
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{members:[{id:'race_a',approved:true},{id:'race_b',approved:true}]}});
+ for(const [user,d] of [['race_a',a],['race_b',b]] as const){await db.collection('chat_identity_versions').insertOne({_id:user as never,status:'active',version:1});await db.collection('chat_devices').insertOne({userId:user,deviceId:d.deviceId,keyVersion:1,dhPublic:d.dhPublic,signPublic:d.signPublic});}
+ const peer={userId:'race_b',...b},wire=await sealDm(a,'race_a',peer,'race secret');
+ // A Mongo adapter hook deterministically changes state after signature verification,
+ // at the duplicate lookup, without mocking crypto or exposing a production test hook.
+ let mutate:undefined|(()=>Promise<unknown>);
+ const wrapped={collection:(name:string)=>{
+  const col=db.collection(name);
+  if(name!=='dm_messages')return col;
+  return new Proxy(col,{get(target,key){
+   if(key==='findOne')return async(...args:any[])=>{const result=await (target.findOne as any)(...args);if(mutate){const fn=mutate;mutate=undefined;await fn();}return result;};
+   const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
+  }});
+ }};
+ const dm=createDmService(wrapped);await dm.ready;
+ for(const [user,key] of [['race_a','dhPublic'],['race_a','signPublic'],['race_b','dhPublic'],['race_b','signPublic']] as const){
+  const original=user==='race_a'?a:b;
+  mutate=()=>db.collection('chat_devices').updateOne({userId:user},{$set:{[key]:changed[key]}});
+  await assert.rejects(dm.handle('race_a','send',wire),/identity_conflict/);
+  await db.collection('chat_devices').updateOne({userId:user},{$set:{[key]:original[key]}});
+ }
+ for(const user of ['race_a','race_b']){
+  mutate=()=>db.collection('chat_identity_versions').updateOne({_id:user as never},{$set:{status:'revoked'}});
+  await assert.rejects(dm.handle('race_a','send',wire),/identity_required/);
+  await db.collection('chat_identity_versions').updateOne({_id:user as never},{$set:{status:'active'}});
+ }
+ for(const index of [0,1]){
+  mutate=()=>db.collection('rooms').updateOne({_id:'main' as never},{$set:{['members.'+index+'.approved']:false}});
+  await assert.rejects(dm.handle('race_a','send',wire),index===0?/forbidden/:/unavailable/);
+  await db.collection('rooms').updateOne({_id:'main' as never},{$set:{['members.'+index+'.approved']:true}});
+ }
+ assert.equal(await db.collection('dm_messages').countDocuments({senderUserId:'race_a'}),0);
+ const [block,send]=await Promise.allSettled([dm.handle('race_b','block',{v:1,userId:'race_a',blocked:true}),dm.handle('race_a','send',wire)]);
+ assert.equal(block.status,'fulfilled');assert.equal(send.status,'rejected');
+ await dm.handle('race_b','block',{v:1,userId:'race_a',blocked:false});
+ const [sent,blocked]=await Promise.all([dm.handle('race_a','send',wire),dm.handle('race_b','block',{v:1,userId:'race_a',blocked:true})]);
+ assert.equal(sent.duplicate,false);assert.equal(blocked.blocked,true);await assert.rejects(dm.handle('race_a','send',wire),/unavailable/);
+ await dm.handle('race_b','block',{v:1,userId:'race_a',blocked:false});
+ mutate=()=>db.collection('chat_devices').updateOne({userId:'race_b'},{$set:{dhPublic:changed.dhPublic}});
+ await assert.rejects(dm.handle('race_a','send',wire),/identity_conflict/);
+ assert.equal(await db.collection('dm_messages').countDocuments({senderUserId:'race_a'}),1);
+});
