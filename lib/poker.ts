@@ -1,3 +1,4 @@
+import {miniAssets} from "./minigames";
 import {POKER_SEAT_COUNT,POKER_SEAT_ORDER} from "./poker-seats";
 import {casinoLimits} from "./casino-limits";
 import {isWholeCasinoAmount} from "./casino-amount";
@@ -273,7 +274,7 @@ export function tick(r: Room, now: number) {
 
  return changed;
 }
-export function totalChips(r: Room) { return r.members.reduce((n,m)=>n+m.wallet+assetsBook(m),(r.house||0)+(r.pokerBonus??0)+(r.pokerCarry??0)+(r.pokerDead??[]).reduce((n,v)=>n+v,0)) + blackjackTablesAssets(r) + rouletteAssets(r) + r.seats.reduce((n,s)=>n+(s?s.stack+s.committed:0),0); }
+export function totalChips(r: Room) { return r.members.reduce((n,m)=>n+m.wallet+assetsBook(m),(r.house||0)+(r.pokerBonus??0)+(r.pokerCarry??0)+(r.pokerDead??[]).reduce((n,v)=>n+v,0)) + miniAssets(r) + blackjackTablesAssets(r) + rouletteAssets(r) + r.seats.reduce((n,s)=>n+(s?s.stack+s.committed:0),0); }
 export function assertRoom(r: Room) {
  const values = [r.pokerBonus??0,r.pokerCarry??0,...(r.pokerDead??[]),...r.members.map(m=>m.wallet), ...r.seats.flatMap(s=>s?[s.stack,s.bet,s.committed]:[])];
  ensure(values.every(n=>Number.isSafeInteger(n) && n>=0), "Invalid chip ledger.",500);

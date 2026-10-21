@@ -3,6 +3,7 @@ import type {PublicRoom} from "./public";
 /** Book-value exposure on the current game only. Never mutates or settles money. */
 export function moneyInPlay(room:PublicRoom|null,pathname:string|null):number {
  if(!room)return 0;
+ if(pathname==="/games"||pathname?.startsWith("/games/"))return room.gamesInPlay??0;
  if(pathname==="/poker"||pathname?.startsWith("/poker/")){
   const seat=room.seats[room.me.seat];
   if(!seat?.isYou)return 0;

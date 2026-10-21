@@ -17,7 +17,8 @@ export function marketPayload(room,userId,now=Date.now()) {
   const seat=(room.seats||[]).find(s=>s?.userId===m.id),active=room.street!=="waiting"&&room.street!=="showdown";
   const blackjack=["lounge","salon","terrace"].reduce((sum,id)=>{const b=room.blackjackTables?.tables?.[id];if(!b||b.phase==="settled")return sum;return sum+b.seats.reduce((n,s)=>n+(!s||s.userId!==m.id?0:b.phase==="betting"?s.bet:s.hands.reduce((v,h)=>v+h.bet,0)),0);},0);
   const roulette=(room.roulette?.bets||[]).reduce((n,w)=>n+(w.userId===m.id?w.bet.amount:0),0);
-  return m.wallet+spot+perps+blackjack+roulette+(seat?seat.stack+(active?seat.committed:0):0);
+  const mini=(room.miniGames||[]).reduce((n,g)=>n+(g.owner===m.id&&g.status==="active"?g.bet:0),0);
+  return m.wallet+spot+perps+blackjack+roulette+mini+(seat?seat.stack+(active?seat.committed:0):0);
  };
  const leaderboard=room.members.filter(m=>!hideFromLeaderboard(m)).map(m=>{const netWorth=netWorthFor(m);return {publicId:m.publicId,name:m.name,netWorth,pnl:netWorth-100000-(m.adjustments||0)};}).sort((a,b)=>b.netWorth-a.netWorth||a.name.localeCompare(b.name));
  const stockExecution=Object.fromEntries((room.marketSymbols?.stocks??["AAPL","TSLA","NVDA","MSFT","AMD","SPCX","SPY"]).map(symbol=>{
