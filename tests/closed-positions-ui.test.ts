@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 const fin=readFileSync("app/finance-client.tsx","utf8"),css=readFileSync("app/globals.css","utf8"),room=readFileSync("app/room-client.tsx","utf8");
 test("closed positions table has required columns, no id column, scrolls internally",()=>{
- for(const h of ["Symbol","Side","Leverage","Entry","Exit","Realized P/L","Reason","Time"])assert.ok(fin.includes("<th>"+h+"</th>"));
+ for(const h of ["Symbol","Side","Leverage","Entry","Exit","Net realized P/L","Fees (open / close)","Reason","Time"])assert.ok(fin.includes("<th>"+h+"</th>"));
  assert.ok(!/<td>\{p\.id\}/.test(fin));
  assert.match(css,/\.closed-positions\{[^}]*overscroll-behavior-x/);assert.match(css,/\.closed-positions table\{min-width:800px/);
 });
