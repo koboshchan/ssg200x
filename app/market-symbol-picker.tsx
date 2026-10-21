@@ -20,7 +20,7 @@ export default function MarketSymbolPicker({symbol,symbols,quotes,changes,summar
  const match=(s:string)=>{const t=term.trim().toLowerCase();return !t||s.toLowerCase().includes(t)||stockDisplayName(s).toLowerCase().includes(t);};
  const groups=useMemo(()=>[["Stocks",symbols.stocks.filter(match)],["Crypto",symbols.crypto.filter(match)],["Forex",(symbols.forex??[]).filter(match)]] as const,[symbols.stocks,symbols.crypto,symbols.forex,term]);
  const q=symbol?quotes[symbol]:undefined;
- const rowMicro=(s:string)=>summary?summary[s]?.micro:quotes[s]?.micro;
+ const rowMicro=(s:string)=>isForexPair(s)?quotes[s]?.micro:summary?summary[s]?.micro:quotes[s]?.micro;
  const row=(s:string)=><li key={s}><button className={styles.row} aria-current={s===symbol} onClick={()=>{onSelect(s);setOpen(false);}}><span className={styles.name}>{stockDisplayName(s)}</span><span className={styles.nums}><span>{rowMicro(s)!=null?(isForexPair(s)?rate(rowMicro(s)!):price(rowMicro(s)!)):"Unavailable"}{isForexPair(s)&&forexMock?<small title="Demo data, not a real price"> MOCK</small>:null}</span><Change v={summary?summary[s]?.change:changes?.[s]}/></span></button></li>;
  return <>
   <button className={styles.trigger} aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}>{symbol?<>{isForexPair(symbol)?symbol:stockDisplayName(symbol)+" / USD"} <small>{q?(isForexPair(symbol)?rate(q.micro):price(q.micro)):""}{isForexPair(symbol)&&forexMock?" MOCK":""}</small></>:"No markets"}<span aria-hidden>▾</span></button>
