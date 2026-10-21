@@ -16,6 +16,7 @@ createServer(async(req,res)=>{
   const path=req.url;
   const capture=path==="/desktop.png"?"desktop-or-mobile-1440.png":path==="/mobile.png"?"desktop-or-mobile-390.png":null;
   if(capture){res.setHeader("Content-Type","image/png");return res.end(readFileSync("/home/kit/poker-max-evidence/"+capture));}
+  if(path==="/version"){res.setHeader("Content-Type","application/json");return res.end(readFileSync("/home/kit/poker-max-demo/version.json"));}
   if(path==="/client.js"){res.setHeader("Content-Type","text/javascript");return res.end(readFileSync("/home/kit/poker-max-demo/client.js"));}
   if(path==="/style.css"){res.setHeader("Content-Type","text/css");return res.end(readFileSync("app/globals.css"));}
   if(path==="/api/room"||path==="/api/admin/casino-limits"||path==="/api/action"){

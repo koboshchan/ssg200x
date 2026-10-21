@@ -1,3 +1,6 @@
+import {writeFileSync,readFileSync} from "node:fs";
+import {execFileSync} from "node:child_process";
+import {createHash} from "node:crypto";
 import {build} from "esbuild";
 await build({entryPoints:["previews/poker-limits/client.tsx"],outfile:"/home/kit/poker-max-demo/client.js",bundle:true,format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"empty"},plugins:[{name:"isolated-boundaries",setup(b){
  b.onResolve({filter:/^(next\/(dynamic|link|navigation)|@clerk\/nextjs|\.\/(live-provider|chat-dock|maintenance-gate))$/},args=>({path:args.path,namespace:"fixture"}));
@@ -9,3 +12,5 @@ await build({entryPoints:["previews/poker-limits/client.tsx"],outfile:"/home/kit
   return {contents:"export default function Boundary({children}){return children??null;}"};
  });
 }}]});
+
+writeFileSync("/home/kit/poker-max-demo/version.json",JSON.stringify({commit:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),bundleSha256:createHash("sha256").update(readFileSync("/home/kit/poker-max-demo/client.js")).digest("hex"),isolated:true}));
