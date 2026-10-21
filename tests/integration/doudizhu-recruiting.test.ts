@@ -1,0 +1,31 @@
+import {test,after} from "node:test";
+import assert from "node:assert/strict";
+import {randomUUID} from "node:crypto";
+import {db,readRoom,closeDatabase} from "../../lib/db";
+import {doudizhuMove,doudizhuRead} from "../../lib/doudizhu-store";
+import {assertRoom} from "../../lib/poker";
+import type {DoudizhuInput} from "../../lib/doudizhu";
+if(!/^fakebucks_test_/.test(process.env.MONGODB_DB??""))throw Error("Isolated test DB required");
+process.env.MONGODB_DB+="_recruiting";
+after(async()=>{await(await db()).dropDatabase();await closeDatabase();});
+const users=Array.from({length:4},(_,i)=>({id:"recruit-"+i,name:"Player "+i,email:"private"+i+"@invalid.test",admin:false}));
+function request(parts:Partial<DoudizhuInput>):DoudizhuInput{return {type:"ready",requestId:randomUUID(),requestAt:Date.now(),...parts};}
+test("public recruiting capacity and visibility use durable CAS with private ownership",async()=>{
+ const created=await doudizhuMove(users[0],request({type:"create",isPublic:true}));const code=created.room!.code;
+ assert.equal((await doudizhuRead(users[1])).recruitingRooms.length,1);
+ await doudizhuMove(users[1],request({type:"join",code}));
+ const results=await Promise.allSettled([doudizhuMove(users[2],request({type:"join",code})),doudizhuMove(users[3],request({type:"join",code}))]);
+ assert.equal(results.filter(x=>x.status==="fulfilled").length,1);
+ let r=await readRoom();assertRoom(r);assert.equal(r.doudizhu![0].players.length,3);
+ const outsider=users.find(u=>!r.doudizhu![0].players.some(p=>p.userId===u.id))!;
+ assert.equal((await doudizhuRead(outsider)).recruitingRooms.length,0);
+ await assert.rejects(()=>doudizhuMove(users[1],request({type:"visibility",isPublic:false,version:r.doudizhu![0].version})),/owner/);
+ const toggle=request({type:"visibility",isPublic:false,version:r.doudizhu![0].version});
+ await Promise.all([doudizhuMove(users[0],toggle),doudizhuMove(users[0],toggle)]);
+ await closeDatabase();r=await readRoom();assert.equal(r.doudizhu![0].isPublic,false);assertRoom(r);
+ await doudizhuMove(users[0],request({type:"leave"}));
+ r=await readRoom();assert.equal(r.doudizhu![0].ownerId,users[1].id);
+ assert.equal(r.members.find(m=>m.id===users[0].id)!.wallet,100000);
+ const owner=await doudizhuRead(users[1]);assert(owner.room!.isOwner);assert.equal(owner.room!.ownerSeat,0);
+ assert(!JSON.stringify(owner).includes("ownerId"));assertRoom(r);
+});

@@ -4,11 +4,12 @@ import {classify,beats,rank,shuffled,type Combo} from "./doudizhu-rules";
 import {ensure} from "./errors";
 import {audit} from "./audit";
 import type {Room,Identity} from "./types";
-export type DoudizhuInput={type:"create"|"join"|"ready"|"bid"|"play"|"pass"|"leave";code?:string;beansPerDollar?:number;maxLoss?:number;cards?:string[];bid?:number;requestId:string;requestAt:number;version?:number};
+export type DoudizhuInput={type:"create"|"join"|"ready"|"bid"|"play"|"pass"|"leave"|"visibility";isPublic?:boolean;code?:string;beansPerDollar?:number;maxLoss?:number;cards?:string[];bid?:number;requestId:string;requestAt:number;version?:number};
 export type DoudizhuPlayer={userId:string;ready:boolean;auto:boolean;hand:string[];escrow:number;plays:number};
-export type DoudizhuRoom={code:string;base?:number;rate?:number;scoringMode?:"beans"|"legacy-rate";beansPerDollar?:number;baseBeans?:number;maxLoss:number;version:number;phase:"waiting"|"bidding"|"playing"|"finished";handId:string;players:DoudizhuPlayer[];kitty:string[];turn:number;deadline:number|null;landlord:number|null;bid:number;bidder:number|null;bids:number;multiplier:number;trick:{cards:string[];combo:Combo;seat:number}|null;passes:number;settled:boolean;result:null|{winner:number;spring:boolean;unit:number;unitBeans?:number;beanDeltas?:number[];beanDeltaExact?:string[];deltas:number[];settlementId:string}};
+export type DoudizhuRoom={code:string;ownerId?:string;isPublic?:boolean;base?:number;rate?:number;scoringMode?:"beans"|"legacy-rate";beansPerDollar?:number;baseBeans?:number;maxLoss:number;version:number;phase:"waiting"|"bidding"|"playing"|"finished";handId:string;players:DoudizhuPlayer[];kitty:string[];turn:number;deadline:number|null;landlord:number|null;bid:number;bidder:number|null;bids:number;multiplier:number;trick:{cards:string[];combo:Combo;seat:number}|null;passes:number;settled:boolean;result:null|{winner:number;spring:boolean;unit:number;unitBeans?:number;beanDeltas?:number[];beanDeltaExact?:string[];deltas:number[];settlementId:string}};
 export const DOUDIZHU_TURN_MS=60_000;
 export const DOUDIZHU_RULES={turnMs:DOUDIZHU_TURN_MS,description:"Happy Beans: 1000 base beans times bid and multiplier. Convert beans to cents by flooring beans × 100 / beansPerDollar before caps. Result bean deltas are exact settled cents × beansPerDollar / 100, including fractional beans. Each player reserves the room maximum loss. Bids, bombs, rocket and spring multiply points. Loss cannot exceed reserved chips; a losing landlord pays at most their reserve, split equally between farmers with an odd cent to the lower seat."};
+function ownerOf(g:DoudizhuRoom){return g.ownerId??g.players[0]?.userId;}
 export function doudizhuMaxRate(r:Room){return Number.isSafeInteger(r.doudizhuMaxRate)&&r.doudizhuMaxRate!>=1&&r.doudizhuMaxRate!<=1000000?r.doudizhuMaxRate!:1000;}
 export function doudizhuMaxBeansPerDollar(r:Room){return Number.isSafeInteger(r.doudizhuMaxBeansPerDollar)&&r.doudizhuMaxBeansPerDollar!>=1&&r.doudizhuMaxBeansPerDollar!<=1000000000?r.doudizhuMaxBeansPerDollar!:1000000;}
 /** Exact signed decimal beans for cent transfers; no unsafe Number multiplication. */
@@ -82,19 +83,25 @@ export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.n
  const code=typeof input.code==="string"?input.code.trim().toLowerCase().replace(/[\s-]+/g," "):"";
  let g: DoudizhuRoom|undefined=code?games.find(g=>g.code===code):own;
  if(input.type==="create"){
-  ensure(!own,"Leave your existing room first.",409);ensure(!("rate" in input),"New rooms use beansPerDollar, not rate.");const beansPerDollar=input.beansPerDollar??1000,maxLoss=input.maxLoss??10000;ensure(Number.isSafeInteger(beansPerDollar)&&beansPerDollar>=1&&beansPerDollar<=doudizhuMaxBeansPerDollar(r),"Beans per dollar exceeds the current admin maximum.");ensure(Number.isSafeInteger(maxLoss)&&maxLoss>=100&&maxLoss<=100000000,"Maximum loss must be 100 to 100000000 cents.");
+  ensure(!own,"Leave your existing room first.",409);ensure(input.isPublic===undefined||typeof input.isPublic==="boolean","Visibility must be boolean.");ensure(!("rate" in input),"New rooms use beansPerDollar, not rate.");const beansPerDollar=input.beansPerDollar??1000,maxLoss=input.maxLoss??10000;ensure(Number.isSafeInteger(beansPerDollar)&&beansPerDollar>=1&&beansPerDollar<=doudizhuMaxBeansPerDollar(r),"Beans per dollar exceeds the current admin maximum.");ensure(Number.isSafeInteger(maxLoss)&&maxLoss>=100&&maxLoss<=100000000,"Maximum loss must be 100 to 100000000 cents.");
   let newCode:string;do{newCode=Array.from({length:3},()=>wordlist[randomInt(wordlist.length)]).join(" ");}while(games.some(g=>g.code===newCode));
   ensure(games.length<200,"Too many rooms.",409);
-  g={code:newCode,scoringMode:"beans",beansPerDollar,baseBeans:1000,maxLoss,version:0,phase:"waiting",handId:randomUUID(),players:[],kitty:[],turn:0,deadline:null,landlord:null,bid:0,bidder:null,bids:0,multiplier:1,trick:null,passes:0,settled:false,result:null};games.push(g);
+  g={code:newCode,ownerId:who.id,isPublic:input.isPublic??false,scoringMode:"beans",beansPerDollar,baseBeans:1000,maxLoss,version:0,phase:"waiting",handId:randomUUID(),players:[],kitty:[],turn:0,deadline:null,landlord:null,bid:0,bidder:null,bids:0,multiplier:1,trick:null,passes:0,settled:false,result:null};games.push(g);
   const p:DoudizhuPlayer={userId:who.id,ready:false,auto:false,hand:[],escrow:0,plays:0};escrow(r,g,p);g.players.push(p);
  }else{
   ensure(g,"Room not found.",404);const seat=g.players.findIndex(p=>p.userId===who.id);
   if(input.type==="join"){ensure(!own,"Leave your existing room first.",409);ensure(g.phase==="waiting"&&g.players.length<3,"Room is full or started.",409);const p:DoudizhuPlayer={userId:who.id,ready:false,auto:false,hand:[],escrow:0,plays:0};escrow(r,g,p);g.players.push(p);
   }else{
    ensure(seat>=0,"Join this room first.",403);
-   if(input.type==="leave"){
+   if(input.type==="visibility"){
+    ensure(ownerOf(g)===who.id,"Only the room owner can change visibility.",403);
+    ensure(g.phase==="waiting"||g.phase==="finished","Visibility can change only between hands.",409);
+    ensure(input.version===g.version&&Number.isSafeInteger(input.version),"The room changed. Refresh first.",409);
+    ensure(typeof input.isPublic==="boolean","Visibility must be boolean.");
+    g.ownerId=who.id;g.isPublic=input.isPublic;
+   }else if(input.type==="leave"){
     if(g.phase==="bidding"||g.phase==="playing")g.players[seat].auto=true;
-    else{m.wallet+=g.players[seat].escrow;g.players.splice(seat,1);if(!g.players.length)r.doudizhu=games.filter(x=>x!==g);}
+    else{const departingOwner=ownerOf(g)===who.id;m.wallet+=g.players[seat].escrow;g.players.splice(seat,1);if(departingOwner&&g.players.length)g.ownerId=g.players[0].userId;if(!g.players.length)r.doudizhu=games.filter(x=>x!==g);}
    }else{
     ensure(Number.isSafeInteger(input.version)&&input.version===g.version,"The turn changed. Refresh first.",409);
     if(input.type==="ready"){
@@ -120,6 +127,7 @@ export function publicDoudizhu(r:Room,who:Identity,code?:string){
  // Codes reveal only the stake preview. Hands and player identities stay private until joining.
  const g=own&&(!code||own.code===code.trim().toLowerCase().replace(/[\s-]+/g," "))?own:undefined;
  const preview=code?(r.doudizhu??[]).find(x=>x.code===code.trim().toLowerCase().replace(/[\s-]+/g," ")):undefined;
- return {preview:preview?{code:preview.code,scoringMode:preview.scoringMode??"legacy-rate",beansPerDollar:preview.beansPerDollar,baseBeans:preview.baseBeans,rate:preview.rate,maxLoss:preview.maxLoss,count:preview.players.length,phase:preview.phase}:null,houseRules:DOUDIZHU_RULES,maxBeansPerDollar:doudizhuMaxBeansPerDollar(r),maxRate:doudizhuMaxRate(r),wallet:r.members.find(m=>m.id===who.id)?.wallet??0,room:g?{code:g.code,scoringMode:g.scoringMode??"legacy-rate",beansPerDollar:g.beansPerDollar,baseBeans:g.baseBeans,base:g.base,rate:g.rate,maxLoss:g.maxLoss,version:g.version,phase:g.phase,handId:g.handId,players:g.players.map((p,seat)=>({seat,name:member(r,p.userId).name,self:p.userId===who.id,ready:p.ready,auto:p.auto,count:p.hand.length,...(p.userId===who.id?{hand:[...p.hand]}:{}),escrow:p.escrow})),kitty:g.landlord!==null?[...g.kitty]:[],turn:g.turn,deadline:g.deadline,landlord:g.landlord,bid:g.bid,multiplier:g.multiplier,trick:g.trick?structuredClone(g.trick):null,settled:g.settled,result:g.result?structuredClone(g.result):null}:null};
+ const recruitingRooms=(r.doudizhu??[]).filter(x=>x.isPublic===true&&x.phase==="waiting"&&x.players.length>0&&x.players.length<3).map(x=>({code:x.code,count:x.players.length,scoringMode:x.scoringMode??"legacy-rate",beansPerDollar:x.beansPerDollar,baseBeans:x.baseBeans,rate:x.rate,maxLoss:x.maxLoss}));
+ return {recruitingRooms,preview:preview?{code:preview.code,scoringMode:preview.scoringMode??"legacy-rate",beansPerDollar:preview.beansPerDollar,baseBeans:preview.baseBeans,rate:preview.rate,maxLoss:preview.maxLoss,count:preview.players.length,phase:preview.phase}:null,houseRules:DOUDIZHU_RULES,maxBeansPerDollar:doudizhuMaxBeansPerDollar(r),maxRate:doudizhuMaxRate(r),wallet:r.members.find(m=>m.id===who.id)?.wallet??0,room:g?{code:g.code,isPublic:g.isPublic===true,isOwner:ownerOf(g)===who.id,ownerSeat:g.players.findIndex(p=>p.userId===ownerOf(g)),scoringMode:g.scoringMode??"legacy-rate",beansPerDollar:g.beansPerDollar,baseBeans:g.baseBeans,base:g.base,rate:g.rate,maxLoss:g.maxLoss,version:g.version,phase:g.phase,handId:g.handId,players:g.players.map((p,seat)=>({seat,name:member(r,p.userId).name,self:p.userId===who.id,ready:p.ready,auto:p.auto,count:p.hand.length,...(p.userId===who.id?{hand:[...p.hand]}:{}),escrow:p.escrow})),kitty:g.landlord!==null?[...g.kitty]:[],turn:g.turn,deadline:g.deadline,landlord:g.landlord,bid:g.bid,multiplier:g.multiplier,trick:g.trick?structuredClone(g.trick):null,settled:g.settled,result:g.result?structuredClone(g.result):null}:null};
 }
 export type PublicDoudizhu=ReturnType<typeof publicDoudizhu>;

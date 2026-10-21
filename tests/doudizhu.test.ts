@@ -108,3 +108,30 @@ test("settled bean decimal strings remain exact beyond safe intermediate multipl
  assert.equal(settledBeansExact(1,1010),"10.1");
  assert.equal(settledBeansExact(0,1000000000),"0");
 });
+test("private default and allowlisted opt-in recruiting excludes full and started games",()=>{
+ const r=setup();move(r,0,{type:"create"});
+ const g=r.doudizhu![0];assert.equal(g.ownerId,users[0].id);assert.equal(g.isPublic,false);
+ assert.deepEqual(publicDoudizhu(r,users[3]).recruitingRooms,[]);
+ move(r,0,{type:"visibility",isPublic:true});
+ const list=publicDoudizhu(r,users[3]).recruitingRooms;
+ assert.equal(list.length,1);assert.deepEqual(Object.keys(list[0]).sort(),["code","count","scoringMode","beansPerDollar","baseBeans","rate","maxLoss"].sort());
+ assert(!JSON.stringify(list).includes("person-"));assert(!JSON.stringify(list).includes("hand"));
+ move(r,1,{type:"join",code:g.code});move(r,2,{type:"join",code:g.code});
+ assert.equal(publicDoudizhu(r,users[3]).recruitingRooms.length,0);
+ for(let i=0;i<3;i++)move(r,i,{type:"ready"});
+ assert.equal(publicDoudizhu(r,users[3]).recruitingRooms.length,0);
+ assert.throws(()=>move(r,0,{type:"visibility",isPublic:false}),/between hands/);
+});
+test("only owner can publish, version fence and idempotency hold, legacy owner transfers",()=>{
+ const r=setup();move(r,0,{type:"create"});const g=r.doudizhu![0];
+ move(r,1,{type:"join",code:g.code});
+ assert.throws(()=>move(r,1,{type:"visibility",isPublic:true}),/owner/);
+ assert.throws(()=>move(r,3,{type:"visibility",code:g.code,isPublic:true}),/Join/);
+ assert.throws(()=>move(r,0,{type:"visibility",isPublic:true,version:g.version-1}),/changed/);
+ const req=move(r,0,{type:"visibility",isPublic:true}),snapshot=structuredClone(r);
+ applyDoudizhu(r,users[0],req,1000);assert.deepEqual(r,snapshot);
+ delete g.ownerId;assert(publicDoudizhu(r,users[0]).room!.isOwner);
+ move(r,0,{type:"leave"});assert.equal(g.ownerId,users[1].id);assert(publicDoudizhu(r,users[1]).room!.isOwner);
+ move(r,1,{type:"visibility",isPublic:false});assert.equal(publicDoudizhu(r,users[3]).recruitingRooms.length,0);
+ assertRoom(r);
+});
