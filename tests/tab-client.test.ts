@@ -44,9 +44,11 @@ test("mounted provider reports routes without reconnect, blocks accessibly, and 
     window.socketCount=(window.socketCount||0)+1;
     const handlers=new Map();const reports=[];const auths=[];
     const socket={connected:true,active:true,on(event,handler){handlers.set(event,handler);return socket;},
+     off(event,handler){if(handlers.get(event)===handler)handlers.delete(event);return socket;},
      io:{on(){}},emit(event,payload){reports.push({event,payload});return socket;},
      disconnect(){socket.connected=false;},timeout(){return socket;},connect(){}};
     window.testSocket={reports,auths,state:(payload)=>handlers.get("tab:state")(payload),
+     refresh:()=>handlers.get("auth:refresh")({expiresAt:Date.now()+20000}),
      auth:()=>new Promise(resolve=>options.auth(payload=>{auths.push(payload);resolve(payload)})),
      disconnect:()=>{socket.connected=false;handlers.get("disconnect")()},
      connect:()=>{socket.connected=true;handlers.get("connect")()}};
@@ -78,6 +80,10 @@ test("mounted provider reports routes without reconnect, blocks accessibly, and 
   await page.evaluate(()=>(window as any).harness.navigate("/roulette"));
   await page.waitForFunction(()=>(window as any).testSocket.reports.at(-1).payload.route==="/roulette");
   assert.equal(await page.evaluate(()=>(window as any).socketCount),1);
+  await page.evaluate(()=>(window as any).testSocket.refresh());
+  await page.waitForFunction(()=>(window as any).testSocket.reports.some((r:any)=>r.event==="auth:renew"));
+  assert.equal(await page.evaluate(()=>(window as any).socketCount),1,"token renewal never recreates the socket");
+  assert.equal(await page.evaluate(()=>(window as any).testSocket.reports.find((r:any)=>r.event==="auth:renew").payload.token),"fresh-token");
   const before=(await reports()).length;await page.clock.runFor(10000);assert.equal((await reports()).length,before+2);
   await page.evaluate(()=>{document.dispatchEvent(new Event("visibilitychange"));window.dispatchEvent(new Event("pageshow"));});
   assert.equal((await reports()).length,before+4);
