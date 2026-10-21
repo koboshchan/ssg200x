@@ -120,3 +120,8 @@
  .dd-settle-wrap{inset:110px 6px auto}.dd-backs{width:40px;height:50px}.dd-backs i{width:30px;height:42px}}
 @media(prefers-reduced-motion:reduce){.dd-seat{transition:none}}
 .dd-sil{width:80%;height:80%;display:block}.dd-avatar{overflow:visible}
+.dd-stage button{color:#fff;background:#ffffff1f;border:1px solid #ffffff55}.dd-stage button:disabled{color:#ffffff99;opacity:.55}
+.dd-stage .dd-actions button.primary{background:#ffe08a;color:#4a3004;border-color:#ffe08a}.dd-stage .dd-hand-cards>button{background:transparent;border:0}
+.dd-stage .dd-actions>p,.dd-stage .dd-hand p{color:#e4f0e8}
+@media(max-width:700px){.dd-center{min-height:0;gap:6px;padding:2px 0}.dd-center-top{flex-direction:row}.dd-stage .dd-score{padding:6px 8px}.dd-stage .dd-score span{font-size:11px}.dd-stage .dd-kitty{padding:4px}.dd-stage .dd-kitty .card{width:22px;height:32px;padding:2px}.dd-stage .dd-kitty .card b,.dd-stage .dd-kitty .card i{font-size:10px}.dd-stage .dd-trick{min-height:64px}.dd-stage .dd-hand-cards{--w:30px;min-height:64px}.dd-stage .dd-hand-cards .card{height:46px}.dd-stage .dd-roomline>div:nth-child(3){display:none}.dd-stage{min-height:0}}
+.dd-me>.dd-seat{z-index:1}.dd-me-main{padding-left:6px}.dd-stage{padding-bottom:22px}
