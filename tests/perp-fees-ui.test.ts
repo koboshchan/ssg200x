@@ -22,7 +22,7 @@ test('hydrated real market previews opening charge before confirmation, submits 
  await page.getByText(/Wallet debit \$100.00. Remaining collateral \$99.75/).waitFor();
  assert.equal(await page.getByText('Collateral $99.75',{exact:true}).count(),1);
  assert.equal(await page.getByRole('columnheader',{name:'Net realized P/L'}).count(),1);assert.equal(await page.getByRole('cell',{name:/^\$0.25 \/ \$0.25/}).count(),1);assert.equal(await page.getByText('-$0.50',{exact:true}).count(),2);
- assert.equal(await page.getByText('Opening fee $0.25 (0.05%) · closing rate 0.05%',{exact:true}).count(),1);
+ assert.equal(await page.getByText('Opening fee $0.25 (0.05%) · closing rate 0.05% of notional',{exact:true}).count(),1);
  await page.getByRole('button',{name:'Open long · 5x',exact:true}).click();
  const posted=await page.evaluate(()=>(window as any).submitted);assert.equal(posted.body.expectedOpeningFeePpm,500);assert.equal(posted.body.expectedClosingFeePpm,500);assert.equal(posted.body.margin,10000);
  await page.screenshot({path:`/home/kit/fee-history-${width}.png`,fullPage:true});await page.close();

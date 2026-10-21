@@ -42,3 +42,21 @@ test("finance rejects either stale leg before charging and permits old client on
  assert.equal((await admin(req({type:"perp-fees",openingPercent:0,closingPercent:0}))).status,200);
  assert.equal((await finance(req({...order,expectedFeePpm:0}))).status,200);
 });
+test("profit mode admin validation, same-rate mode-change acknowledgement and locked server settlement",async()=>{
+ const config={type:"perp-fees",openingPercent:0,closingPercent:0.03,closingFeeMode:"profit"};
+ who={...who,admin:false};assert.equal((await admin(req(config))).status,403);who={...who,admin:true};
+ for(const bad of [{...config,closingFeeMode:"fake"},{...config,closingPercent:101},{...config,closingFeeMode:"notional",closingPercent:1},{...config,closingPercent:0.00001}]){
+ const before=structuredClone(room);assert.equal((await admin(req(bad))).status,400);assert.deepEqual(room,before);
+ }
+ assert.equal((await admin(req(config))).status,200);assert.equal(room.perpClosingFeeMode,"profit");
+ const order={type:"open",symbol:"BTC",side:"long",margin:10000,leverage:5,expectedOpeningFeePpm:0,expectedClosingFeePpm:300};room.quotes={BTC:{micro:100000000,at:Date.now()}};
+ for(const mode of [undefined,"notional"]){const before=structuredClone(room);assert.equal((await finance(req({...order,expectedClosingFeeMode:mode}))).status,409);assert.deepEqual(room,before);}
+ assert.equal((await finance(req({...order,expectedClosingFeeMode:"profit"}))).status,200);const p=room.members[0].positions!.at(-1)!;assert.equal(p.closingFeeMode,"profit");
+ assert.equal((await admin(req({...config,closingPercent:1}))).status,200);
+ const next={...order,expectedClosingFeePpm:10000,expectedClosingFeeMode:"profit"};
+ assert.equal((await finance(req(next))).status,200);const high=room.members[0].positions!.at(-1)!;
+ assert.equal((await admin(req({...config,closingFeeMode:"notional"}))).status,200);
+ room.quotes!.BTC={micro:110000000,at:Date.now()};
+ assert.equal((await finance(req({type:"close",positionId:high.id}))).status,200);
+ const closed=room.members[0].closedPositions!.find(x=>x.id===high.id)!;assert.equal(closed.closingFee,50);assert.equal(closed.closingFeeMode,"profit");assert.equal(closed.realizedPnl,4950);
+});

@@ -60,14 +60,14 @@ function Landing({setup=false}:{setup?:boolean}){
 }
 
 type AdminPos={publicId:string;name:string;id:string;symbol:string;side:string;leverage:number;entry:number;liquidation:number};
-type AdminRoom={perpFeePpm?:number;perpOpeningFeePpm?:number;perpClosingFeePpm?:number;maintenancePercent?:number;adminPositions?:AdminPos[]};
+type AdminRoom={perpFeePpm?:number;perpOpeningFeePpm?:number;perpClosingFeePpm?:number;perpClosingFeeMode?:"notional"|"profit";maintenancePercent?:number;adminPositions?:AdminPos[]};
 const usd=(micro:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:micro/1e6<1?6:2}).format(micro/1e6);
 function RiskControls({room,busy,post}:{room:AdminRoom;busy:boolean;post:(path:string,body:object)=>Promise<void>}){
  const current=room.maintenancePercent??0,positions=room.adminPositions||[];
  const [pct,setPct]=useState(""),[askPct,setAskPct]=useState(false);
  const n=Number(pct),validPct=pct.trim()!==""&&Number.isFinite(n)&&n>=0&&n<=20;
  const meta=()=>({requestId:crypto.randomUUID(),requestAt:Date.now()});
- return <><PerpFeeControl opening={room.perpOpeningFeePpm??room.perpFeePpm??300} closing={room.perpClosingFeePpm??room.perpFeePpm??300} busy={busy} post={post}/><h3>Maintenance margin</h3><div className="risk-row"><p>Currently {current}% of margin. Raising it liquidates positions sooner. Range 0 to 20.</p>
+ return <><PerpFeeControl opening={room.perpOpeningFeePpm??room.perpFeePpm??300} closing={room.perpClosingFeePpm??room.perpFeePpm??300} mode={room.perpClosingFeeMode??"notional"} busy={busy} post={post}/><h3>Maintenance margin</h3><div className="risk-row"><p>Currently {current}% of margin. Raising it liquidates positions sooner. Range 0 to 20.</p>
   <div className="adjust"><label><span className="sr-only">Maintenance margin percent</span><div className="input-wrap"><input type="number" inputMode="decimal" min="0" max="20" step="any" placeholder={String(current)} value={pct} onChange={e=>{setPct(e.target.value);setAskPct(false);}}/><span>%</span></div></label>
   {askPct&&validPct?<><span className="adjust-note" role="status">Set to {n}%? Open positions that fall below it will be liquidated on the next check.</span><button className="primary" disabled={busy} onClick={async()=>{await post("/api/admin",{type:"maintenance",percent:n,...meta()});setPct("");setAskPct(false);}}>Confirm</button><button disabled={busy} onClick={()=>setAskPct(false)}>Cancel</button></>:<button disabled={busy||!validPct} onClick={()=>setAskPct(true)}>Save</button>}</div></div>
   <h3>Open positions</h3>{positions.length?positions.map(x=><PositionRow key={x.id} x={x} busy={busy} post={post} meta={meta}/>):<p className="empty">No open positions.</p>}</>;
