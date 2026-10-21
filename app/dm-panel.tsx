@@ -5,7 +5,7 @@ import {useLive,useLiveEvent} from "./live-provider";
 import {indexedDbStore,getDmPin,putDmPin} from "@/lib/chat-store";
 import {MAX_TEXT_BYTES,type Identity} from "@/lib/chat-crypto";
 import {sealDm,openDm,pinOf,pinState,dmFingerprint,type DmWire,type DmHistoryMessage,type DmPin} from "@/lib/dm-crypto";
-import {inConversation,historyPinState,mergeRows,dmError,scope,pendingKey,pendingPrefix,type DmRow,type DmLookupPeer} from "@/lib/dm-view";
+import {inConversation,historyPinState,mergeRows,rowKey,dmError,scope,pendingKey,pendingPrefix,type DmRow,type DmLookupPeer} from "@/lib/dm-view";
 
 type Thread={userId:string;username:string;blocked:boolean;updatedAt:number};
 type Conv={peer:DmLookupPeer;pin:DmPin|undefined;changed:boolean;fp:string;oldFp:string;blocked:boolean};
@@ -117,6 +117,7 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
    const fp=await dmFingerprint(p.userId,p);
    if(!valid())return;
    const blocked=threads.find(t=>t.userId===p.userId)?.blocked??false;
+   setBusy(false);
    resetConv();
    // resetConv bumped the epoch; the effect on conv drives the first load.
    setConv({peer:{...p,username:p.username||clean},pin,changed,fp,oldFp,blocked});
@@ -128,13 +129,14 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
  };
  const trust=async()=>{
   const user=me,c=convRef.current;if(!user||!c)return;
-  const pin=pinOf(c.peer),a=acct.current.value,pid=c.peer.userId;
+  const pin=pinOf(c.peer),a=acct.current.value,ep=epoch.current.value,pid=c.peer.userId;
+  const ok=()=>acct.current.valid(a)&&epoch.current.valid(ep)&&convRef.current?.peer.userId===pid;
   try{
    await putDmPin(user,pid,pin);
-   if(!acct.current.valid(a)||convRef.current?.peer.userId!==pid)return;
+   if(!ok())return;
    resetConv();
    setConv({...c,pin,changed:false,oldFp:""});
-  }catch(e){if(acct.current.valid(a))setErr(dmError(code(e)));}
+  }catch(e){if(ok())setErr(dmError(code(e)));}
  };
  const send=async(retryId?:string)=>{
   const user=me,c=convRef.current,id=identityRef.current;
@@ -153,7 +155,7 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
     entry={wire:w,text:body,ts:Date.now()};pending.current.set(pendingKey(user,pid,w.id),entry);
     wid=w.id;setText("");
     setRows(cur=>mergeRows(cur,[{id:w.id,mine:true,ts:entry!.ts,status:"pending",text:body}]));
-   }else setRows(cur=>cur.map(r=>r.id===retryId?{...r,status:"pending"}:r));
+   }else setRows(cur=>cur.map(r=>r.mine&&r.id===retryId?{...r,status:"pending"}:r));
    const r=await request("dm:send",entry.wire);
    pending.current.delete(pendingKey(user,pid,entry.wire.id));
    if(!valid())return;
@@ -162,18 +164,19 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
    setRows(cur=>mergeRows(cur,decoded));void loadThreads();
   }catch(e){
    if(!valid())return;
-   if(wid)setRows(cur=>cur.map(r=>r.id===wid?{...r,status:"failed"}:r));
+   if(wid)setRows(cur=>cur.map(r=>r.mine&&r.id===wid?{...r,status:"failed"}:r));
    setErr(dmError(code(e)));
   }
  };
  const block=async(b:boolean)=>{
   const c=convRef.current;if(!c)return;
-  const pid=c.peer.userId,a=acct.current.value;
+  const pid=c.peer.userId,a=acct.current.value,ep=epoch.current.value;
+  const ok=()=>acct.current.valid(a)&&epoch.current.valid(ep)&&convRef.current?.peer.userId===pid;
   try{
    const r=await request("dm:block",{v:1,userId:pid,blocked:b});
-   if(!acct.current.valid(a))return;
+   if(!ok())return;
    setConv(cur=>cur&&cur.peer.userId===pid?{...cur,blocked:!!r.blocked}:cur);void loadThreads();
-  }catch(e){if(acct.current.valid(a)&&convRef.current?.peer.userId===pid)setErr(dmError(code(e)));}
+  }catch(e){if(ok())setErr(dmError(code(e)));}
  };
  const copy=()=>{if(!username)return;navigator.clipboard?.writeText(username).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),1500);}).catch(()=>{});};
 
@@ -187,11 +190,11 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
   <div className="chat-list" ref={list}>
    {cursor&&<button className="chat-more" onClick={()=>void refresh(true)}>Load earlier</button>}
    {rows.length===0&&!conv.changed&&<p className="chat-note">No messages yet.</p>}
-   {rows.map(r=><div key={r.id} className="chat-msg" data-mine={r.mine} data-status={r.status}>
+   {rows.map(r=><div key={rowKey(r)} className="chat-msg" data-mine={r.mine} data-status={r.status}>
     <div className="chat-meta"><span>{r.mine?"You":conv.peer.username}</span><time dateTime={new Date(r.ts).toISOString()}>{time(r.ts)}</time></div>
     <p>{r.status==="ok"||r.status==="pending"||r.status==="failed"?r.text:r.status==="changed"?"Hidden: sent with a key that isn't trusted.":r.status==="unreadable"?"Can't be read on this device. It was sent to older keys.":"Hidden: failed verification."}</p>
     {r.status==="pending"&&<small>Sending…</small>}
-    {r.status==="failed"&&<small className="chat-error">Not sent. <button type="button" onClick={()=>{void send(r.id);}}>Retry</button></small>}
+    {r.status==="failed"&&<small className="chat-error">Not sent. <button type="button" onClick={()=>{if(r.mine)void send(r.id);}}>Retry</button></small>}
    </div>)}
   </div>
   <form className="chat-compose" onSubmit={e=>{e.preventDefault();void send();}}>

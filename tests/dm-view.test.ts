@@ -36,3 +36,20 @@ test("stale finally cannot clear a newer loading guard",()=>{
  let guard:object|null=null;const old={},fresh={};guard=old;guard=fresh;
  if(guard===old)guard=null;assert.equal(guard,fresh);
 });
+
+import {rowKey} from "../lib/dm-view";
+import {readFileSync} from "node:fs";
+test("peer cannot overwrite my bubble by reusing my UUID",()=>{
+ const mine:DmRow={id:"u1",mine:true,ts:1,status:"ok",text:"mine"};
+ const out=mergeRows([mine],[{id:"u1",mine:false,ts:2,status:"ok",text:"peer"}]);
+ assert.equal(out.length,2);assert.equal(out.find(r=>r.mine)!.text,"mine");assert.notEqual(rowKey(out[0]),rowKey(out[1]));
+});
+test("A-B-A switch: epoch capture rejects stale trust/block result",()=>{
+ const s=scope(),ep=s.value;s.next();s.next();assert.ok(!s.valid(ep));
+});
+test("panel source guards: busy cleared, epoch checked, retry requires mine",()=>{
+ const src=readFileSync(new URL("../app/dm-panel.tsx",import.meta.url),"utf8");
+ assert.match(src,/setBusy\(false\);\s*resetConv\(\)/);
+ assert.equal((src.match(/epoch\.current\.valid\(ep\)&&convRef/g)||[]).length,2);
+ assert.match(src,/r\.mine&&r\.id===retryId/);assert.match(src,/r\.mine&&r\.id===wid/);assert.match(src,/key=\{rowKey\(r\)\}/);
+});

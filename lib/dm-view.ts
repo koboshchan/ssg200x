@@ -18,10 +18,12 @@ export function inConversation(m:DmHistoryMessage,myUserId:string,peerUserId:str
 export function historyPinState(pin:DmPin|undefined,m:DmHistoryMessage,myUserId:string):PinState{
  return pinState(pin,peerSnapshot(m,myUserId));
 }
+/** Server uniqueness is (senderUserId,id), so a row is keyed by direction plus id. */
+export const rowKey=(r:Pick<DmRow,"mine"|"id">)=>JSON.stringify([r.mine,r.id]);
 export function mergeRows(a:DmRow[],b:DmRow[]):DmRow[]{
  const map=new Map<string,DmRow>();
- for(const r of a)map.set(r.id,r);
- for(const r of b){const old=map.get(r.id);if(!old||old.status==="pending"||old.status==="failed"||r.status!=="pending")map.set(r.id,r);}
+ for(const r of a)map.set(rowKey(r),r);
+ for(const r of b){const old=map.get(rowKey(r));if(!old||old.status==="pending"||old.status==="failed"||r.status!=="pending")map.set(rowKey(r),r);}
  return [...map.values()].sort((x,y)=>x.ts-y.ts||(x.cursor||"").localeCompare(y.cursor||"")||x.id.localeCompare(y.id));
 }
 export const dmError=(code:string)=>({disconnected:"Not connected. Try again in a moment.",timeout:"The server didn't answer in time.",rate_limited:"Slow down a little.",blocked:"You can't message this person.",forbidden:"Messages are only open to approved members.",bad_text:"Message is empty or too long."} as Record<string,string>)[code]||"Messages are unavailable right now.";
