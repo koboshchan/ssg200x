@@ -2,6 +2,7 @@
 // Identity keys and the local epoch KEK are nonextractable CryptoKeys. Epoch bytes are AES-GCM
 // sealed at rest; temporary extractable working keys exist only to share an authorized grant.
 import type {SendPayload,BootstrapPayload,ChatStore,Pin,Setup} from "./chat-client";
+import type {DmPin} from "./dm-crypto";
 import {b64,unb64,importEpochKey,randomBytes,sealLocalRecord,openLocalRecord,type LocalSealed,type Identity} from "./chat-crypto";
 const DB="ssg200x-tabletalk",STORE="kv";
 function open():Promise<IDBDatabase>{
@@ -99,3 +100,6 @@ export function indexedDbStore():ChatStore{
  };
  return store;
 }
+// DM key pins live under their own key prefix, separate from room chat pins. Pins hold public keys only.
+export const getDmPin=(u:string,peer:string)=>get<DmPin>("dmpin:"+u+":"+peer);
+export const putDmPin=(u:string,peer:string,p:DmPin)=>put("dmpin:"+u+":"+peer,p);

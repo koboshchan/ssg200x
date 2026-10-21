@@ -6,6 +6,7 @@ import {ChatClient,type ChatMessage,type Snapshot} from "@/lib/chat-client";
 import {indexedDbStore} from "@/lib/chat-store";
 import WordEntry from "./word-entry";
 import {MAX_TEXT_BYTES} from "@/lib/chat-crypto";
+import DmPanel from "./dm-panel";
 
 const errorText:Record<string,string>={setup_words_lost:"Setup was interrupted. Enter the six words you saved.",wrong_words:"Those words don't match. Check the order and spelling.",bad_words:"Enter exactly six words from the list.",disconnected:"Not connected. Try again in a moment.",timeout:"The server didn't answer in time.",rate_limited:"Slow down a little.",busy:"The server is busy. Trying again.",identity_exists:"Chat keys already exist for this account. Enter your six recovery words.",identity_conflict:"Your keys changed on another device. Reload to continue.",forbidden:"Chat is only open to approved members."};
 const friendly=(code:string|null)=>code?errorText[code]||"Chat is unavailable right now.":null;
@@ -17,6 +18,7 @@ export default function ChatDock(){
  const {user,isLoaded}=useUser(),live=useLive(),userId=user?.id;
  const [client,setClient]=useState<ChatClient|null>(null);
  const [open,setOpen]=useState(false),[names,setNames]=useState<Record<string,string>>({}),[seen,setSeen]=useState<number|null>(null);
+ const [tab,setTab]=useState<"room"|"dm">("room");
  const [preferencesUser,setPreferencesUser]=useState<string|null>(null);
  const preferencesReady=preferencesUser===userId;
  useEffect(()=>{
@@ -58,7 +60,8 @@ export default function ChatDock(){
   {!open&&<button className="chat-toggle" onClick={()=>setOpen(true)} aria-label={unread?"Open chat, "+unread+" unread":"Open chat"}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg>{unread>0&&<span className="chat-badge" aria-hidden="true">{unread>99?"99+":unread}</span>}</button>}
   {open&&<aside className="chat-dock" aria-label="TableTalk chat">
    <header><div><strong>TableTalk</strong><span className="chat-lock">End-to-end encrypted</span></div><button onClick={()=>setOpen(false)} aria-label="Hide chat">Hide</button></header>
-   <Body snap={snap} client={client} names={names}/>
+   <div className="chat-tabs" role="tablist"><button role="tab" aria-selected={tab==="room"} onClick={()=>setTab("room")}>Room</button><button role="tab" aria-selected={tab==="dm"} onClick={()=>setTab("dm")}>Messages</button></div>
+   {tab==="room"?<Body snap={snap} client={client} names={names}/>:<DmPanel phase={snap.phase} goSetup={()=>setTab("room")}/>}
   </aside>}
  </>;
 }
