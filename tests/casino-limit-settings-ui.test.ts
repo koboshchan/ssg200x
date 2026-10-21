@@ -14,12 +14,12 @@ test("real admin casino controls load/save cents, reject decimal dollars, reload
  try{
   for(const viewport of [{width:1280,height:800},{width:375,height:700}]){
    const page=await browser.newPage({viewport}),errors:string[]=[];
-   let state={rouletteMaxTotal:100000,blackjackMaxHand:100000,pokerMaxBuyIn:100000,revision:0},admin=true,posts=0;
+   let state={rouletteMaxTotal:100000,blackjackMaxHand:100000,pokerMaxBuyIn:100000,gamesMaxBet:100000,revision:0},admin=true,posts=0;
    page.on("pageerror",(e:Error)=>errors.push(e.message));
    await page.route("https://casino.test/**",async(route:any)=>{
     if(route.request().url().includes("/api/admin/casino-limits")){
      if(!admin)return route.fulfill({status:403,json:{error:"Administrator access required."}});
-     if(route.request().method()==="POST"){const body=route.request().postDataJSON();posts++;assert.equal(body.expectedVersion,state.revision);state={rouletteMaxTotal:body.rouletteMaxTotal,blackjackMaxHand:body.blackjackMaxHand,pokerMaxBuyIn:body.pokerMaxBuyIn,revision:state.revision+1};}
+     if(route.request().method()==="POST"){const body=route.request().postDataJSON();posts++;assert.equal(body.expectedVersion,state.revision);state={rouletteMaxTotal:body.rouletteMaxTotal,blackjackMaxHand:body.blackjackMaxHand,pokerMaxBuyIn:body.pokerMaxBuyIn,gamesMaxBet:body.gamesMaxBet,revision:state.revision+1};}
      return route.fulfill({json:{casinoLimits:state}});
     }
     return route.fulfill({contentType:"text/html",body:'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><div id="root"></div>'});
@@ -29,9 +29,9 @@ test("real admin casino controls load/save cents, reject decimal dollars, reload
    const poker=page.getByLabel("Poker max buy-in per seat ($)");
    const roulette=page.getByLabel("Roulette max total bet per player per round ($)"),blackjack=page.getByLabel("Blackjack max hand bet ($)");
    await roulette.waitFor({timeout:5000}).catch(async(e:Error)=>{console.error(errors,await page.locator("body").innerText());throw e;});assert.equal(await roulette.inputValue(),"1000");assert.equal(await blackjack.inputValue(),"1000");
-   assert.equal(await poker.inputValue(),"1000");await poker.fill("2500");await roulette.fill("250");await blackjack.fill("50");await page.getByRole("button",{name:"Save limits"}).click();
+   assert.equal(await poker.inputValue(),"1000");await page.getByLabel("Games max bet per game ($)").fill("75");await poker.fill("2500");await roulette.fill("250");await blackjack.fill("50");await page.getByRole("button",{name:"Save limits"}).click();
    await page.waitForFunction(()=>{const button=[...document.querySelectorAll("button")].find(b=>b.textContent==="Save limits");return button&&!button.disabled;});
-   assert.deepEqual(state,{rouletteMaxTotal:25000,blackjackMaxHand:5000,pokerMaxBuyIn:250000,revision:1});assert.equal(posts,1);
+   assert.deepEqual(state,{rouletteMaxTotal:25000,blackjackMaxHand:5000,pokerMaxBuyIn:250000,gamesMaxBet:7500,revision:1});assert.equal(posts,1);
    await roulette.fill("1.5");await page.getByRole("button",{name:"Save limits"}).click();assert.equal(posts,1);
    await mount();await roulette.waitFor({timeout:5000}).catch(async(e:Error)=>{console.error(errors,await page.locator("body").innerText());throw e;});assert.equal(await roulette.inputValue(),"250");assert.equal(await blackjack.inputValue(),"50");assert.equal(await poker.inputValue(),"2500");
    await poker.fill("99");await page.getByRole("button",{name:"Save limits"}).click();assert.equal(posts,1);
