@@ -1,23 +1,25 @@
 "use client";
 import {useEffect,useMemo,useState} from "react";
+import type {MarketSummary} from "@/lib/market-summary";
 import {stockDisplayName} from "@/lib/stock-config";
 import styles from "./market-symbol-picker.module.css";
 type Quote={micro:number;at:number};
 export type MarketSymbols={crypto:string[];stocks:string[];delisted:string[];revision:number};
-type Props={symbol:string|null;symbols:MarketSymbols;quotes:Record<string,Quote|undefined>;changes?:Record<string,number|null|undefined>;onSelect:(s:string)=>void};
+type Props={symbol:string|null;symbols:MarketSymbols;quotes:Record<string,Quote|undefined>;changes?:Record<string,number|null|undefined>;summary?:MarketSummary;onSelect:(s:string)=>void};
 const price=(m:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}).format(m/1e6);
 function Change({v}:{v:number|null|undefined}){
  if(v==null||!Number.isFinite(v))return <span className={styles.na} title="Change since first live quote today (UTC). Unavailable.">n/a</span>;
  return <span title="Change since first live quote today (UTC)" className={v>=0?styles.up:styles.down}>{(v>=0?"+":"")+v.toFixed(2)}%</span>;
 }
 /** Current-symbol button (chart top-left) that opens a left sidebar of every active market. */
-export default function MarketSymbolPicker({symbol,symbols,quotes,changes,onSelect}:Props){
+export default function MarketSymbolPicker({symbol,symbols,quotes,changes,summary,onSelect}:Props){
  const [open,setOpen]=useState(false),[term,setTerm]=useState("");
  useEffect(()=>{if(!open)return;const k=(e:KeyboardEvent)=>{if(e.key==="Escape")setOpen(false);};addEventListener("keydown",k);return()=>removeEventListener("keydown",k);},[open]);
  const match=(s:string)=>{const t=term.trim().toLowerCase();return !t||s.toLowerCase().includes(t)||stockDisplayName(s).toLowerCase().includes(t);};
  const groups=useMemo(()=>[["Stocks",symbols.stocks.filter(match)],["Crypto",symbols.crypto.filter(match)]] as const,[symbols.stocks,symbols.crypto,term]);
  const q=symbol?quotes[symbol]:undefined;
- const row=(s:string)=><li key={s}><button className={styles.row} aria-current={s===symbol} onClick={()=>{onSelect(s);setOpen(false);}}><span className={styles.name}>{stockDisplayName(s)}</span><span className={styles.nums}><span>{quotes[s]?price(quotes[s]!.micro):"Unavailable"}</span><Change v={changes?.[s]}/></span></button></li>;
+ const rowMicro=(s:string)=>summary?summary[s]?.micro:quotes[s]?.micro;
+ const row=(s:string)=><li key={s}><button className={styles.row} aria-current={s===symbol} onClick={()=>{onSelect(s);setOpen(false);}}><span className={styles.name}>{stockDisplayName(s)}</span><span className={styles.nums}><span>{rowMicro(s)!=null?price(rowMicro(s)!):"Unavailable"}</span><Change v={summary?summary[s]?.change:changes?.[s]}/></span></button></li>;
  return <>
   <button className={styles.trigger} aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}>{symbol?<>{stockDisplayName(symbol)} / USD <small>{q?price(q.micro):""}</small></>:"No markets"}<span aria-hidden>▾</span></button>
   {open?<><div className={styles.scrim} onClick={()=>setOpen(false)}/><aside className={styles.drawer} role="dialog" aria-label="Choose a market">

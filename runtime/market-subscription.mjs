@@ -9,5 +9,5 @@ export function scopeMarketRoom(room,symbol){
  const pick=record=>symbol&&Object.hasOwn(record||{},symbol)?{[symbol]:record[symbol]}:{};
  // Portfolio valuations and trigger execution are computed using the complete
  // server-side quote book before this transport-only projection.
- return {...room,...(room.quotes?{quotes:pick(room.quotes)}:{}),...(room.marketChanges?{marketChanges:pick(room.marketChanges)}:{}),...(room.stockExecution?{stockExecution:pick(room.stockExecution)}:{})};
+ return {...room,...(room.marketSummary?{marketSummary:symbol?room.marketSummary:{}}:{}),...(room.quotes?{quotes:pick(room.quotes)}:{}),...(room.marketChanges?{marketChanges:pick(room.marketChanges)}:{}),...(room.stockExecution?{stockExecution:pick(room.stockExecution)}:{})};
 }
