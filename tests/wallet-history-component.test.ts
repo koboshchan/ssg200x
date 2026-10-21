@@ -17,12 +17,13 @@ test("real Wallet and LiveProvider coalesce events, preserve balance, and cancel
   b.onLoad({filter:/.*/,namespace:"route-fixture"},()=>({contents:'export function usePathname(){return "/wallet"}',loader:"js"}));
   b.onResolve({filter:/^socket.io-client$/},()=>({path:resolve("tests/fixtures/wallet-socket.ts")}));
  }}]});
- const browser=await chromium.launch({headless:true,channel:"chromium"});
+ const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{channel:"chromium"})});
  try{
   const page=await browser.newPage();await page.clock.install({time:new Date("2026-10-20T16:00:00Z")});
   let requests=0,mode="ok",release:(()=>void)|undefined;
   await page.route("http://wallet.test/**",async(route:any)=>{
-   if(route.request().url().includes("/api/transfers")){requests++;if(mode==="slow")await new Promise<void>(resolve=>{release=resolve;});await route.fulfill({status:mode==="429"?429:200,headers:{"content-type":"application/json",...(mode==="429"?{"Retry-After":"2"}:{})},body:mode==="429"?'{"error":"Slow down"}':'{"transfers":[]}'});}
+   if(route.request().url().includes("active=1")){await route.fulfill({contentType:"application/json",body:'{"codes":[]}'});}
+   else if(route.request().url().includes("/api/transfers")){requests++;if(mode==="slow")await new Promise<void>(resolve=>{release=resolve;});await route.fulfill({status:mode==="429"?429:200,headers:{"content-type":"application/json",...(mode==="429"?{"Retry-After":"2"}:{})},body:mode==="429"?'{"error":"Slow down"}':'{"transfers":[]}'});}
    else await route.fulfill({contentType:"text/html",body:'<div id="root"></div>'});
   });
   await page.goto("http://wallet.test");await page.addScriptTag({content:bundle.outputFiles[0].text});
@@ -33,7 +34,7 @@ test("real Wallet and LiveProvider coalesce events, preserve balance, and cancel
   await page.evaluate(()=>{for(let i=0;i<80;i++){(window as any).walletSocket("market:update",{price:i});(window as any).walletSocket("room:state",{me:{wallet:10000+i,admin:false},transferHistoryKeys:{mine:"a",all:"a"}});}(window as any).walletHarness.mount();});
   await page.clock.runFor(1100);assert.equal(requests,1);
   assert.match(await page.locator("header").innerText(),/100.79/);
-  for(let i=0;i<20;i++)await room("b"+i);
+  await page.evaluate(()=>{for(let i=0;i<20;i++)(window as any).walletSocket("room:state",{me:{wallet:10079,admin:false},transferHistoryKeys:{mine:"b"+i,all:"b"+i}});});
   await page.clock.runFor(200);await page.waitForTimeout(30);assert.equal(requests,2);
   mode="slow";await room("slow");await page.clock.runFor(200);await page.waitForTimeout(30);
   const inFlight=requests;assert.ok(release);
@@ -60,14 +61,14 @@ test("Wallet requests two words while accepting legacy four-word payments",async
   b.onLoad({filter:/.*/,namespace:"route-fixture"},()=>({contents:'export function usePathname(){return "/wallet"}',loader:"js"}));
   b.onResolve({filter:/^socket.io-client$/},()=>({path:resolve("tests/fixtures/wallet-socket.ts")}));
  }}]});
- const browser=await chromium.launch({headless:true,channel:"chromium"});
+ const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{channel:"chromium"})});
  try{
   const page=await browser.newPage(),resolved:string[]=[];
   await page.route("https://wallet.test/**",async(route:any)=>{
    if(route.request().url().includes("/api/transfers")){
     const body=route.request().postDataJSON();
     if(body?.action==="resolve")resolved.push(body.code);
-    const value=!body?{transfers:[]}:body.action==="code"?{code:"cat dog",expiresAt:Date.now()+600000,amount:100}:body.action==="resolve"?{name:"Bob",publicId:"bob",amount:100,expiresAt:Date.now()+600000}:{transfer:{id:"ok"}};
+    const value=!body?(route.request().url().includes("active=1")?{codes:[]}:{transfers:[]}):body.action==="code"?{id:"request-one",code:"cat dog",expiresAt:Date.now()+600000,amount:100}:body.action==="resolve"?{name:"Bob",publicId:"bob",amount:100,expiresAt:Date.now()+600000}:{transfer:{id:"ok"}};
     await route.fulfill({contentType:"application/json",body:JSON.stringify(value)});
    }else await route.fulfill({contentType:"text/html",body:'<div id="root"></div>'});
   });
@@ -82,10 +83,10 @@ test("Wallet requests two words while accepting legacy four-word payments",async
   await field.fill(" CAT  dog ");await page.getByRole("button",{name:"Check code",exact:true}).click();
   await page.getByRole("button",{name:"Confirm send to Bob"}).waitFor();assert.deepEqual(resolved,["cat dog"]);
   await page.getByRole("button",{name:"Cancel",exact:true}).click();
-  await field.fill("cat dog fish bird");await page.getByRole("button",{name:"Check code",exact:true}).click();
+  await field.fill("cat dog fish bird");await field.press("Escape");await page.getByRole("button",{name:"Check code",exact:true}).click();
   await page.getByRole("button",{name:"Confirm send to Bob"}).click();
   await page.getByText("Play money sent.",{exact:true}).waitFor();assert.deepEqual(resolved,["cat dog","cat dog fish bird"]);
-  await field.fill("cat dog fish");await page.getByRole("button",{name:"Check code",exact:true}).click();
+  await field.fill("cat dog fish");await field.press("Escape");await page.getByRole("button",{name:"Check code",exact:true}).click();
   await page.getByRole("alert").waitFor();assert.match(await page.getByRole("alert").innerText(),/two-word/);assert.equal(resolved.length,2);
  }finally{await browser.close();}
 });

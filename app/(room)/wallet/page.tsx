@@ -4,11 +4,13 @@ import {useEffect,useRef,useState} from "react";
 import {useLive,useLiveEvent} from "../../live-provider";
 import {createTransferHistoryRefresh,retryAfterMs} from "@/lib/transfer-history-refresh";
 import type {PublicRoom} from "@/lib/public";
+import WordEntry from "../../word-entry";
 import styles from "./wallet.module.css";
 
 type Entry={id:string;amount:number;note:string;at:number;from:string;to:string;direction:string;kind?:string};
 type Resolved={name:string;publicId:string;expiresAt:number;avatar?:string|null;amount:number;note?:string};
 type Preview={previewId:string;count:number;total:number;amount:number;note?:string;expiresAt:number};
+type ReceiveCode={id:string;code:string;amount:number;note?:string;expiresAt:number};
 type Pending={key:string;requestId:string};
 
 const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(n/100);
@@ -26,12 +28,24 @@ export default function Wallet(){
  const {connection}=useLive();
  const [room,setRoom]=useState<PublicRoom>(),[entries,setEntries]=useState<Entry[]>([]),[all,setAll]=useState(false);
  const [code,setCode]=useState(""),[recipient,setRecipient]=useState<Resolved>();
- const [amount,setAmount]=useState(""),[note,setNote]=useState(""),[receive,setReceive]=useState<{code:string;expiresAt:number;amount?:number;note?:string}>();
+ const [amount,setAmount]=useState(""),[note,setNote]=useState(""),[receive,setReceive]=useState<ReceiveCode[]>([]);
+ const [generateAfter,setGenerateAfter]=useState(0);
+ const nextGenerate=useRef(0);
  const [airAmount,setAirAmount]=useState(""),[airNote,setAirNote]=useState(""),[preview,setPreview]=useState<Preview>();
  const [busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState(""),[now,setNow]=useState(Date.now());
  const sendRetry=useRef<Pending|null>(null),airRetry=useRef<Pending|null>(null),historyRefresh=useRef<ReturnType<typeof createTransferHistoryRefresh>|null>(null),historyKey=useRef<string|undefined>(undefined);
 
  const refresh=()=>historyRefresh.current?.refresh();
+ async function refreshCodes(signal?:AbortSignal){
+  const data=await call("/api/transfers?active=1",undefined,signal);
+  if(!signal?.aborted)setReceive(data.codes);
+ }
+ useEffect(()=>{
+  if(connection!=="connected")return;
+  const controller=new AbortController();
+  void refreshCodes(controller.signal).catch(e=>{if(!controller.signal.aborted)setError(e.message);});
+  return()=>controller.abort();
+ },[connection]);
  useEffect(()=>{
   let active=true;
   const loader=createTransferHistoryRefresh(async signal=>{
@@ -51,6 +65,18 @@ export default function Wallet(){
  function editSend(){sendRetry.current=null;setRecipient(undefined);setMessage("");}
  function editAirdrop(){airRetry.current=null;setPreview(undefined);}
 
+ async function generate(){
+  if(Date.now()<nextGenerate.current)throw new Error("Generate one receive code per second.");
+  nextGenerate.current=Date.now()+1000;setGenerateAfter(nextGenerate.current);
+  const n=note.trim();
+  const created:ReceiveCode=await call("/api/transfers",{action:"code",amount:amount.trim(),...(n?{note:n}:{})});
+  setNow(Date.now());setReceive(previous=>[created,...previous.filter(item=>item.id!==created.id)]);
+  setMessage("Receive code created.");
+ }
+ async function cancelCode(id:string){
+  await call("/api/transfers",{action:"cancel",id});
+  setReceive(previous=>previous.filter(item=>item.id!==id));setMessage("Receive code cancelled.");
+ }
  async function resolve(){
   const c=words(code);
   if(c.length!==2&&c.length!==4)throw new Error("Enter the two-word code.");
@@ -86,17 +112,26 @@ export default function Wallet(){
   <header><p className={styles.eyebrow}>Play money only</p><h1>Wallet</h1><p className={styles.balance}>{room?money(room.me.wallet):"Loading…"}</p><p>Available cash. Open positions and table chips stay locked.</p></header>
   <div className={styles.columns}>
    <section aria-labelledby="receive-title"><h2 id="receive-title">Receive</h2>
-    <p>Set the amount you want, then share the two-word code with the sender. It expires in 10 minutes and works once. Generating a new code cancels the old one. This is not your chat recovery phrase.</p>
-    <form onSubmit={e=>{e.preventDefault();void run(async()=>{const n=note.trim();const created=await call("/api/transfers",{action:"code",amount:amount.trim(),...(n?{note:n}:{})});setNow(Date.now());setReceive(created);});}}>
+    <p>Set the amount you want, then share the two-word code with the sender. It expires in 10 minutes and works once. Each code stays active until it is used, cancelled, or expires. This is not your chat recovery phrase.</p>
+    <form onSubmit={e=>{e.preventDefault();void run(generate);}}>
      <label>Amount in dollars<input inputMode="decimal" autoComplete="off" value={amount} maxLength={32} required disabled={busy} onChange={e=>setAmount(e.target.value)} placeholder="0.00" pattern={AMOUNT}/></label>
      <label>Note <span>(optional)</span><input value={note} maxLength={160} disabled={busy} onChange={e=>setNote(e.target.value)}/></label>
-     <button className="primary" disabled={busy||!ready}>{receive?"Generate new code":"Generate receive code"}</button>
+     <button className="primary" disabled={busy||!ready||now<generateAfter}>Generate receive code</button>
     </form>
-    {receive&&receive.expiresAt>now?<><output className={styles.code} aria-label="Your receive code">{receive.code}</output><p>Expires in {Math.min(10,Math.max(1,Math.ceil((receive.expiresAt-now)/60000)))} min.</p><button disabled={busy} onClick={()=>void run(async()=>{await navigator.clipboard.writeText(receive.code);setMessage("Receive code copied.");})}>Copy code</button></>:receive?<p role="status">Your code expired. Generate a new one.</p>:null}
+    <div className={styles.receiveList} aria-label="Active receive codes">
+     {receive.filter(item=>item.expiresAt>now).map(item=><article key={item.id} className={styles.receiveItem} aria-label={item.code}>
+      <output className={styles.code} aria-label="Your receive code">{item.code}</output>
+      <p><strong>{money(item.amount)}</strong>{item.note?<> · {item.note}</>:null}</p>
+      <p>Expires in {Math.min(10,Math.max(1,Math.ceil((item.expiresAt-now)/60000)))} min.</p>
+      <button disabled={busy} onClick={()=>void run(async()=>{await navigator.clipboard.writeText(item.code);setMessage("Receive code copied.");})}>Copy code</button>
+      <button disabled={busy||!ready} onClick={()=>void run(()=>cancelCode(item.id))}>Cancel code</button>
+     </article>)}
+     {!receive.some(item=>item.expiresAt>now)?<p>No active receive codes.</p>:null}
+    </div>
    </section>
    <section aria-labelledby="send-title"><h2 id="send-title">Send</h2>
     <form onSubmit={e=>{e.preventDefault();void run(recipient?send:resolve);}}>
-     <label>Recipient’s two-word code (older four-word codes also work)<input autoComplete="off" autoCapitalize="none" spellCheck={false} value={code} maxLength={100} required disabled={busy} onChange={e=>{setCode(e.target.value);editSend();}} placeholder="word word"/></label>
+     <WordEntry count={2} label="Recipient’s two-word code" value={code} disabled={busy} onChange={value=>{setCode(value);editSend();}}/>
      {recipient?<div role="status" className={styles.preview}>{recipient.avatar?<img src={recipient.avatar} alt="" width={40} height={40} style={{borderRadius:"50%"}}/>:null}<p>Send <strong>{money(recipient.amount)}</strong> to <strong>{recipientName}</strong>{recipient.note?<>. Note: “{recipient.note}”</>:null}. {expired?"Code expired. Ask for a new code.":"The amount is set by the receiver."}</p></div>:null}
      <button className="primary" disabled={busy||!ready||expired}>{busy?"Working…":recipient?"Confirm send to "+recipientName:"Check code"}</button>{recipient?<button type="button" disabled={busy} onClick={editSend}>Cancel</button>:null}
     </form>

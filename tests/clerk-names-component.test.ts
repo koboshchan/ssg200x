@@ -29,6 +29,7 @@ test("mounted Wallet preview/history and TableTalk own/historical messages renam
   let generation="Current",historyCalls=0;
   await page.route("https://names.test/**",async(route:any)=>{
    if(route.request().url().includes("/api/transfers")){
+    if(route.request().url().includes("active=1"))return route.fulfill({json:{codes:[]}});
     const body=route.request().postDataJSON();
     if(body?.action==="resolve")await route.fulfill({json:{name:"Current Bob",publicId:"bob-public",amount:100,expiresAt:Date.now()+600000}});
     else{historyCalls++;await route.fulfill({json:{transfers:[{id:"1",amount:100,note:"",at:1,from:generation+" Alice",to:generation+" Bob",direction:"sent"}]}});}
@@ -38,7 +39,7 @@ test("mounted Wallet preview/history and TableTalk own/historical messages renam
   await page.waitForFunction(()=>Boolean((window as any).walletSocket));
   const frame=(generation:string)=>page.evaluate((g:string)=>(window as any).walletSocket("room:state",{me:{wallet:10000,admin:false},chatNames:[{publicId:"alice-public",name:g+" Alice"},{publicId:"bob-public",name:g+" Bob"}],transferHistoryKeys:{mine:g,all:g}}),generation);
   await frame(generation);
-  await page.getByPlaceholder("word word").fill("cat dog");await page.getByRole("button",{name:"Check code",exact:true}).click();
+  await page.getByPlaceholder("word word").fill("cat dog");await page.getByPlaceholder("word word").press("Escape");await page.getByRole("button",{name:"Check code",exact:true}).click();
   await page.getByRole("button",{name:"Confirm send to Current Bob"}).waitFor();
   await page.locator(".chat-meta").filter({hasText:"Current Alice"}).waitFor();
   await page.locator(".chat-meta").filter({hasText:"Current Bob"}).waitFor();
