@@ -15,4 +15,44 @@ before(async()=>{await(await db()).dropDatabase();});after(async()=>{await(await
 test('parallel identical start debits once and persists across database restart',async()=>{const input={...meta(),type:'start' as const,game:'chicken' as const,amount:1000};await Promise.all(Array.from({length:8},()=>mutate(r=>miniAction(r,who,input))));await closeDatabase();let r=await readRoom();assertRoom(r);assert.equal(r.members[0].wallet,99000);assert.equal(r.miniGames!.length,1);const g=r.miniGames![0];assert.equal(g.status,'active');await mutate(r=>miniAction(r,who,{...meta(),type:'step',id:g.id,revision:0},()=>1));await closeDatabase();r=await readRoom();assert.equal(r.miniGames![0].steps,1);assertRoom(r);});
 test('parallel duplicate cashout credits and audits once; future reuse rejects',async()=>{let r=await readRoom();const g=r.miniGames![0],input={...meta(),type:'cashout' as const,id:g.id,revision:g.revision};await Promise.all(Array.from({length:8},()=>mutate(r=>miniAction(r,who,input))));await closeDatabase();r=await readRoom();assert.equal(r.members[0].wallet,100225);assert.equal(r.miniGames![0].payout,1225);assertRoom(r);assert.equal(await(await db()).collection('audit').countDocuments({what:'minigame-cashout'}),1);await assert.rejects(mutate(r=>miniAction(r,who,{...input,revision:input.revision+1})));});
 test('competing step/cashout commits exactly one revision; insufficient wallet races fail closed',async()=>{await mutate(r=>miniAction(r,who,{...meta(),type:'start',game:'mines',amount:1000,mines:3},()=>0));let r=await readRoom();const g=r.miniGames![0];const cells=Array.from({length:25},(_,i)=>i).filter(i=>!g.bombs!.includes(i));await mutate(r=>miniAction(r,who,{...meta(),type:'step',id:g.id,revision:0,cell:cells[0]}));const outcomes=await Promise.allSettled([mutate(r=>miniAction(r,who,{...meta(),type:'step',id:g.id,revision:1,cell:cells[1]})),mutate(r=>miniAction(r,who,{...meta(),type:'cashout',id:g.id,revision:1}))]);assert.equal(outcomes.filter(x=>x.status==='fulfilled').length,1);r=await readRoom();assertRoom(r);await mutate(r=>register(r,other));const starts=await Promise.allSettled(['chicken','hilo'].map(game=>mutate(r=>miniAction(r,other,{...meta(),type:'start',game:game as 'chicken'|'hilo',amount:100000},()=>1))));assert.equal(starts.filter(x=>x.status==='fulfilled').length,1);r=await readRoom();assert.equal(r.members.find(m=>m.id==='b')!.wallet,0);assertRoom(r);});
+test('eight concurrent Plinko wagers each settle once with their exact stable result ID',async()=>{
+ const player={...who,id:'plinko-eight'};
+ await mutate(r=>register(r,player));
+ const inputs=Array.from({length:8},()=>({...meta(),type:'start' as const,game:'plinko' as const,amount:1000}));
+ const outcomes=await Promise.all(inputs.map(input=>mutate(r=>miniAction(r,player,input,()=>0))));
+ for(let i=0;i<inputs.length;i++){
+  assert.equal(outcomes[i].result,inputs[i].requestId);
+  const g=outcomes[i].room.miniGames!.find(g=>g.id===outcomes[i].result)!;
+  assert.equal(g.bet,1000);assert.equal(g.status,'won');assert.equal(g.owner,player.id);
+ }
+ await closeDatabase();let r=await readRoom();assertRoom(r);
+ const games=r.miniGames!.filter(g=>g.owner===player.id);
+ assert.equal(games.length,8);assert.equal(new Set(games.map(g=>g.id)).size,8);
+ assert.equal(r.members.find(m=>m.id===player.id)!.wallet,100000-8000+games.reduce((n,g)=>n+g.payout,0));
+ const before=r.members.find(m=>m.id===player.id)!.wallet;
+ // Replay all envelopes after a database reconnect, in reverse response order.
+ const replays=await Promise.all([...inputs].reverse().map(input=>mutate(r=>miniAction(r,player,input,()=>1))));
+ assert.deepEqual(new Set(replays.map(x=>x.result)),new Set(inputs.map(x=>x.requestId)));
+ r=await readRoom();assertRoom(r);assert.equal(r.members.find(m=>m.id===player.id)!.wallet,before);
+ assert.equal(await(await db()).collection('audit').countDocuments({who:player.id,what:'minigame-start'}),8);
+});
+test('simultaneous duplicate Plinko envelopes neither reroll nor double-charge among distinct drops',async()=>{
+ const player={...who,id:'plinko-duplicate'};await mutate(r=>register(r,player));
+ const inputs=Array.from({length:4},()=>({...meta(),type:'start' as const,game:'plinko' as const,amount:500}));
+ const values=await Promise.all(inputs.flatMap(input=>[mutate(r=>miniAction(r,player,input)),mutate(r=>miniAction(r,player,input))]));
+ for(let i=0;i<inputs.length;i++){assert.equal(values[i*2].result,inputs[i].requestId);assert.equal(values[i*2+1].result,inputs[i].requestId);}
+ const r=await readRoom(),games=r.miniGames!.filter(g=>g.owner===player.id);assertRoom(r);
+ assert.equal(games.length,4);assert.equal(r.members.find(m=>m.id===player.id)!.wallet,100000-2000+games.reduce((n,g)=>n+g.payout,0));
+ assert.equal(await(await db()).collection('audit').countDocuments({who:player.id,what:'minigame-start'}),4);
+ await assert.rejects(mutate(r=>miniAction(r,player,{...inputs[0],amount:600})),/different order/);
+});
+test('concurrent full-wallet Plinko bets fail closed rather than overspending',async()=>{
+ const player={...who,id:'plinko-funds'};await mutate(r=>register(r,player));
+ const inputs=Array.from({length:8},()=>({...meta(),type:'start' as const,game:'plinko' as const,amount:100000}));
+ const outcomes=await Promise.allSettled(inputs.map(input=>{let bit=0;return mutate(r=>miniAction(r,player,input,()=>bit++%2));}));
+ assert.equal(outcomes.filter(x=>x.status==='fulfilled').length,1);
+ const r=await readRoom(),games=r.miniGames!.filter(g=>g.owner===player.id);assertRoom(r);assert.equal(games.length,1);
+ assert.equal(r.members.find(m=>m.id===player.id)!.wallet,games[0].payout);
+ assert.equal(await(await db()).collection('audit').countDocuments({who:player.id,what:'minigame-start'}),1);
+});
 test('admin limit authorization, old clients preserve games cap, existing games remain payable',async()=>{await mutate(r=>changeCasinoLimits(r,admin,{...casinoLimits(r),gamesMaxBet:100,expectedVersion:casinoLimits(r).revision}));await assert.rejects(mutate(r=>changeCasinoLimits(r,who,{rouletteMaxTotal:100,blackjackMaxHand:100,expectedVersion:casinoLimits(r).revision})));await mutate(r=>changeCasinoLimits(r,admin,{rouletteMaxTotal:1000,blackjackMaxHand:1000,expectedVersion:casinoLimits(r).revision}));let r=await readRoom();assert.equal(casinoLimits(r).gamesMaxBet,100);await assert.rejects(mutate(r=>miniAction(r,who,{...meta(),type:'start',game:'dice',amount:200,target:50,direction:'over'})));r=await readRoom();const g=r.miniGames!.find(g=>g.owner==='b'&&g.status==='active')!;await mutate(r=>miniAction(r,other,{...meta(),type:'step',id:g.id,revision:0,...(g.kind==='hilo'?{choice:'high' as const}:{})},()=>2));assertRoom(await readRoom());assert.ok(!JSON.stringify(miniSnapshot(await readRoom(),who)).includes('bombs'));});

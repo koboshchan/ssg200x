@@ -1,4 +1,4 @@
-import {randomInt,randomUUID} from "node:crypto";
+import {randomInt} from "node:crypto";
 import {audit} from "./audit";
 import {casinoLimits} from "./casino-limits";
 import {isWholeCasinoAmount} from "./casino-amount";
@@ -35,13 +35,16 @@ export function miniSnapshot(r:Room,who:Identity){const m=r.members.find(m=>m.id
 /** Called only inside the shared wallet/room CAS. RNG is server-only and retries
  * remain speculative until one complete room+wallet+receipt+audit CAS commits. */
 export function miniAction(r:Room,who:Identity,input:MiniInput,rng:(max:number)=>number=randomInt){
- const member=register(r,who);if(checkFinanceRequest(r,who.id,input))return;
+ const member=register(r,who);
+ // The wager's stable ID survives concurrent CAS retries and response reordering.
+ // Legacy starts used random IDs, so their acknowledged replay may have no retained result.
+ if(checkFinanceRequest(r,who.id,input))return input.type==="start"?(r.miniGames??[]).find(g=>g.owner===who.id&&g.id===input.requestId)?.id??null:input.id;
  const before=member.wallet;let g:MiniGame;
  if(input.type==="start"){
   ensure(isWholeCasinoAmount(input.amount)&&input.amount>=100&&input.amount<=casinoLimits(r).gamesMaxBet,"Bet must be whole dollars within the games limit.");
   ensure(member.wallet>=input.amount,"Not enough money in your wallet.");
   ensure(!(r.miniGames??[]).some(g=>g.owner===who.id&&g.kind===input.game&&g.status==="active"),"Finish your current game first.",409);
-  g={id:randomUUID(),owner:who.id,kind:input.game,bet:input.amount,status:"active",revision:0,steps:0,payout:0,createdAt:Date.now(),num:98,den:100};
+  g={id:input.requestId,owner:who.id,kind:input.game,bet:input.amount,status:"active",revision:0,steps:0,payout:0,createdAt:Date.now(),num:98,den:100};
   member.wallet-=g.bet;
   // Retain every active session and the latest 30 terminal sessions per player.
   let retained=0;r.miniGames=[g,...(r.miniGames??[]).filter(x=>x.owner!==who.id||x.status==="active"||retained++<30)];
@@ -77,4 +80,5 @@ export function miniAction(r:Room,who:Identity,input:MiniInput,rng:(max:number)=
  }
  audit(r,who,"minigame-"+input.type,g.id,{wallet:before},{requestId:input.requestId,kind:g.kind,bet:g.bet,status:g.status,steps:g.steps,revision:g.revision,payout:g.payout,wallet:member.wallet,result:g.result??null});
  recordFinanceRequest(r,who.id,input,"committed");
+ return g.id;
 }

@@ -14,5 +14,5 @@ const miniSchema=z.discriminatedUnion("type",[
 export const GET=(request:Request)=>endpoint(request,async who=>miniSnapshot(await visit(who),who));
 export const POST=(request:Request)=>endpoint(request,async who=>{
  await rateLimit("minigames:"+who.id,100);const input=await parse(request,miniSchema);
- const {room}=await mutate(room=>miniAction(room,who,input as MiniInput));return miniSnapshot(room,who);
+ const {room,result:actionGameId}=await mutate(room=>miniAction(room,who,input as MiniInput));return {...miniSnapshot(room,who),actionGameId};
 });

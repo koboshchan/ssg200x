@@ -22,3 +22,22 @@ test('malformed/over-limit/fractional/unsafe/insufficient bets and cross-payload
 test('full mines clear and six hilo guesses settle automatically',()=>{const r=room();miniAction(r,who,start('mines',{mines:10}),()=>0);let g=r.miniGames![0];for(const cell of Array.from({length:25},(_,i)=>i).filter(i=>!g.bombs!.includes(i)))miniAction(r,who,{...meta(),type:'step',id:g.id,revision:g.revision,cell});assert.equal(g.status,'won');assertRoom(r);const r2=room();miniAction(r2,who,start('hilo'),()=>0);g=r2.miniGames![0];for(let i=0;i<6;i++)miniAction(r2,who,{...meta(),type:'step',id:g.id,revision:g.revision,choice:i%2===0?'high':'low'},()=>i%2===0?12:0);assert.equal(g.status,'won');assertRoom(r2);});
 
 test('escrow survives market frames and navigation warning without leaking the board',()=>{const r=room();miniAction(r,who,start('mines',{mines:3}),()=>0);const pub=publicRoom(r,who);assert.equal(moneyInPlay(pub,'/games'),1000);assert.equal(moneyInPlay(publicRoom(r,other),'/games'),0);const wire=marketPayload(r,who.id);assert.equal(wire.leaderboard.find(x=>x.publicId===r.members[0].publicId)!.netWorth,100000);assert.ok(!JSON.stringify(wire).includes('bombs'));assertRoom(r);});
+
+test('Plinko exact per-request result identity survives overlapping wagers and replays',()=>{
+ const r=room(),first=start('plinko'),second=start('plinko');
+ assert.equal(miniAction(r,who,first,()=>0),first.requestId);
+ assert.equal(miniAction(r,who,second,()=>1),second.requestId);
+ const before=r.members[0].wallet,results=structuredClone(r.miniGames);
+ assert.equal(miniAction(r,who,first,()=>1),first.requestId);
+ assert.equal(miniAction(r,who,second,()=>0),second.requestId);
+ assert.equal(r.members[0].wallet,before);assert.deepEqual(r.miniGames,results);
+ assert.throws(()=>miniAction(r,other,first));assertRoom(r);
+});
+test('trimmed Plinko replay acknowledges without replacement, reroll, or wallet changes',()=>{
+ const r=room(),input=start('plinko');miniAction(r,who,input,()=>0);
+ for(let i=0;i<35;i++)miniAction(r,who,start('plinko'),()=>1);
+ assert.ok(!r.miniGames!.some(g=>g.id===input.requestId));
+ const wallet=r.members[0].wallet,len=r.miniGames!.length;
+ assert.equal(miniAction(r,who,input),null);
+ assert.equal(r.members[0].wallet,wallet);assert.equal(r.miniGames!.length,len);assertRoom(r);
+});
