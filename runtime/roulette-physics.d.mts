@@ -1,0 +1,16 @@
+export type IdleAnchor={atMs:number;phase:number;vel:number;slot:number;rel:number;r:number};
+export type LaunchParams={d:number;dvk:number;dwb:number};
+export type PhysicsRound={roundId:string;target:number;physicsVersion:string;lockDeadline:number;resultGeneratedAt:number;broadcastAt:number;spinStartAt:number;serverNow:number;idleAnchor:IdleAnchor;launchParams:LaunchParams};
+export type Pose={W:number;a:number;r:number;z:number;phi:number;e:number;vis:number;phase:string};
+export type Trajectory={wp:Record<string,number>;f:{A:Float64Array;R:Float64Array;Z:Float64Array;ev:{tRest:number;phiRest:number;rRest:number;tLip:number|null};end:number};t0:number;duration:number;endAnchor:IdleAnchor;round:PhysicsRound};
+export const PHYS_VERSION:string, STEP:number,TAU:number;
+export const POCKETS:number[];
+export function idleRate():number;
+export function idleV(anchor:IdleAnchor,t:number):number;
+export function idleW(anchor:IdleAnchor,t:number):number;
+export function wheelOf(w:Record<string,number>,e:number):number;
+export function wheelVelOf(w:Record<string,number>,e:number):number;
+export function pocketAtRest(phi:number):number;
+export function validateRound(o:PhysicsRound):void;
+export function createTrajectory(o:PhysicsRound):Trajectory;
+export function poseAt(sp:Trajectory,t:number,reduced?:boolean):Pose;

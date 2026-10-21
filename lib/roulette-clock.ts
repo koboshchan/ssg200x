@@ -4,16 +4,17 @@ export const ROULETTE_MS=60_000; // Spin may begin only after the five-second lo
 export const ROULETTE_SPIN_MS=12_000;
 export const ROULETTE_RESULT_MS=5_000;
 export const WHEEL_POCKETS=[0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26] as const;
-export type RouletteSpin={round:number;number:number;startedAt:number;resultAt:number;nextAt:number;fromRotation?:number};
+import type {PhysicsRound} from './roulette-physics';
+export type RouletteSpin={physics?:PhysicsRound;round:number;number:number;startedAt:number;resultAt:number;nextAt:number;fromRotation?:number};
 export type RoulettePhase='betting'|'locked'|'spinning'|'result';
 export type RouletteClock={locksAt:number;spinsAt:number;spin:RouletteSpin|null};
 export function roulettePhase(clock:RouletteClock,now:number):RoulettePhase{
- if(clock.spin)return now<clock.spin.resultAt?'spinning':'result';
+ if(clock.spin)return now<clock.spin.startedAt?'locked':now<clock.spin.resultAt?'spinning':'result';
  return now<clock.locksAt?'betting':'locked';
 }
 export function phaseDeadline(clock:RouletteClock,now:number):number{
  const phase=roulettePhase(clock,now);
- return phase==='betting'?clock.locksAt:phase==='locked'?clock.spinsAt:phase==='spinning'?clock.spin!.resultAt:clock.spin!.nextAt;
+ return phase==='betting'?clock.locksAt:phase==='locked'?(clock.spin?.startedAt??clock.spinsAt):phase==='spinning'?clock.spin!.resultAt:clock.spin!.nextAt;
 }
 /** Public round clock only: ambient rotation cannot encode an unchosen result. */
 export function ambientWheelRotation(started:number,now:number,previous?:{number:number}){

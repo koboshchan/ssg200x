@@ -1,3 +1,4 @@
+import {idleRate,type IdleAnchor} from './roulette-physics';
 import {settleAdvancements} from "./advancements";
 import {casinoLimits,CASINO_LIMIT_MAX_CENTS} from "./casino-limits";
 import {ROULETTE_CHIPS} from "./roulette-chips";
@@ -11,7 +12,7 @@ import type {Room,Identity} from './types';
 import {ROULETTE_MS,ROULETTE_OPEN_MS,ROULETTE_SPIN_MS,ROULETTE_RESULT_MS,roulettePhase,ambientWheelRotation,type RouletteSpin} from './roulette-clock';
 export {ROULETTE_MS,ROULETTE_OPEN_MS} from './roulette-clock';
 export type RouletteWager={id:string;userId:string;bet:Bet;dead?:boolean};
-export type RouletteState={round:number;started:number;spin?:RouletteSpin;settledBets?:RouletteWager[];bets:RouletteWager[];previousBets?:RouletteWager[];history:{round:number;number:number;at:number;winners?:{publicId:string;name:string;stake:number;returned:number}[]}[]};
+export type RouletteState={round:number;started:number;anchor?:IdleAnchor;pending?:{id:string;lockedAt:number;target?:number;generatedAt?:number};spin?:RouletteSpin;settledBets?:RouletteWager[];bets:RouletteWager[];previousBets?:RouletteWager[];history:{round:number;number:number;at:number;winners?:{publicId:string;name:string;stake:number;returned:number}[]}[]};
 // Private, persisted engine metadata never crosses the public serializer.
 const chipAmounts=new Set<number>(ROULETTE_CHIPS.map(chip=>chip.value*100));
 function publicBet(b:Bet):Bet{return {kind:b.kind,...(b.pick===undefined?{}:{pick:b.pick}),amount:b.amount};}
@@ -23,11 +24,12 @@ function repeatable(b:RouletteState,userId:string){
 }
 type RRoom=Room&{roulette?:RouletteState};
 export type RouletteAction={type:'rebet'}|{type:'bet';bet:Bet}|{type:'change';betId:string;bet:Bet}|{type:'cancel';betId:string};
-export function rouletteState(r:Room,now:number):RouletteState{return (r as RRoom).roulette??={round:1,started:now,bets:[],history:[]};}
+export function initialAnchor(now:number):IdleAnchor{return {atMs:now,phase:.6,vel:idleRate(),slot:0,rel:0,r:.6};}
+export function rouletteState(r:Room,now:number):RouletteState{return (r as RRoom).roulette??={round:1,started:now,bets:[],history:[],anchor:initialAnchor(now)};}
 export function rouletteAssets(r:Room,userId?:string):number{return ((r as RRoom).roulette?.bets||[]).reduce((n,w)=>n+(!userId||w.userId===userId?w.bet.amount:0),0);}
-/** Every transition shares the existing room CAS. Result is chosen once at spin start,
- * never during betting. Hold the settled round through animation and result pause. */
-export function rouletteTick(r:Room,now:number,rng:(max:number)=>number=randomInt):boolean{
+/** Settlement shares the room CAS. Production supplies a post-lock solved spin;
+ * the synchronous RNG path remains for existing engine fixtures/legacy rounds. */
+export function rouletteTick(r:Room,now:number,rng:(max:number)=>number=randomInt,prepared?:RouletteSpin):boolean{
  const existing=(r as RRoom).roulette;
  if(!existing){rouletteState(r,now);return true;}
  const b=existing;
@@ -36,18 +38,19 @@ export function rouletteTick(r:Room,now:number,rng:(max:number)=>number=randomIn
   for(const member of r.members)settleAdvancements(member,b.settledBets??[],b.spin.number,b.round,b.spin.resultAt,r);
   b.round++;b.started=now;b.previousBets=b.settledBets??[];b.bets=[];delete b.settledBets;delete b.spin;return true;
  }
- if(now<b.started+ROULETTE_MS)return false;
+ if(!prepared&&now<b.started+ROULETTE_MS)return false;
+ ensure(!b.pending||prepared,'Locked round requires solved physics.',500);
  const fromRotation=ambientWheelRotation(b.started,now,b.history[0]);
- const number=rng(37);ensure(Number.isInteger(number)&&number>=0&&number<=36,'Invalid wheel result.',500);
+ const number=prepared?.number??rng(37);ensure(Number.isInteger(number)&&number>=0&&number<=36,'Invalid wheel result.',500);
  for(const w of b.bets){const m=r.members.find(m=>m.id===w.userId);ensure(m,'Missing wager owner.',500);const returned=returnedFor(w,number);m.wallet+=returned;r.house=(r.house??0)+w.bet.amount-returned;}
  for(const m of r.members){const wagers=b.bets.filter(w=>w.userId===m.id);if(!wagers.length)continue;const stake=wagers.reduce((n,w)=>n+w.bet.amount,0),returned=wagers.reduce((n,w)=>n+returnedFor(w,number),0);m.spins=[{id:'roulette-'+b.round,number,stake,returned,at:now},...(m.spins||[])].slice(0,30);}
  const winners=r.members.flatMap(m=>{const spin=m.spins?.[0];return spin?.id==='roulette-'+b.round&&spin.returned>spin.stake?[{publicId:m.publicId,name:m.name,stake:spin.stake,returned:spin.returned}]:[];});
- b.history=[{round:b.round,number,at:now,winners},...b.history].slice(0,20);b.settledBets=b.bets;b.bets=[];b.spin={round:b.round,number,fromRotation,startedAt:now,resultAt:now+ROULETTE_SPIN_MS,nextAt:now+ROULETTE_SPIN_MS+ROULETTE_RESULT_MS};return true;
+ b.history=[{round:b.round,number,at:now,winners},...b.history].slice(0,20);b.settledBets=b.bets;b.bets=[];b.spin=prepared??{round:b.round,number,fromRotation,startedAt:now,resultAt:now+ROULETTE_SPIN_MS,nextAt:now+ROULETTE_SPIN_MS+ROULETTE_RESULT_MS};delete b.pending;return true;
 }
 export function rouletteAction(r:Room,who:Identity,action:RouletteAction,round:number,id:string,now:number):void{
  const m=r.members.find(m=>m.id===who.id);ensure(m,'Account not found.',404);
  const b=rouletteState(r,now);ensure(round===b.round,'The roulette round changed. Refresh first.',409);
- ensure(!b.spin&&now>=b.started&&now<b.started+ROULETTE_OPEN_MS,'Betting is locked.',409);
+ ensure(!b.spin&&!b.pending&&now>=b.started&&now<b.started+ROULETTE_OPEN_MS,'Betting is locked.',409);
  if(action.type==='rebet'){
   ensure(!b.bets.some(w=>w.userId===who.id),'Clear your current bets before using Last bet.',409);
   const previous=repeatable(b,who.id);ensure(previous.length,'No bets from the previous round.');
@@ -76,6 +79,6 @@ export function rouletteAction(r:Room,who:Identity,action:RouletteAction,round:n
 export function roulettePublic(r:Room,who:Identity,now=Date.now()){
  const b=(r as RRoom).roulette;
  // This view never initializes persisted state. The worker owns the initial clock.
- return b?{round:b.round,started:b.started,locksAt:b.started+ROULETTE_OPEN_MS,spinsAt:b.started+ROULETTE_MS,locked:!!b.spin||now>=b.started+ROULETTE_OPEN_MS,phase:roulettePhase({locksAt:b.started+ROULETTE_OPEN_MS,spinsAt:b.started+ROULETTE_MS,spin:b.spin??null},now),spin:b.spin?{round:b.spin.round,number:b.spin.number,fromRotation:b.spin.fromRotation,startedAt:b.spin.startedAt,resultAt:b.spin.resultAt,nextAt:b.spin.nextAt}:null,lastBets:repeatable(b,who.id).map(w=>publicBet(w.bet)),history:b.history.filter(h=>!b.spin||h.round!==b.round||now>=b.spin.resultAt).map(h=>({round:h.round,number:h.number,at:h.at,...(h.winners?{winners:h.winners.map(w=>({publicId:w.publicId,name:w.name,stake:w.stake,returned:w.returned}))}:{})})),bets:(b.spin?b.settledBets??[]:b.bets).map(w=>{const m=r.members.find(m=>m.id===w.userId)!;return {id:w.id,publicId:m.publicId,name:m.name,isYou:w.userId===who.id,bet:publicBet(w.bet)};})}:null;
+ return b?{round:b.round,started:b.started,locksAt:b.started+ROULETTE_OPEN_MS,spinsAt:b.started+ROULETTE_MS,idleAnchor:b.anchor??initialAnchor(b.started),locked:!!b.spin||!!b.pending||now>=b.started+ROULETTE_OPEN_MS,phase:roulettePhase({locksAt:b.started+ROULETTE_OPEN_MS,spinsAt:b.started+ROULETTE_MS,spin:b.spin??null},now),spin:b.spin?{...(b.spin.physics?{physics:{...b.spin.physics,serverNow:now}}:{}),round:b.spin.round,number:b.spin.number,fromRotation:b.spin.fromRotation,startedAt:b.spin.startedAt,resultAt:b.spin.resultAt,nextAt:b.spin.nextAt}:null,lastBets:repeatable(b,who.id).map(w=>publicBet(w.bet)),history:b.history.filter(h=>!b.spin||h.round!==b.round||now>=b.spin.resultAt).map(h=>({round:h.round,number:h.number,at:h.at,...(h.winners?{winners:h.winners.map(w=>({publicId:w.publicId,name:w.name,stake:w.stake,returned:w.returned}))}:{})})),bets:(b.spin?b.settledBets??[]:b.bets).map(w=>{const m=r.members.find(m=>m.id===w.userId)!;return {id:w.id,publicId:m.publicId,name:m.name,isYou:w.userId===who.id,bet:publicBet(w.bet)};})}:null;
 }
 export type RoulettePublic=ReturnType<typeof roulettePublic>;
