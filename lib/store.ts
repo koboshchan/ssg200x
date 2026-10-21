@@ -1,3 +1,4 @@
+import {tickDoudizhu,doudizhuNeedsTick} from "./doudizhu";
 import {tickRoulette} from "./roulette-store";
 import {blackjackTablesTick,blackjackNeedsTick} from "./blackjack";
 import {flushAudit,compactAudit} from "./audit";
@@ -49,6 +50,7 @@ export async function move(who:Identity, action:Action, requestId:string, handNu
 export async function tickRoom() {
  const r=await readRoom(), now=Date.now();
  await tickRoulette();
+ if(doudizhuNeedsTick(r,now))await mutate(r=>tickDoudizhu(r,Date.now()));
  if(Object.values(r.blackjackTables?.tables||{}).some(t=>t&&blackjackNeedsTick(t,now)))await mutate(r=>blackjackTablesTick(r,Date.now()));
  if((!active(r)&&((r.readyDeadline!=null&&now>=r.readyDeadline)||(r.readyDeadline==null&&r.seats.some(s=>s?.ready)))) || (r.deadline!==null && now>=r.deadline) || (r.nextDeal!==null && now>=r.nextDeal) || (!active(r)&&r.seats.some(s=>s&&!s.ready&&(s.leaveAfter||s.stack===0))))await mutate(r=>tick(r,Date.now()));
 }

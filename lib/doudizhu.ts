@@ -10,7 +10,7 @@ export type DoudizhuRoom={code:string;base:number;rate:number;maxLoss:number;ver
 export const DOUDIZHU_TURN_MS=60_000;
 export const DOUDIZHU_RULES={turnMs:DOUDIZHU_TURN_MS,description:"House rules: rate is dollars per point. Each player reserves the room maximum loss. Bids, bombs, rocket and spring multiply points. Loss cannot exceed reserved chips; a losing landlord pays at most their reserve, split equally between farmers with an odd cent to the lower seat."};
 export function doudizhuMaxRate(r:Room){return Number.isSafeInteger(r.doudizhuMaxRate)&&r.doudizhuMaxRate!>=1&&r.doudizhuMaxRate!<=1000000?r.doudizhuMaxRate!:1000;}
-export function doudizhuAssets(r:Room){return (r.doudizhu??[]).reduce((n,g)=>n+g.players.reduce((s,p)=>s+p.escrow,0),0);}
+export function doudizhuAssets(r:Room,userId?:string){return (r.doudizhu??[]).reduce((n,g)=>n+g.players.filter(p=>!userId||p.userId===userId).reduce((s,p)=>s+p.escrow,0),0);}
 const system:Identity={id:"doudizhu-system",name:"Game timer",email:"",admin:false};
 function member(r:Room,id:string){const m=r.members.find(m=>m.id===id);ensure(m,"Account not found.",404);return m;}
 function escrow(r:Room,g:DoudizhuRoom,p:DoudizhuPlayer){const m=member(r,p.userId),amount=g.maxLoss;ensure(Number.isSafeInteger(amount)&&m.wallet>=amount,"Insufficient wallet for maximum-loss reserve.");m.wallet-=amount;p.escrow=amount;}
@@ -108,8 +108,9 @@ export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.n
 }
 export function publicDoudizhu(r:Room,who:Identity,code?:string){
  const own=(r.doudizhu??[]).find(g=>g.players.some(p=>p.userId===who.id));
- // Possession of a code never exposes hands, membership or room state before joining.
+ // Codes reveal only the stake preview. Hands and player identities stay private until joining.
  const g=own&&(!code||own.code===code.trim().toLowerCase().replace(/[\s-]+/g," "))?own:undefined;
- return {houseRules:DOUDIZHU_RULES,maxRate:doudizhuMaxRate(r),wallet:r.members.find(m=>m.id===who.id)?.wallet??0,room:g?{code:g.code,base:g.base,rate:g.rate,maxLoss:g.maxLoss,version:g.version,phase:g.phase,handId:g.handId,players:g.players.map((p,seat)=>({seat,name:member(r,p.userId).name,self:p.userId===who.id,ready:p.ready,auto:p.auto,count:p.hand.length,...(p.userId===who.id?{hand:[...p.hand]}:{}),escrow:p.escrow})),kitty:g.landlord!==null?[...g.kitty]:[],turn:g.turn,deadline:g.deadline,landlord:g.landlord,bid:g.bid,multiplier:g.multiplier,trick:g.trick?structuredClone(g.trick):null,settled:g.settled,result:g.result?structuredClone(g.result):null}:null};
+ const preview=code?(r.doudizhu??[]).find(x=>x.code===code.trim().toLowerCase().replace(/[\s-]+/g," ")):undefined;
+ return {preview:preview?{code:preview.code,rate:preview.rate,maxLoss:preview.maxLoss,count:preview.players.length,phase:preview.phase}:null,houseRules:DOUDIZHU_RULES,maxRate:doudizhuMaxRate(r),wallet:r.members.find(m=>m.id===who.id)?.wallet??0,room:g?{code:g.code,base:g.base,rate:g.rate,maxLoss:g.maxLoss,version:g.version,phase:g.phase,handId:g.handId,players:g.players.map((p,seat)=>({seat,name:member(r,p.userId).name,self:p.userId===who.id,ready:p.ready,auto:p.auto,count:p.hand.length,...(p.userId===who.id?{hand:[...p.hand]}:{}),escrow:p.escrow})),kitty:g.landlord!==null?[...g.kitty]:[],turn:g.turn,deadline:g.deadline,landlord:g.landlord,bid:g.bid,multiplier:g.multiplier,trick:g.trick?structuredClone(g.trick):null,settled:g.settled,result:g.result?structuredClone(g.result):null}:null};
 }
 export type PublicDoudizhu=ReturnType<typeof publicDoudizhu>;

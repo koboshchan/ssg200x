@@ -69,3 +69,12 @@ test("losing landlord cap splits odd cent deterministically; winning landlord co
   assert.deepEqual(g.result!.deltas,winner===0?[202,-101,-101]:[-101,51,50]);assertRoom(r);
  }
 });
+test("code preview discloses stake before joining without revealing players or hands",()=>{
+ const r=started(),g=r.doudizhu![0];
+ const preview=publicDoudizhu(r,users[3],g.code);
+ assert.equal(preview.room,null);
+ assert.deepEqual(preview.preview,{code:g.code,rate:1,maxLoss:12800,count:3,phase:"bidding"});
+ assert(!JSON.stringify(preview).includes("Player 0"));
+ assert.equal(doudizhuAssets(r,users[0].id),12800);
+ assert.equal(doudizhuAssets(r,users[3].id),0);
+});
