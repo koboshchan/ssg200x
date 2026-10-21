@@ -4,6 +4,7 @@ import {useUser} from "@clerk/nextjs";
 import {useLive,useLiveEvent} from "./live-provider";
 import {ChatClient,type ChatMessage,type Snapshot} from "@/lib/chat-client";
 import {indexedDbStore} from "@/lib/chat-store";
+import WordEntry from "./word-entry";
 import {MAX_TEXT_BYTES} from "@/lib/chat-crypto";
 
 const errorText:Record<string,string>={setup_words_lost:"Setup was interrupted. Enter the six words you saved.",wrong_words:"Those words don't match. Check the order and spelling.",bad_words:"Enter exactly six words from the list.",disconnected:"Not connected. Try again in a moment.",timeout:"The server didn't answer in time.",rate_limited:"Slow down a little.",busy:"The server is busy. Trying again.",identity_exists:"Chat keys already exist for this account. Enter your six recovery words.",identity_conflict:"Your keys changed on another device. Reload to continue.",forbidden:"Chat is only open to approved members."};
@@ -76,7 +77,7 @@ function Words({words,onDone,busy,err}:{words:string[];onDone:()=>void;busy:bool
 }
 function Recover({snap,client,err}:{snap:Snapshot;client:ChatClient;err:string|null}){
  const [words,setWords]=useState("");
- return <form className="chat-panel" onSubmit={e=>{e.preventDefault();void client.recover(words);}}><h2>Unlock on this browser</h2><p>Enter your six recovery words to read chat here.</p><label className="sr-only" htmlFor="chat-words">Six recovery words</label><textarea id="chat-words" rows={2} autoComplete="off" autoCapitalize="none" spellCheck={false} value={words} onChange={e=>setWords(e.target.value)} placeholder="word word word word word word"/>{err&&<p className="chat-error" role="alert">{err}</p>}<button className="primary" disabled={snap.busy||!words.trim()}>{snap.busy?"Unlocking…":"Unlock"}</button></form>;
+ return <form className="chat-panel" onSubmit={e=>{e.preventDefault();void client.recover(words);}}><h2>Unlock on this browser</h2><p>Enter your six recovery words to read chat here.</p><WordEntry value={words} onChange={setWords} count={6} disabled={snap.busy} label="Six recovery words"/>{err&&<p className="chat-error" role="alert">{err}</p>}<button className="primary" disabled={snap.busy||!words.trim()}>{snap.busy?"Unlocking…":"Unlock"}</button></form>;
 }
 function Room({snap,client,names}:{snap:Snapshot;client:ChatClient;names:Record<string,string>}){
  const [text,setText]=useState(""),list=useRef<HTMLDivElement>(null),stick=useRef(true);
