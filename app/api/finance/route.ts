@@ -1,4 +1,4 @@
-import {feeCents,roomFeeRates} from "../../../runtime/perp-fee-policy.mjs";
+import {openingFeeCents,roomFeeRates} from "../../../runtime/perp-fee-policy.mjs";
 import {sellAllSpot} from "@/lib/spot-sell-all";
 import {rouletteBetSchema as bet} from "@/lib/casino-schemas";
 import {randomUUID} from "node:crypto";
@@ -45,7 +45,7 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
   const rates=roomFeeRates(r);
   ensure((input.expectedOpeningFeePpm??input.expectedFeePpm??0)===rates.openingFeePpm&&(input.expectedClosingFeePpm??input.expectedFeePpm??0)===rates.closingFeePpm,"Trading fee changed. Review the current fee and try again.",409);
   const member=register(r,who),now=Date.now();
-  const patch=resolveTriggerInput(member,{entry:requireQuote(r,input.symbol,now),margin:input.margin-feeCents(input.margin,input.leverage,1,1,rates.openingFeePpm),leverage:input.leverage,side:input.side},input);
+  const patch=resolveTriggerInput(member,{entry:requireQuote(r,input.symbol,now),margin:input.margin-openingFeeCents(input.margin,input.leverage,rates.openingFeePpm),leverage:input.leverage,side:input.side},input);
   openPosition(r,who,input.symbol,input.side,input.margin,input.leverage,id,now,{...(patch.takeProfit!=null?{takeProfit:patch.takeProfit}:{}),...(patch.stopLoss!=null?{stopLoss:patch.stopLoss}:{})});
   const opened=member.positions!.find(p=>p.id===id)!;
   const snapshot=financeAuditSnapshot(input.requestId,"Open",opened,opened.entry);

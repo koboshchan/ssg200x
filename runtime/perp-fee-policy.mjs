@@ -19,3 +19,18 @@ export function feeCents(margin,leverage,entry,mark,ppm){
  if(!Number.isSafeInteger(result))throw new Error("Perpetual fee exceeds safe limit.");
  return result;
 }
+
+/**
+ * Opening fee is included in the posted margin, not charged on top.
+ * Solve N = M / (1 + leverage * rate), F = M - N on executed N * leverage.
+ * Monetary policy: round the solved fee once, half up to whole cents, then
+ * assign every remaining cent to collateral. This avoids iterative rounding
+ * (which need not have a fixed point) and always conserves M = N + F.
+ * The executed-notional fee differs from the unrounded rate by at most
+ * half a cent * (1 + leverage * rate), due only to collateral cent rounding.
+ */
+export function openingFeeCents(postedMargin,leverage,ppm){
+ if(![postedMargin,leverage,ppm].every(Number.isSafeInteger)||postedMargin<0||leverage<1||leverage>200||ppm<0||ppm>MAX_PERP_FEE_PPM)throw new Error("Invalid opening fee basis.");
+ const k=BigInt(leverage)*BigInt(ppm),denominator=1000000n+k;
+ return Number((BigInt(postedMargin)*k+denominator/2n)/denominator);
+}

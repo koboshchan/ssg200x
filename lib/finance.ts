@@ -1,5 +1,5 @@
 import {roomFeeRates,positionFeeRates} from "../runtime/perp-fee-policy.mjs";
-import {feeCents} from "./perp-fees";
+import {feeCents,openingFeeCents} from "./perp-fees";
 import {casinoLimits,CASINO_LIMIT_MAX_CENTS} from "./casino-limits";
 import {marketSymbols,activeSymbol,delistedSymbol,stockSymbol} from "./symbol-registry";
 import {isWholeCasinoAmount} from "./casino-amount";
@@ -106,7 +106,7 @@ export function openPosition(r:Room,who:Identity,symbol:Symbol,side:"long"|"shor
  ensure(Number.isInteger(leverage)&&leverage>=1&&leverage<=(r.limits?.maxLeverage??200),"Leverage must be 1–200x.");ensure((r.maintenance||0)<1/leverage,"Chosen leverage requires more initial margin than maintenance margin.");ensure(m.positions!.length<20,"Close a position first.");
  const {openingFeePpm,closingFeePpm}=roomFeeRates(r);
  ensure((r.maintenance||0)+closingFeePpm/1e6<1/leverage,"Chosen leverage leaves insufficient margin after the closing fee reserve.");
- const openingFee=feeCents(margin,leverage,entry,entry,openingFeePpm);
+ const openingFee=openingFeeCents(margin,leverage,openingFeePpm);
  const collateral=margin-openingFee;
  ensure(collateral>0,"Posted margin cannot cover the opening fee.");
  ensure(collateral>collateral*leverage*((r.maintenance||0)+closingFeePpm/1e6),"Chosen leverage leaves insufficient collateral after opening fee and closing fee reserve.");
