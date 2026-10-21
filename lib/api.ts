@@ -3,7 +3,7 @@ import {currentClerkUser,currentClerkSession} from "./clerk-reads";
 import {clerkDisplayName} from "../runtime/clerk-names.mjs";
 import {auth} from "@clerk/nextjs/server";
 import {NextResponse} from "next/server";
-import {ZodError,type ZodType} from "zod";
+import {z,ZodError,type ZodType} from "zod";
 import {AppError,ensure} from "./errors";
 import {endpointBudget} from "./read-policy";
 import {clerkConfigured} from "./clerk-env";
@@ -12,6 +12,21 @@ import {verifiedGoogleEmail} from "./google-identity";
 import {siteMaintenance} from "./site-maintenance";
 import type {Identity} from "./types";
 export const configured=clerkConfigured;
+const receiveGenerationSchema=z.object({action:z.literal("code"),amount:z.string().max(32),note:z.string().max(160).optional()}).strict();
+async function receiveGeneration(request:Request){
+ if(request.method!=="POST"||new URL(request.url).pathname!=="/api/transfers")return false;
+ // Inspect a bounded clone, leaving the authenticated route's body and schema intact.
+ // Malformed/unknown payloads keep the ordinary endpoint budget.
+ const reader=request.clone().body?.getReader();if(!reader)return false;
+ let text="",bytes=0;const decoder=new TextDecoder();
+ try{
+  while(true){const part=await reader.read();if(part.done)break;bytes+=part.value.byteLength;if(bytes>2048)return false;text+=decoder.decode(part.value,{stream:true});}
+  text+=decoder.decode();return receiveGenerationSchema.safeParse(JSON.parse(text)).success;
+ }catch{return false;}
+ // A clone is a teed stream. Awaiting cancellation can deadlock until the handler
+ // reads the original branch, so cancel this inspection branch without waiting.
+ finally{void reader.cancel().catch(()=>{});}
+}
 export async function endpoint(request:Request,handler:(who:Identity)=>Promise<unknown>) {
  try {
   ensure(configured(),"Clerk setup required.",503);
@@ -27,7 +42,7 @@ export async function endpoint(request:Request,handler:(who:Identity)=>Promise<u
   ensure(user&&email,"A verified Google-only account is required.",403);
   const who:Identity={id:userId,name:clerkDisplayName(user),email,admin:user.privateMetadata?.admin===true};
   const budget=endpointBudget(request.method,new URL(request.url).pathname,userId);
-  await rateLimit(budget.key,budget.limit);
+  if(!await receiveGeneration(request))await rateLimit(budget.key,budget.limit);
   if(!who.admin&&new URL(request.url).pathname!=="/api/maintenance")ensure(!(await siteMaintenance(false)).blocked,"Under maintenance",503);
   await checkActionTab(request,userId);
   return NextResponse.json(await handler(who),{headers:{"Cache-Control":"no-store"}});

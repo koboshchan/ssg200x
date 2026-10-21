@@ -260,3 +260,14 @@ test("guess boundary compares server time inclusively and ignores the app clock"
  const realNow=Date.now;Date.now=()=>realNow()+24*60*60_000;
  try{await assert.rejects(()=>claimTransferGuess(alice.id),{status:429});}finally{Date.now=realNow;}
 });
+
+test("generation has an inclusive one-second server boundary and rejection does not slide it",async()=>{
+ const d=await db(),first=await createReceiveCode(bob,{amount:"1"}),key={_id:bob.id as never};
+ const issuers=d.collection("transfer_code_issuers"),entry=await issuers.findOne(key),boundary=entry!.nextAt;
+ await assert.rejects(()=>createReceiveCode(bob,{amount:"2"}),{status:429});
+ assert.equal((await issuers.findOne(key))!.nextAt.getTime(),boundary.getTime());
+ assert.equal((await issuers.updateOne({...key,$expr:{$lte:["$nextAt",new Date(boundary.getTime()-1)]}},{$set:{boundaryHit:true}})).matchedCount,0);
+ assert.equal((await issuers.updateOne({...key,$expr:{$lte:["$nextAt",boundary]}},{$set:{boundaryHit:true}})).matchedCount,1);
+ const stored=await d.collection("transfer_codes").findOne({_id:first.id as never});
+ assert.equal(stored!.expiresAt.getTime(),first.expiresAt);
+});
