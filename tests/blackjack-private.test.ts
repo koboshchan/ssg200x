@@ -89,7 +89,7 @@ test("canonical chip multisets admit non-denomination totals, while custom place
   act(r,a,{type:"leave"},0);assert.equal(r.members[0].wallet,100000);
  }
 });
-test("a valid chip multiset replacement removes the policy; no client-supplied state persists",()=>{
+test("a valid chip multiset replacement removes the policy; only validated display chips persist",()=>{
  const r=setup();act(r,a,{type:"bet",amount:600,chips:[100,500]},0);assert.equal(r.blackjack.seats[0]?.privatePolicy,undefined);
- const before=JSON.stringify(pub(r,a));act(r,a,{type:"bet",amount:600,chips:[600]},0);assert.equal(r.blackjack.seats[0]?.privatePolicy,true);assert.equal(JSON.stringify(pub(r,a)),before);
+ act(r,a,{type:"bet",amount:600,chips:[600]},0);assert.equal(r.blackjack.seats[0]?.privatePolicy,true);assert.deepEqual(pub(r,a)!.seats[0]!.chips,[]);
 });
