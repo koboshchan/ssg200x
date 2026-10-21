@@ -43,11 +43,11 @@ test("mounted blackjack uses roulette chip buttons on desktop and mobile",async(
    for(let i=0;i<9;i++)await chip(100).click();
    assert.equal(await total.textContent(),"$1,000");assert.equal(await chip(1).isDisabled(),true);
    await page.getByRole("button",{name:"Clear"}).click();
-   await page.evaluate(()=>{const b=[...document.querySelectorAll("button")].find(x=>x.getAttribute("aria-label")==="$1 chip") as HTMLButtonElement;for(let i=0;i<1000;i++)b.click();});
-   await page.waitForFunction(()=>document.querySelector('[data-testid="bj-total"]')?.textContent==="$1,000");
-   assert.equal(await chip(1).isDisabled(),true);
+   await page.evaluate(()=>{const b=[...document.querySelectorAll("button")].find(x=>x.getAttribute("aria-label")==="$1 chip") as HTMLButtonElement;for(let i=0;i<21;i++)b.click();});
+   await page.waitForFunction(()=>document.querySelector('[data-testid="bj-total"]')?.textContent==="$20");
+   assert.equal(await chip(1).isDisabled(),true);assert.match(await page.getByRole("status").last().textContent()||"",/Maximum 20 chips/);
    await page.getByRole("button",{name:/^Bet/}).click();await page.waitForFunction(()=>(window as any).posts?.length===4);
-   assert.equal((await posts()).length,4);const big=(await posts())[3];assert.equal(big.body.amount,100000);assert.equal(big.body.chips.length,1000);
+   assert.equal((await posts()).length,4);const big=(await posts())[3];assert.equal(big.body.amount,2000);assert.equal(big.body.chips.length,20);
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
    assert.deepEqual(errors,[]);await page.close();
   }

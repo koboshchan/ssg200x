@@ -82,7 +82,7 @@ test("private audit read rejects non-admin before database access and is separat
  const source=readFileSync("app/api/blackjack/route.ts","utf8");assert.match(source,/amount:z.number\(\).int\(\).min\(100\).max\(100000\)/);assert.doesNotMatch(source,/privatePolicy|seed|drawPolicy/);
 });
 test("canonical chip multisets admit non-denomination totals, while custom placements and malformed lists stay accepted privately",()=>{
- for(const [amount,chips,valid] of [[200,[100,100],true],[600,[100,500],true],[2500,[500,2000],true],[100000,Array(1000).fill(100),true],[200,undefined,false],[600,undefined,false],[2500,undefined,false],[500,undefined,true],[101,undefined,false],[200,[200],false],[600,[100],false],[600,[100,"500"],false],[600,null,false],[600,{},false],[600,[100.5,499.5],false],[600,[NaN],false],[600,[],false],[600,Array(1001).fill(100),false]] as [number,unknown,boolean][]){
+ for(const [amount,chips,valid] of [[200,[100,100],true],[600,[100,500],true],[2500,[500,2000],true],[200,undefined,false],[600,undefined,false],[2500,undefined,false],[500,undefined,true],[101,undefined,false],[200,[200],false],[600,[100],false],[600,[100,"500"],false],[600,null,false],[600,{},false],[600,[100.5,499.5],false],[600,[NaN],false],[600,[],false],[600,[100,100],false]] as [number,unknown,boolean][]){
   const r=freshRoom() as Game;register(r,a,0);act(r,a,{type:"join",seat:0},0);act(r,a,{type:"bet",amount,chips},0);
   assert.equal(r.members[0].wallet,100000-amount);assert.equal(r.blackjack.seats[0]?.privatePolicy,valid?undefined:true,JSON.stringify({amount,chips}));
   assert.equal(r.auditPending?.length??0,valid?0:1);assert.doesNotMatch(JSON.stringify(pub(r,a)),/private|policy|audit|composition|shoe/i);

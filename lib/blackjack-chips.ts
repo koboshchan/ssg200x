@@ -1,4 +1,5 @@
 import {ROULETTE_CHIPS} from "./roulette-chips";
+export const BLACKJACK_MAX_CHIPS=20;
 /** Only publish real, validated picker chips. Old/unsupported bets keep their cash total. */
 export function blackjackChips(amount:number,chips?:unknown):number[]{
  const allowed=new Set<number>(ROULETTE_CHIPS.map(d=>d.value*100));
@@ -8,6 +9,6 @@ export function blackjackChips(amount:number,chips?:unknown):number[]{
 export function blackjackChipStacks(chips:readonly number[]){
  return ROULETTE_CHIPS.flatMap(d=>{
   const count=chips.filter(c=>c===d.value*100).length;
-  return Array.from({length:Math.ceil(count/20)},(_,i)=>({value:d.value,color:d.color,count:Math.min(20,count-i*20)}));
+  return count?[{value:d.value,color:d.color,count}]:[];
  });
 }
