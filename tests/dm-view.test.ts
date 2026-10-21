@@ -71,3 +71,11 @@ test("display names render as escaped presentation labels without changing handl
  assert.ok(source.includes('Your username{username?'));
  assert.ok(!source.includes("dangerouslySetInnerHTML"));
 });
+
+// All row states share this label, including decrypted history after recovery.
+test("incoming bubble labels use the same display name as the conversation header",()=>{
+ const source=readFileSync(new URL("../app/dm-panel.tsx",import.meta.url),"utf8");
+ assert.ok(source.includes('r.mine?"You":conv.peer.displayName||conv.peer.username'));
+ assert.ok(!source.includes('r.mine?"You":conv.peer.username'));
+ assert.ok(source.includes('open(t.username)'));
+});

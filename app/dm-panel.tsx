@@ -198,7 +198,7 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
    {cursor&&<button className="chat-more" onClick={()=>void refresh(true)}>Load earlier</button>}
    {rows.length===0&&!conv.changed&&<p className="chat-note">No messages yet.</p>}
    {rows.map(r=><div key={rowKey(r)} className="chat-msg" data-mine={r.mine} data-status={r.status}>
-    <div className="chat-meta"><span>{r.mine?"You":conv.peer.username}</span><time dateTime={new Date(r.ts).toISOString()}>{time(r.ts)}</time></div>
+    <div className="chat-meta"><span>{r.mine?"You":conv.peer.displayName||conv.peer.username}</span><time dateTime={new Date(r.ts).toISOString()}>{time(r.ts)}</time></div>
     <p>{r.status==="ok"||r.status==="pending"||r.status==="failed"?r.text:r.status==="changed"?"Hidden: sent with a key that isn't trusted.":r.status==="unreadable"?"Can't be read on this device. It was sent to older keys.":"Hidden: failed verification."}</p>
     {r.status==="pending"&&<small>Sending…</small>}
     {r.status==="failed"&&<small className="chat-error">Not sent. <button type="button" onClick={()=>{if(r.mine)void send(r.id);}}>Retry</button></small>}
