@@ -1,0 +1,10 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+// @ts-expect-error runtime JS
+import {createTabLeases,TAB_LEASE_MS} from '../runtime/tab-leases.mjs';
+class Socket {connected=true; events:any[]=[];handlers=new Map<string,Function>();emit(e:string,p:any){this.events.push([e,p]);}on(e:string,f:Function){this.handlers.set(e,f);}disconnect(){this.connected=false;this.handlers.get('disconnect')?.();}report(route:string){this.handlers.get('tab:report')?.({route});}}
+const id=(n:number)=>n.toString(16).padStart(48,'0');
+const auth=(n:number,route='/roulette')=>({tabId:id(n),tabProof:id(n+100),route});
+test('all tabs blocked, disconnect unblocks and users stay isolated',()=>{const l=createTabLeases(),a=new Socket(),b=new Socket(),c=new Socket();l.attach('u',a,auth(1));l.attach('u',b,auth(2));l.attach('v',c,auth(3));assert.match(l.check('u',id(1),id(101),'roulette'),/Only one/);assert.equal(a.events.at(-1)[1].blocked,true);assert.equal(b.events.at(-1)[1].blocked,true);assert.equal(l.check('v',id(3),id(103),'roulette'),null);b.disconnect();assert.equal(l.check('u',id(1),id(101),'roulette'),null);assert.equal(a.events.at(-1)[1].blocked,false);});
+test('reconnect replacement never counts twice and old close cannot erase new lease',()=>{const l=createTabLeases(),a=new Socket(),b=new Socket();l.attach('u',a,auth(1));l.attach('u',b,auth(1));assert.equal(a.connected,false);assert.equal(l.check('u',id(1),id(101),'roulette'),null);assert.equal(b.events.at(-1)[1].tabs,1);});
+test('route mismatch rejected, report updates route, expired and forged proofs fail',()=>{let now=0;const l=createTabLeases({now:()=>now}),a=new Socket();l.attach('u',a,auth(1));assert.equal(l.check('u',id(1),id(101),'blackjack'),'Switch to the blackjack tab to bet');a.report('/blackjack');assert.equal(l.check('u',id(1),id(101),'blackjack'),null);assert.match(l.check('u',id(1),id(999),'blackjack'),/Reconnect/);assert.throws(()=>l.attach('u',new Socket(),{...auth(1),tabProof:id(200)}));now+=TAB_LEASE_MS;l.sweepAll();a.report('/roulette');assert.match(l.check('u',id(1),id(101),'roulette'),/Reconnect/);});

@@ -1,3 +1,4 @@
+import {checkActionTab} from "./tab-guard";
 import {currentClerkUser,currentClerkSession} from "./clerk-reads";
 import {clerkDisplayName} from "../runtime/clerk-names.mjs";
 import {auth} from "@clerk/nextjs/server";
@@ -28,6 +29,7 @@ export async function endpoint(request:Request,handler:(who:Identity)=>Promise<u
   const budget=endpointBudget(request.method,new URL(request.url).pathname,userId);
   await rateLimit(budget.key,budget.limit);
   if(!who.admin&&new URL(request.url).pathname!=="/api/maintenance")ensure(!(await siteMaintenance(false)).blocked,"Under maintenance",503);
+  await checkActionTab(request,userId);
   return NextResponse.json(await handler(who),{headers:{"Cache-Control":"no-store"}});
  }catch(e) {
   const status=e instanceof AppError?e.status:e instanceof ZodError||e instanceof SyntaxError?400:503;

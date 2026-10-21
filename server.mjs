@@ -1,3 +1,6 @@
+import {createTabLeases} from "./runtime/tab-leases.mjs";
+const tabLeases=createTabLeases();
+const tabSweep=setInterval(()=>tabLeases.sweepAll(),500);tabSweep.unref();
 import {clerkReads} from "./runtime/clerk-reads.mjs";
 import {loadClerkProfiles,profileName} from "./runtime/clerk-names.mjs";
 import {timingSafeEqual} from "node:crypto";
@@ -25,14 +28,19 @@ const app=next({dev,hostname,port,conf:config,webpack:true});
 await app.prepare();
 const nextHandler=app.getRequestHandler();
 const server=createServer(async(request,response)=>{
- if(request.url!=="/internal-airdrop"){nextHandler(request,response);return;}
+ if(!["/internal-airdrop","/internal-tab-check"].includes(request.url)){nextHandler(request,response);return;}
  response.setHeader("Cache-Control","no-store");
  const supplied=request.headers["x-internal-live-secret"],secret=process.env.INTERNAL_LIVE_SECRET;
  const a=Buffer.from(typeof supplied==="string"?supplied:""),b=Buffer.from(secret);
  if(request.method!=="POST"||a.length!==b.length||!timingSafeEqual(a,b)){response.writeHead(401).end();return;}
  let body="";
  try{
-  for await(const chunk of request){body+=chunk;if(Buffer.byteLength(body)>256){response.writeHead(413).end();return;}}
+  for await(const chunk of request){body+=chunk;if(Buffer.byteLength(body)>1024){response.writeHead(413).end();return;}}
+  if(request.url==="/internal-tab-check"){
+   const {userId,tabId,tabProof,game}=JSON.parse(body);
+   const error=typeof userId!=="string"?"Invalid user":tabLeases.check(userId,tabId,tabProof,game);
+   response.writeHead(error?409:200,{"Content-Type":"application/json"}).end(JSON.stringify({error}));return;
+  }
   const {id}=JSON.parse(body);
   if(typeof id!=="string"||!/^[a-f0-9]{64}$/.test(id)){response.writeHead(400).end();return;}
   await announceAirdrop(id);response.writeHead(204).end();
@@ -94,6 +102,7 @@ async function pushState(socket,force=false,profiles){
  finally{socket.data.busy=false;}
 }
 io.on("connection",socket=>{
+ try{tabLeases.attach(socket.data.identity.id,socket,socket.handshake.auth);}catch(error){socket.emit("live:error",{error:error.message});socket.disconnect(true);return;}
  socket.on("state:resync",event=>{
   if(!STATE_STREAMS.includes(event)||Date.now()<(socket.data.resyncAt||0))return;
   socket.data.resyncAt=Date.now()+1000;socket.data.forceFull=true;socket.data.statusAt=0;
@@ -147,5 +156,5 @@ const timer=setInterval(async()=>{
  }catch{}finally{running=false;}
 },200);timer.unref();
 server.listen(port,hostname);
-async function stop(){clearInterval(timer);await io.close();await client.close();server.close();process.exit(0);}
+async function stop(){clearInterval(tabSweep);clearInterval(timer);await io.close();await client.close();server.close();process.exit(0);}
 process.once("SIGTERM",stop);process.once("SIGINT",stop);
