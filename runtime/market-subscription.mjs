@@ -1,7 +1,7 @@
 import {resetStream} from "./state-stream.mjs";
 // Fail closed: one selection, never an implicit all-symbol subscription.
 export function subscribeMarket(socket,symbol){
- if(symbol!==null&&(typeof symbol!=="string"||!/^[A-Z][A-Z0-9.\-]{0,14}$/.test(symbol)))return;
+ if(symbol!==null&&(typeof symbol!=="string"||!(/^[A-Z][A-Z0-9.\-]{0,14}$/.test(symbol)||/^[A-Z]{3}\/[A-Z]{3}$/.test(symbol))))return;
  socket.data.marketSymbol=symbol??undefined;
  resetStream(socket,"room:state");socket.data.statusAt=0;
 }

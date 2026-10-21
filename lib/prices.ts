@@ -1,3 +1,4 @@
+import {pollForex} from "./forex-feed";
 import {quoteFresh} from "./price-policy";
 import {marketSymbols} from "./symbol-registry";
 import {StockRuntime} from "./stock-runtime";
@@ -31,7 +32,7 @@ export async function persistExchangeTicks(ticks:Tick[]){
 export function startPriceWorker(){
  if(globalWorker.exchangePriceWorker)return globalWorker.exchangePriceWorker;
  const owner=randomUUID();
- let running=false,leaseUntil=0,stopped=false;
+ let running=false,leaseUntil=0,stopped=false,forexRunning=false,forexChecked=0;
  let feed:ExchangeFeed;
  let symbols=marketSymbols();
  const makeFeed=()=>new ExchangeFeed({symbols:()=>symbols.crypto,socket:()=>{if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Price lease unavailable");return new WebSocket("wss://ws-feed.exchange.coinbase.com");},apply:async ticks=>{if(stopped||Date.now()>=leaseUntil)throw new Error("Price lease expired");await persistExchangeTicks(ticks);},log:message=>console.warn(message)});
@@ -66,6 +67,7 @@ export function startPriceWorker(){
     }
    }
    symbols=marketSymbols(await readRoom());
+   if(!forexRunning&&now-forexChecked>=5000){forexRunning=true;forexChecked=now;void pollForex(()=>!stopped&&Date.now()<leaseUntil-1000,owner).catch(()=>{}).finally(()=>{forexRunning=false;});}
    void stocks.step();
    feed.step();feed.retryPending();
    // No executable REST fallback. The v2 rates body has no provider event time:

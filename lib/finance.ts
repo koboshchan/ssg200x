@@ -1,3 +1,6 @@
+import {forexLiveConfigured} from "./forex-config";
+import {forexDecision} from "./forex-policy";
+import {forexSymbol} from "./symbol-registry";
 import {quoteFresh} from "./price-policy";
 import {roomFeeRates,positionFeeRates,closingFeeMode,closingFeeReserve,closingFeeCents} from "../runtime/perp-fee-policy.mjs";
 import {openingFeeCents} from "./perp-fees";
@@ -30,6 +33,7 @@ export function netPnl(p:Position,mark:number){const gross=equity(p,mark),fee=cl
 export function equity(p:Position,mark:number){return Math.max(0,(p.collateral??p.margin)+pnl(p,mark));}
 /** Same server guard for every stock settlement path; unknown state preserves claims. */
 export function stockExecutable(r:Room,symbol:string,now=Date.now()){
+ if(forexSymbol(symbol,r)){const q=r.forexQuotes?.[symbol],mark=r.quotes?.[symbol];return forexLiveConfigured()&&forexDecision(symbol,q,r.forexStatus,now).executable&&!!q&&mark?.micro===q.micro&&mark.at===q.at;}
  if(!stockSymbol(symbol,r))return true;
  const state=(r as Room & {stockExecution?:Partial<Record<string,StockExecutionState>>}).stockExecution?.[symbol];
  const quote=r.quotes?.[symbol as Symbol];
@@ -37,6 +41,7 @@ export function stockExecutable(r:Room,symbol:string,now=Date.now()){
    !!state.tick&&quote.micro===Math.round(state.tick.price*1e6)&&quote.at===state.tick.timestamp;
 }
 export function requireQuote(r:Room,symbol:Symbol,now=Date.now()){
+ ensure(!forexSymbol(symbol,r)||stockExecutable(r,symbol,now),"Forex paused: fresh live USD quote required; non-USD pairs are read-only.",503);
  ensure(stockExecutable(r,symbol,now),"Stock market closed or verified live state unavailable.",503);
  const q=r.quotes?.[symbol];ensure(q&&Number.isSafeInteger(q.micro)&&q.micro>0&&quoteFresh(q.at,now,stockSymbol(symbol,r)),"Live price unavailable. Trading is paused.",503);return q.micro;
 }
@@ -45,7 +50,7 @@ export function requireQuote(r:Room,symbol:Symbol,now=Date.now()){
  */
 export function legacyQuote(r:Room,symbol:Symbol,now=Date.now()){
  const q=r.quotes?.[symbol];
- return delistedSymbol(symbol,r)&&q&&Number.isSafeInteger(q.micro)&&q.micro>0&&q.micro<=1e13&&Number.isSafeInteger(q.at)&&q.at>=0&&q.at<=now?q:null;
+ return !forexSymbol(symbol,r)&&delistedSymbol(symbol,r)&&q&&Number.isSafeInteger(q.micro)&&q.micro>0&&q.micro<=1e13&&Number.isSafeInteger(q.at)&&q.at>=0&&q.at<=now?q:null;
 }
 export function requireLegacyQuote(r:Room,symbol:Symbol,now=Date.now()){
  const q=legacyQuote(r,symbol,now);ensure(q,"Delisted asset pending valuation. Your claim is retained.",503);return q;

@@ -4,8 +4,10 @@ import {ensure} from "@/lib/errors";
 import {readRoom} from "@/lib/db";
 import {mutate,rateLimit} from "@/lib/store";
 import {adminSymbolSnapshot,changeMarketSymbol,validateProviderSymbol} from "@/lib/admin-symbols";
+import {validForexPair} from "@/lib/forex-policy";
+import {audit} from "@/lib/audit";
 import {SYMBOL_PATTERN} from "@/lib/symbol-registry";
-const schema=z.object({action:z.enum(["add","remove"]),kind:z.enum(["crypto","stocks"]),symbol:z.string().regex(SYMBOL_PATTERN),expectedVersion:z.number().int().nonnegative(),confirmed:z.boolean().optional()}).strict();
+const schema=z.object({action:z.enum(["add","remove"]),kind:z.enum(["crypto","stocks","forex"]),symbol:z.string().max(20),expectedVersion:z.number().int().nonnegative(),confirmed:z.boolean().optional()}).strict().refine(i=>i.kind==="forex"?validForexPair(i.symbol):SYMBOL_PATTERN.test(i.symbol),{message:"Invalid market symbol"});
 export const GET=(request:Request)=>endpoint(request,async who=>{ensure(who.admin,"Administrator access required.",403);return adminSymbolSnapshot(await readRoom(),who);});
 export const POST=(request:Request)=>endpoint(request,async who=>{
  ensure(who.admin,"Administrator access required.",403);
@@ -15,3 +17,6 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
  const {room}=await mutate(room=>changeMarketSymbol(room,who,input));
  return adminSymbolSnapshot(room,who);
 });
+
+const cadenceSchema=z.object({cadenceSeconds:z.number().int().min(660).max(86400)}).strict();
+export const PATCH=(request:Request)=>endpoint(request,async who=>{ensure(who.admin,"Administrator access required.",403);await rateLimit("admin-symbols:"+who.id,20);const input=await parse(request,cadenceSchema);const {room}=await mutate(room=>{audit(room,who,"forex-cadence","forex",room.forexCadenceSeconds??660,input.cadenceSeconds);room.forexCadenceSeconds=input.cadenceSeconds;});return {...adminSymbolSnapshot(room,who),cadenceSeconds:room.forexCadenceSeconds};});

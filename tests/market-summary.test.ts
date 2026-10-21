@@ -6,7 +6,7 @@ import {publicRoom} from "../lib/public";
 import {subscribeMarket,scopeMarketRoom} from "../runtime/market-subscription.mjs";
 const now=Date.parse("2026-10-21T19:00:00Z"),day="2026-10-21";
 function fixture(){
- const r=freshRoom();r.marketSymbols={crypto:["BTC","ETH","NEW"],stocks:["AAPL","SPY"],delisted:["OLD"],revision:2};
+ const r=freshRoom();r.marketSymbols={crypto:["BTC","ETH","NEW"],stocks:["AAPL","SPY"],forex:[],delisted:["OLD"],revision:2};
  r.quotes={BTC:{micro:110_000_000,at:now},ETH:{micro:90_000_000,at:now},AAPL:{micro:100_000_000,at:now},SPY:{micro:150_000_000,at:now},OLD:{micro:1,at:now}};
  r.marketDay={BTC:{day,open:100_000_000},ETH:{day,open:100_000_000},AAPL:{day,open:100_000_000},SPY:{day,open:100_000_000}};
  return r;
