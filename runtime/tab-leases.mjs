@@ -1,6 +1,6 @@
 // Authenticated user-scoped document leases. Reconnects replace only their own proof.
 export const TAB_LEASE_MS=16000;
-const credential=v=>typeof v==="string"&&/^[a-f0-9]{48}$/.test(v);
+const credential=v=>typeof v==="string"&&/^(?:[a-f0-9]{48}|[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})$/.test(v);
 export function createTabLeases({now=Date.now}={}){
  const users=new Map();
  const publish=tabs=>{const state={blocked:tabs.size>1,tabs:tabs.size};for(const t of tabs.values())t.socket.emit("tab:state",state);};
