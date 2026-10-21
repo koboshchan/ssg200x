@@ -12,14 +12,15 @@ process.env.MONGODB_DB+="_price_worker";
 after(async()=>{await(await db()).dropDatabase();await closeDatabase();});
 test("persistent serial burst checks same-millisecond transient TP with no clients and retains candle extrema",async()=>{
  const who={id:"background",name:"Background",email:"background@test",admin:false},now=Date.now()-1000;
- await mutate(r=>{register(r,who);r.quotes={BTC:{micro:100_000_000_000,at:now}};openPosition(r,who,"BTC","long",1000,200,"background",now,{takeProfit:100_100_000_000});});
+ await mutate(r=>{register(r,who);r.perpFeePpm=0;r.quotes={BTC:{micro:100_000_000_000,at:now}};openPosition(r,who,"BTC","long",1000,200,"background",now,{takeProfit:100_100_000_000});});
  await closeDatabase();
  await persistExchangeTicks([{symbol:"BTC",micro:100_200_000_000,at:now+1,sequence:1},{symbol:"BTC",micro:100_000_000_000,at:now+1,sequence:2}]);
  const room=await readRoom();assert.equal(room.members[0].positions!.length,0);assert.equal(room.members[0].wallet,100400);assert.match(room.members[0].activity![0],/^Take-profit/);assert.equal(room.quotes!.BTC!.micro,100_000_000_000);
  const bucket=Math.floor((now+1)/60000)*60000,rows=await candleRead("BTC","1m",bucket,bucket);
  assert.equal(rows[0].high,100200);assert.equal(rows[0].low,100000);assert.equal(rows[0].close,100000);
  const boundary=Math.floor(Date.now()/60000)*60000;
- await persistExchangeTicks([{symbol:"ETH",micro:2000e6,at:boundary-1,sequence:1},{symbol:"ETH",micro:2001e6,at:boundary,sequence:2}]);
+ const originalNow=Date.now;Date.now=()=>boundary+1;
+ try{await persistExchangeTicks([{symbol:"ETH",micro:2000e6,at:boundary-1,sequence:1},{symbol:"ETH",micro:2001e6,at:boundary,sequence:2}]);}finally{Date.now=originalNow;}
  const rollover=await candleRead("ETH","1m",boundary-60000,boundary);assert.equal(rollover.length,2);assert.equal(rollover[0].close,2000);assert.equal(rollover[1].open,2001);
 });
 test("global worker is HMR-idempotent, acquires Mongo leader lease and unchanged REST cannot refresh stale marks",async()=>{
