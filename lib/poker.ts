@@ -243,10 +243,14 @@ export function tick(r: Room, now: number) {
    r.readyDeadline = now + READY_MS; changed = true;
   }
   if (r.readyDeadline != null && now >= r.readyDeadline) {
-   // The waiting window expired without a hand. Refund EVERY seat, including
-   // ready players: never auto-deal them after removing unready blockers.
+   // Ready-window expiry never forfeits chips. Refund unready blockers;
+   // startHand below deals only with 2+ ready seats. A lone ready seat resets consent in place.
    // The room CAS commits seat removal and its wallet credit together.
-   for (let i=0;i<r.seats.length;i++) if (r.seats[i]) cashOut(r,i);
+   for (let i=0;i<r.seats.length;i++) if (r.seats[i] && !r.seats[i]!.ready) cashOut(r,i);
+   // With fewer than two ready seats there is no hand to start. Retain
+   // their stacks in place, clear consent, and do not arm another window.
+   if (r.seats.filter(s=>s?.ready).length < 2)
+    for (const s of r.seats) if(s?.ready)s.ready=false;
    r.readyDeadline = null; changed = true;
   }
   if (r.street === "showdown" && now >= (r.nextDeal ?? Infinity)) {

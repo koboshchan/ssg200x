@@ -67,8 +67,9 @@ test("mounted poker Ready, Unready, ready cashout, active lock and fresh next-ha
    await page.getByRole("button",{name:"Ready",exact:true}).click();await page.getByRole("button",{name:"Unready",exact:true}).waitFor();
    assert.equal(r.handNumber,1);assert.equal(r.seats[1]!.ready,false);assertRoom(r);
    tick(r,r.readyDeadline!);r.version++;await mount();
-   await page.waitForFunction(()=>document.querySelector(".action-bar")?.textContent?.includes("Pull up a chair."));
-   assert.ok(r.seats.every(s=>s===null));assert.equal(r.handNumber,1);assertRoom(r);
+   await page.getByRole("button",{name:"Ready",exact:true}).waitFor();
+   assert.equal(r.seats[0]!.ready,false);assert.equal(r.seats[1],null);
+   assert.equal(r.handNumber,1);assertRoom(r);
    assert.deepEqual(errors,[]);assert.deepEqual(posts,["ready","unready","ready","leave","ready"]);
    await page.close();
   }

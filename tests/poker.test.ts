@@ -79,8 +79,8 @@ test("joining never deals; all seated players must explicitly ready, with a five
 
  applyAction(r,user(1),{type:"ready"},3000);assert.equal(r.street,"waiting");
  tick(r,2000+READY_MS-1);assert.ok(r.seats[0]?.ready);assert.ok(r.seats[1]?.ready);
- tick(r,2000+READY_MS);assert.equal(r.readyDeadline,null);assert.ok(r.seats.every(s=>s===null));
- assert.ok(r.members.every(m=>m.wallet===100000));assert.equal(r.street,"waiting");assert.equal(r.handNumber,0);assertRoom(r);
+ tick(r,2000+READY_MS);assert.equal(r.readyDeadline,null);assert.ok(r.seats[0]);assert.ok(r.seats[1]);assert.equal(r.seats[0]?.ready,true);
+ assert.equal(r.seats[2],null);assert.equal(r.members[2].wallet,100000);assert.equal(r.street,"preflop");assertRoom(r);
 });
 test("legacy waiting seats never autostart; legacy active leaveAfter cashes only after hand",()=>{
  const r=setup();r.seats[0]!.leaveAfter=true;delete r.seats[0]!.ready;
@@ -92,7 +92,7 @@ test("ready player with missing legacy deadline gets bounded timer rather than i
  const r=freshRoom();register(r,user(0),1000);applyAction(r,user(0),{type:"join",seat:0,buyIn:20000},1000);
  r.seats[0]!.ready=true;delete r.readyDeadline;tick(r,1000000);
  assert.equal(r.readyDeadline,1000000+READY_MS);assert.ok(r.seats[0]);
- tick(r,1000000+READY_MS);assert.equal(r.seats[0],null);assert.equal(r.members[0].wallet,100000);assert.equal(r.readyDeadline,null);assert.equal(r.street,"waiting");assertRoom(r);
+ tick(r,1000000+READY_MS);assert.equal(r.seats[0]!.ready,false);assert.equal(r.readyDeadline,null);assert.equal(r.street,"waiting");assertRoom(r);
 });
 test("leaving unready last blocker starts the remaining ready seats atomically",()=>{
  const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
@@ -114,7 +114,7 @@ test("ready at expiry cannot rescue an unready seat, and joining never extends t
  register(r,user(0),3000);applyAction(r,user(2),{type:"join",seat:2,buyIn:20000},3000);
  assert.equal(r.readyDeadline,expiry);for(const s of r.seats)if(s)s.seen=expiry;
  assert.throws(()=>applyAction(r,user(1),{type:"ready"},expiry),/Choose a seat/);
- assert.ok(r.seats.every(s=>s===null));assert.ok(r.members.every(m=>m.wallet===100000));
+ assert.equal(r.seats[0]!.ready,false);assert.equal(r.seats[1],null);assert.equal(r.seats[2],null);
  assert.equal(r.members[1].wallet,100000);assert.equal(r.members[2].wallet,100000);
  assert.equal(r.readyDeadline,null);assert.equal(r.handNumber,0);assertRoom(r);
 });
@@ -139,10 +139,10 @@ test("readiness window protects idle unready blockers for the full five minutes"
  assert.equal(r.seats.filter(Boolean).length,3);assert.equal(r.handNumber,0);
  assert.equal(r.seats[2]!.ready,false);assert.equal(r.readyDeadline,expiry);
  tick(r,expiry);
- assert.equal(r.seats.filter(Boolean).length,0);assert.ok(r.members.every(m=>m.wallet===100000));
+ assert.equal(r.seats.filter(Boolean).length,2);assert.ok(r.seats.slice(0,2).every(s=>s?.ready));
  assert.equal(r.seats[2],null);assert.equal(r.members[2].wallet,100000);
- assert.equal(r.readyDeadline,null);assert.equal(r.handNumber,0);assert.equal(r.street,"waiting");
- tick(r,expiry+1);assert.equal(r.seats.filter(Boolean).length,0);assertRoom(r);
+ assert.equal(r.readyDeadline,null);assert.equal(r.handNumber,1);assert.equal(r.street,"preflop");
+ tick(r,expiry+1);assert.equal(r.seats.filter(Boolean).length,2);assertRoom(r);
 });
 test("readiness window still cleans revoked seats rather than locking them until expiry",()=>{
  const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
@@ -175,12 +175,12 @@ test("persisted all-unready window cashes everyone out once without creating pot
  assert.equal(restarted.readyDeadline,null);assert.equal(pot(restarted),0);assert.equal(restarted.pokerCarry??0,0);
  const once=JSON.stringify(restarted);assert.equal(tick(restarted,1000000),false);assert.equal(JSON.stringify(restarted),once);assertRoom(restarted);
 });
-test("ready expiry refunds lone ready player and never cashes players out during a hand",()=>{
+test("ready expiry leaves lone ready player seated and never cashes players out during a hand",()=>{
  const r=freshRoom();
  for(let i=0;i<2;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
  applyAction(r,user(0),{type:"ready"},2000);const expiry=r.readyDeadline!;
- tick(r,expiry);assert.equal(r.seats[0],null);assert.equal(r.seats[1],null);assert.equal(r.members[0].wallet,100000);
- applyAction(r,user(0),{type:"join",seat:0,buyIn:20000},expiry+1);applyAction(r,user(0),{type:"ready"},expiry+1);
+ tick(r,expiry);assert.equal(r.seats[0]!.ready,false);assert.equal(r.seats[1],null);assert.equal(r.members[0].wallet,80000);
+ applyAction(r,user(0),{type:"ready"},expiry+1);
 
  applyAction(r,user(1),{type:"join",seat:1,buyIn:20000},expiry+1);
  applyAction(r,user(1),{type:"ready"},expiry+2);
@@ -219,16 +219,15 @@ test("completed hand clears consent and idle ticks never automatically deal the 
  applyAction(r,user(1),{type:"ready"},42000);assert.equal(r.handNumber,2);assertRoom(r);
 });
 
-test("expired mixed-ready table never deals AFK ready players or forfeits their chips later",()=>{
- const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000*(i+1)},1000);}
- applyAction(r,user(0),{type:"ready"},2000);applyAction(r,user(1),{type:"ready"},3000);
- const expiry=r.readyDeadline!;assert.equal(r.handNumber,0);
- tick(r,expiry);
- assert.ok(r.seats.every(s=>s===null));assert.deepEqual(r.members.map(m=>m.wallet),[100000,100000,100000]);
- assert.equal(r.handNumber,0);assert.equal(r.street,"waiting");assert.equal(r.deadline,null);assert.equal(pot(r),0);
- // Previously the expiry removed only the unready blocker, started a hand,
- // then the turn timeout sent an AFK ready player's entire stack into its pot.
- tick(r,expiry+TURN_MS);tick(r,expiry+2*TURN_MS);
- assert.equal(r.handNumber,0);assert.equal(r.pokerCarry??0,0);assert.equal(r.pokerBonus??0,0);
- assert.equal(r.house??0,0);assert.ok(r.log.every(line=>!line.includes("forfeited")));assertRoom(r);
+test("ready window refunds never-ready seats and deals only 2+ ready players; lone ready loses no chips",()=>{
+ const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
+ applyAction(r,user(0),{type:"ready"},2000);const expiry=r.readyDeadline!;
+ tick(r,expiry);assert.equal(r.handNumber,0);assert.equal(r.street,"waiting");
+ assert.equal(r.seats[0]!.ready,false);assert.equal(r.seats[0]!.stack,20000);assert.equal(r.members[0].wallet,80000);
+ assert.equal(r.seats[1],null);assert.equal(r.seats[2],null);
+ assert.equal(r.members[1].wallet,100000);assert.equal(r.members[2].wallet,100000);
+ for(let n=1;n<=4;n++)tick(r,expiry+n*READY_MS);
+ assert.equal(r.handNumber,0);assert.equal(r.seats[0]!.stack,20000);assert.equal(pot(r),0);assertRoom(r);
+ applyAction(r,user(0),{type:"leave"},expiry+5*READY_MS);
+ assert.equal(r.members[0].wallet,100000);assertRoom(r);
 });
