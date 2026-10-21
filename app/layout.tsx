@@ -1,6 +1,7 @@
 import type {Metadata} from "next";
 import {ClerkProvider} from "@clerk/nextjs";
 import "./globals.css";
+import "./advancements.css";
 import RoomClient from "./room-client";
 import {configured} from "@/lib/api";
 import {clerkKeys} from "@/lib/clerk-env";

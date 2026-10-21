@@ -1,5 +1,6 @@
 "use client";
 import {attachSocketAuthClient} from "../runtime/socket-auth.mjs";
+import AdvancementAnnouncement from "./advancement-announcement";
 import AirdropAnnouncement from "./airdrop-announcement";
 import {AIRDROP_EVENT,createAirdropReceiver} from "../runtime/airdrop-events.mjs";
 import {createContext,useContext,useEffect,useMemo,useRef,useState} from "react";
@@ -73,7 +74,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
   return()=>{closed=true;clearInterval(reportTimer);document.removeEventListener("visibilitychange",report);window.removeEventListener("pageshow",report);receiver.clear();latest.current.clear();clearTimeout(retry);disposeAuth?.();socket?.disconnect();socketRef.current=undefined;};
  },[]);
  const value=useMemo<Live>(()=>({connection,maintenance,lastMessageAt,...api}),[connection,maintenance,lastMessageAt,api]);
- return <Context.Provider value={value}>{children}<AirdropAnnouncement subscribe={api.subscribe}/>{tabBlocked?<TabBlockedOverlay/>:null}</Context.Provider>;
+ return <Context.Provider value={value}>{children}<AirdropAnnouncement subscribe={api.subscribe}/><AdvancementAnnouncement subscribe={api.subscribe}/>{tabBlocked?<TabBlockedOverlay/>:null}</Context.Provider>;
 }
 export function ConnectionBadge(){const {connection}=useLive();return <p className="connection-status" role="status" data-state={connection}>{connection==="connected"?"Live":connection==="connecting"?"Connecting…":"Disconnected. Trading is paused until the connection returns."}</p>;}
 
