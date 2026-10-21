@@ -131,3 +131,5 @@
 .dd-settle-wrap .dd-settle{background:#0a2a1c;opacity:1;color:#fff}
 @media(max-width:700px){.dd-stage .dd-hand-cards{justify-content:flex-start;overflow-x:auto;overflow-y:hidden;--w:42px;min-height:92px;padding-top:18px;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
 .dd-stage .dd-hand-cards>button{flex:0 0 auto;scroll-snap-align:start}.dd-stage .dd-hand-cards>button+button{margin-left:-20px}.dd-stage .dd-hand-cards .card{width:var(--w);height:62px}.dd-stage .dd-hand-cards>button[aria-pressed=true]{transform:translateY(-12px);z-index:2}}
+@media(max-width:700px){.dd-stage .dd-hand-cards>button,.dd-stage .dd-hand-cards>button+button{flex:0 0 auto;flex-shrink:0;margin-left:0}.dd-stage .dd-hand-cards{gap:4px;--w:46px}.dd-stage .dd-hand-cards>button{width:var(--w);min-width:var(--w)}.dd-stage .dd-hand-cards .card{width:var(--w);min-width:var(--w);height:64px;padding:3px;overflow:visible}.dd-stage .dd-hand-cards .card b,.dd-stage .dd-hand-cards .card i{font-size:14px;white-space:nowrap}}
+.dd-stage button:disabled{color:#fff;opacity:1;background:#ffffff14;border-color:#ffffff40}.dd-stage .dd-hand-cards>button:disabled{opacity:1}
