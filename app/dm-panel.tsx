@@ -18,7 +18,7 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
  const [idState,setIdState]=useState<{owner:string;id:Identity|null}|undefined>(undefined);
  // An identity loaded for another account is never used.
  const identity=idState&&idState.owner===me?idState.id:undefined;
- const [username,setUsername]=useState<string|null>(null),[copied,setCopied]=useState(false);
+ const [username,setUsername]=useState<string|null>(null);
  const [threads,setThreads]=useState<Thread[]>([]),[conv,setConv]=useState<Conv|null>(null),[rows,setRows]=useState<DmRow[]>([]);
  const [cursor,setCursorState]=useState<string|null>(null),[find,setFind]=useState(""),[err,setErr]=useState<string|null>(null),[busy,setBusy]=useState(false),[text,setText]=useState("");
  const findId=useId(),findInput=useRef<HTMLInputElement>(null),[caret,setCaret]=useState(0),[hint,setHint]=useState(0),[hintOpen,setHintOpen]=useState(false),hintCaret=useRef<number|null>(null);
@@ -186,7 +186,6 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
    setConv(cur=>cur&&cur.peer.userId===pid?{...cur,blocked:!!r.blocked}:cur);void loadThreads();
   }catch(e){if(ok())setErr(dmError(code(e)));}
  };
- const copy=()=>{if(!username)return;navigator.clipboard?.writeText(username).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),1500);}).catch(()=>{});};
 
  if(identity===undefined)return <p className="chat-note" role="status">Loading…</p>;
  if(identity===null)return <div className="chat-panel"><h2>Set up secure chat first</h2><p>Direct messages use the same keys as TableTalk. Create them, or unlock with your six recovery words, in the TableTalk tab.</p><button className="primary" onClick={goSetup}>Go to TableTalk</button></div>;
@@ -213,7 +212,7 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
  </>;
  return <div className="dm-home">
   <div className="chat-panel">
-   <p>Your username{username?<>: <strong>{username}</strong> <button onClick={copy}>{copied?"Copied":"Copy"}</button></>:" is loading…"}</p>
+   <p>Your username{username?<>: <strong>{username}</strong></>:" is loading…"}</p>
    <form className="dm-find" onSubmit={e=>{e.preventDefault();void open(find);}}>
     <label className="sr-only" htmlFor="dm-find">Exact username</label>
     <div className="dm-find-box">
