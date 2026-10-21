@@ -55,12 +55,12 @@ function ForexCadence(){
  const load=useCallback(async()=>{try{const r=await fetch("/api/admin/forex",{cache:"no-store"});if(!r.ok)return;const j=await r.json();setSt(j.forexStatus??j);}catch{}},[]);
  useEffect(()=>{void load();},[load]);
  if(!st)return null;
- async function save(e:React.FormEvent){e.preventDefault();const n=Number(draft);if(!Number.isInteger(n)||n<1||busy)return;setBusy(true);setErr("");
+ async function save(e:React.FormEvent){e.preventDefault();const n=Number(draft);if(!Number.isInteger(n)||n<660||n>86400||busy)return;setBusy(true);setErr("");
   try{const r=await fetch("/api/admin/forex",{method:"POST",headers:{"content-type":"application/json",...getTabHeaders()},body:JSON.stringify({cadenceSeconds:n})});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||"Could not save.");setDraft("");}
   catch(x){setErr(x instanceof Error?x.message:"Could not save.");}finally{setBusy(false);await load();}}
  return <fieldset className="admin-set" disabled={busy}><legend>Forex feed<span className="admin-count">{st.mode==="mock"?"MOCK data":st.mode==="live"?"live":"not configured"}</span></legend>
   <p className="admin-note">{st.message} Refresh every {st.cadenceSeconds}s · {st.dailyUsed} / {st.dailyLimit} daily requests · market {st.marketOpen?"open":"closed"}. Only live USD-quoted pairs can trade; mock and JPY pairs are view only.</p>
-  <form className="admin-add" onSubmit={save}><input type="number" min="1" step="1" aria-label="Forex refresh seconds" placeholder="Refresh seconds" value={draft} onChange={e=>setDraft(e.target.value)}/><button type="submit" className="primary" disabled={!draft.trim()}>Set</button></form>
+  <form className="admin-add" onSubmit={save}><input type="number" min="660" max="86400" step="1" aria-label="Forex refresh seconds" placeholder="Refresh seconds (660 to 86400)" value={draft} onChange={e=>setDraft(e.target.value)}/><button type="submit" className="primary" disabled={!draft.trim()}>Set</button></form>
   {err?<div className="error" role="alert">{err}</div>:null}
  </fieldset>;
 }
