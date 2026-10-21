@@ -2,7 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
 import {freshRoom,register,assertRoom,totalChips} from "../lib/poker";
-import {applyDoudizhu,publicDoudizhu,tickDoudizhu,doudizhuAssets,type DoudizhuInput} from "../lib/doudizhu";
+import {settledBeansExact,applyDoudizhu,publicDoudizhu,tickDoudizhu,doudizhuAssets,type DoudizhuInput} from "../lib/doudizhu";
 const users=Array.from({length:4},(_,i)=>({id:"person-"+i,name:"Player "+i,email:"secret"+i+"@test.invalid",admin:false}));
 function setup(){const r=freshRoom();users.forEach(u=>register(r,u,0));return r;}
 function move(r:ReturnType<typeof freshRoom>,i:number,parts:Partial<DoudizhuInput>,now=1000){const g=r.doudizhu?.find(g=>g.players.some(p=>p.userId===users[i].id));const input={type:"ready",requestId:randomUUID(),requestAt:now,version:g?.version,...parts} as DoudizhuInput;applyDoudizhu(r,users[i],input,now);assertRoom(r);return input;}
@@ -98,4 +98,13 @@ test("new rooms reject legacy rate requests and explicit conversion bound is enf
  const r=setup();assert.throws(()=>move(r,0,{type:"create",rate:5} as never),/beansPerDollar/);
  for(const beansPerDollar of [0,1.5,1000001,Infinity])assert.throws(()=>move(r,0,{type:"create",beansPerDollar}));
  r.doudizhuMaxBeansPerDollar=1000000000;move(r,0,{type:"create",beansPerDollar:1000000000});assert.equal(r.doudizhu![0].baseBeans,1000);
+});
+
+test("settled bean decimal strings remain exact beyond safe intermediate multiplication",()=>{
+ assert.equal(settledBeansExact(99999999,999999999),"999999989000000.01");
+ assert.equal(settledBeansExact(-99999999,999999999),"-999999989000000.01");
+ assert.equal(settledBeansExact(200000000,1000000000),"2000000000000000");
+ assert.equal(settledBeansExact(1,1001),"10.01");
+ assert.equal(settledBeansExact(1,1010),"10.1");
+ assert.equal(settledBeansExact(0,1000000000),"0");
 });

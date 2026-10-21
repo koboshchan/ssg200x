@@ -6,11 +6,17 @@ import {audit} from "./audit";
 import type {Room,Identity} from "./types";
 export type DoudizhuInput={type:"create"|"join"|"ready"|"bid"|"play"|"pass"|"leave";code?:string;beansPerDollar?:number;maxLoss?:number;cards?:string[];bid?:number;requestId:string;requestAt:number;version?:number};
 export type DoudizhuPlayer={userId:string;ready:boolean;auto:boolean;hand:string[];escrow:number;plays:number};
-export type DoudizhuRoom={code:string;base?:number;rate?:number;scoringMode?:"beans"|"legacy-rate";beansPerDollar?:number;baseBeans?:number;maxLoss:number;version:number;phase:"waiting"|"bidding"|"playing"|"finished";handId:string;players:DoudizhuPlayer[];kitty:string[];turn:number;deadline:number|null;landlord:number|null;bid:number;bidder:number|null;bids:number;multiplier:number;trick:{cards:string[];combo:Combo;seat:number}|null;passes:number;settled:boolean;result:null|{winner:number;spring:boolean;unit:number;unitBeans?:number;beanDeltas?:number[];deltas:number[];settlementId:string}};
+export type DoudizhuRoom={code:string;base?:number;rate?:number;scoringMode?:"beans"|"legacy-rate";beansPerDollar?:number;baseBeans?:number;maxLoss:number;version:number;phase:"waiting"|"bidding"|"playing"|"finished";handId:string;players:DoudizhuPlayer[];kitty:string[];turn:number;deadline:number|null;landlord:number|null;bid:number;bidder:number|null;bids:number;multiplier:number;trick:{cards:string[];combo:Combo;seat:number}|null;passes:number;settled:boolean;result:null|{winner:number;spring:boolean;unit:number;unitBeans?:number;beanDeltas?:number[];beanDeltaExact?:string[];deltas:number[];settlementId:string}};
 export const DOUDIZHU_TURN_MS=60_000;
 export const DOUDIZHU_RULES={turnMs:DOUDIZHU_TURN_MS,description:"Happy Beans: 1000 base beans times bid and multiplier. Convert beans to cents by flooring beans × 100 / beansPerDollar before caps. Result bean deltas are exact settled cents × beansPerDollar / 100, including fractional beans. Each player reserves the room maximum loss. Bids, bombs, rocket and spring multiply points. Loss cannot exceed reserved chips; a losing landlord pays at most their reserve, split equally between farmers with an odd cent to the lower seat."};
 export function doudizhuMaxRate(r:Room){return Number.isSafeInteger(r.doudizhuMaxRate)&&r.doudizhuMaxRate!>=1&&r.doudizhuMaxRate!<=1000000?r.doudizhuMaxRate!:1000;}
 export function doudizhuMaxBeansPerDollar(r:Room){return Number.isSafeInteger(r.doudizhuMaxBeansPerDollar)&&r.doudizhuMaxBeansPerDollar!>=1&&r.doudizhuMaxBeansPerDollar!<=1000000000?r.doudizhuMaxBeansPerDollar!:1000000;}
+/** Exact signed decimal beans for cent transfers; no unsafe Number multiplication. */
+export function settledBeansExact(cents:number,beansPerDollar:number):string{
+ const product=BigInt(cents)*BigInt(beansPerDollar),negative=product<0n,absolute=negative?-product:product;
+ const whole=absolute/100n,remainder=absolute%100n;
+ return (negative?"-":"")+whole.toString()+(remainder?"."+remainder.toString().padStart(2,"0").replace(/0$/,""):"");
+}
 export function doudizhuAssets(r:Room,userId?:string){return (r.doudizhu??[]).reduce((n,g)=>n+g.players.filter(p=>!userId||p.userId===userId).reduce((s,p)=>s+p.escrow,0),0);}
 const system:Identity={id:"doudizhu-system",name:"Game timer",email:"",admin:false};
 function member(r:Room,id:string){const m=r.members.find(m=>m.id===id);ensure(m,"Account not found.",404);return m;}
@@ -30,7 +36,7 @@ function settle(r:Room,g:DoudizhuRoom,winner:number,now:number){
  else{const total=Math.min(unit*2,g.players[landlord].escrow),share=Math.floor(total/2);deltas[landlord]=-total;farmers.forEach((i,n)=>deltas[i]=share+(n===0?total%2:0));}
  const settlementId=g.handId+":settlement";
  g.players.forEach((p,i)=>{ensure(Number.isSafeInteger(p.escrow+deltas[i])&&p.escrow+deltas[i]>=0,"Invalid settlement.",500);member(r,p.userId).wallet+=p.escrow+deltas[i];p.escrow=0;p.ready=false;});
- g.settled=true;g.phase="finished";g.deadline=null;g.result={winner,spring,unit,deltas,settlementId,...(isBeans?{unitBeans,beanDeltas:deltas.map(c=>c*g.beansPerDollar!/100)}:{})};
+ g.settled=true;g.phase="finished";g.deadline=null;g.result={winner,spring,unit,deltas,settlementId,...(isBeans?{unitBeans,beanDeltas:deltas.map(c=>Number(settledBeansExact(c,g.beansPerDollar!))),beanDeltaExact:deltas.map(c=>settledBeansExact(c,g.beansPerDollar!))}:{})};
  audit(r,system,"doudizhu.settlement",settlementId,null,{handId:g.handId,code:g.code,...g.result,at:now});
 }
 function action(r:Room,g:DoudizhuRoom,seat:number,type:"bid"|"play"|"pass",input:Partial<DoudizhuInput>,now:number){
