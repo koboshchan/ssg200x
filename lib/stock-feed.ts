@@ -1,4 +1,4 @@
-import {ALPACA_IEX_URL, STOCK_SYMBOLS, isStockSymbol, type StockEnvironment} from "./stock-config";
+import {ALPACA_IEX_URL, STOCK_SYMBOLS, type StockEnvironment} from "./stock-config";
 import type {StockTick} from "./stock-policy";
 export interface StockSocket {
   send(data: string): void; close(): void;
@@ -6,6 +6,7 @@ export interface StockSocket {
   onerror: (() => void) | null; onmessage: ((event: {data: unknown}) => void) | null;
 }
 export type StockFeedOptions = {
+  symbols?:()=>readonly string[];
   env: StockEnvironment; permitted: () => boolean; isLeader: () => boolean;
   socket: (url: string) => StockSocket; now: () => number;
   onTick: (tick: StockTick) => void;
@@ -17,6 +18,18 @@ export type StockFeedOptions = {
  */
 export class AlpacaIexFeed {
   private current: StockSocket | null = null;
+  private selected:string[]=[];
+  private updating=false;
+  private symbols(){return this.options.symbols?.()??STOCK_SYMBOLS;}
+  sync(){
+   const symbols=[...this.symbols()],socket=this.current;
+   if(!socket||!this.authenticated)return;
+   const removed=this.selected.filter(s=>!symbols.includes(s)),added=symbols.filter(s=>!this.selected.includes(s));
+   if(removed.length||added.length)this.updating=this.subscribed;
+   if(removed.length)socket.send(JSON.stringify({action:"unsubscribe",trades:removed,quotes:removed}));
+   if(added.length)socket.send(JSON.stringify({action:"subscribe",trades:added,quotes:added}));
+   this.selected=symbols;
+  }
   private authenticated = false;
   private subscribed = false;
   private lastTimestamp = new Map<string, number>();
@@ -60,19 +73,19 @@ export class AlpacaIexFeed {
         if (m.T === "success" && m.msg === "authenticated") {
           if (this.authenticated) return fail();
           this.authenticated = true;
-          socket.send(JSON.stringify({action: "subscribe", trades: STOCK_SYMBOLS, quotes: STOCK_SYMBOLS}));
+          this.selected=[];this.sync();
         }
         if (m.T === "subscription") {
-          if (!this.authenticated || !Array.isArray(m.trades) || !STOCK_SYMBOLS.every(symbol => (m.trades as unknown[]).includes(symbol)) ||
-            !Array.isArray(m.quotes) || !STOCK_SYMBOLS.every(symbol => (m.quotes as unknown[]).includes(symbol))) return fail();
+          if (!this.authenticated || !Array.isArray(m.trades) || !this.symbols().every(symbol => (m.trades as unknown[]).includes(symbol)) ||
+            !Array.isArray(m.quotes) || !this.symbols().every(symbol => (m.quotes as unknown[]).includes(symbol))) {if(this.updating)continue;return fail();}
           if (this.handshake) clearTimeout(this.handshake);
           this.handshake = null;
-          this.subscribed = true; this.attempt = 0; o.onState("subscribed");
+          this.subscribed = true; this.updating=false; this.attempt = 0; o.onState("subscribed");
         }
-        if ((m.T === "c" || m.T === "x") && isStockSymbol(m.S)) return fail();
+        if ((m.T === "c" || m.T === "x") && (typeof m.S==="string"&&this.symbols().includes(m.S))) return fail();
         // Quotes and bars are not executable last-trade prices. Only regular
         // sale prints are accepted; unknown conditions fail closed for that tick.
-        if (m.T !== "t" || !this.subscribed || !isStockSymbol(m.S)) continue;
+        if (m.T !== "t" || !this.subscribed || !(typeof m.S==="string"&&this.symbols().includes(m.S))) continue;
         const now = o.now(), timestamp = typeof m.t === "string" ? Date.parse(m.t) : NaN;
         if (typeof m.p !== "number" || !Number.isFinite(m.p) || m.p <= 0 ||
           typeof m.s !== "number" || !Number.isFinite(m.s) || m.s <= 0 ||

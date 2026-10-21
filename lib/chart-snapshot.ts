@@ -1,10 +1,10 @@
+import {activeSymbol,type SymbolContext} from "./symbol-registry";
 import {candleRead,GRANULARITIES,type Granularity} from "./candles";
-import {TRADING_SYMBOLS} from "./market-shared";
 export type ChartSelection={symbol:string;granularity:Granularity};
-export function chartSelection(symbol:unknown,granularity:unknown):ChartSelection|null{
- return typeof symbol==="string"&&(TRADING_SYMBOLS as readonly string[]).includes(symbol)&&typeof granularity==="string"&&Object.hasOwn(GRANULARITIES,granularity)?{symbol,granularity:granularity as Granularity}:null;
+export function chartSelection(symbol:unknown,granularity:unknown,context?:SymbolContext):ChartSelection|null{
+ return typeof symbol==="string"&&activeSymbol(symbol,context)&&typeof granularity==="string"&&Object.hasOwn(GRANULARITIES,granularity)?{symbol,granularity:granularity as Granularity}:null;
 }
-/** At most 120 keys (20 symbols x 6 intervals), one shared Mongo read per 2s.
+/** Bounded LRU of active chart selections, one shared Mongo read per 2s.
  * Socket subscribers only read our stored candles. No upstream history fetch.
  */
 export function chartSnapshotCache(load:typeof candleRead=candleRead,now=Date.now){
@@ -12,6 +12,8 @@ export function chartSnapshotCache(load:typeof candleRead=candleRead,now=Date.no
  return (selection:ChartSelection)=>{
   const width=GRANULARITIES[selection.granularity],to=Math.floor(now()/width)*width,from=to-width*300;
   const key=selection.symbol+":"+selection.granularity,previous=cache.get(key);
+  if(previous){cache.delete(key);cache.set(key,previous);}
+  if(!previous&&cache.size>=512)cache.delete(cache.keys().next().value!);
   if(previous&&now()<previous.until)return previous.pending;
   const entry={until:now()+2000,pending:load(selection.symbol,selection.granularity,from,to,301)};
   cache.set(key,entry);

@@ -1,5 +1,6 @@
+import {casinoLimits,CASINO_LIMIT_MAX_CENTS} from "./casino-limits";
+import {marketSymbols,activeSymbol,delistedSymbol,stockSymbol} from "./symbol-registry";
 import {isWholeCasinoAmount} from "./casino-amount";
-import {isStockSymbol} from "./stock-config";
 import {stockExecutionPolicy,type StockExecutionState} from "./stock-policy";
 import {randomInt,randomUUID} from "node:crypto";
 import {ensure} from "./errors";
@@ -7,7 +8,7 @@ import {validateTriggers,type PositionTriggers} from "./position-triggers";
 import {register} from "./poker";
 import type {Room,Identity,Member} from "./types";
 export {SYMBOLS,RED} from "./market-shared";
-import {type Symbol,type Bet,RED,isActiveSymbol,isDelistedSymbol} from "./market-shared";
+import {type Symbol,type Bet,RED} from "./market-shared";
 export type {Symbol,Bet} from "./market-shared";
 export type Quote={micro:number;at:number};
 export type Holding={symbol:Symbol;units:number;cost:number};
@@ -23,28 +24,28 @@ export function liquidatable(p:Position,mark:number){return p.side==="long"?mark
 export function equity(p:Position,mark:number){return Math.max(0,p.margin+pnl(p,mark));}
 /** Same server guard for every stock settlement path; unknown state preserves claims. */
 export function stockExecutable(r:Room,symbol:string,now=Date.now()){
- if(!isStockSymbol(symbol))return true;
+ if(!stockSymbol(symbol,r))return true;
  const state=(r as Room & {stockExecution?:Partial<Record<string,StockExecutionState>>}).stockExecution?.[symbol];
  const quote=r.quotes?.[symbol as Symbol];
- return !!state&&Number.isFinite(state.leaseUntil)&&now<state.leaseUntil!&&state.symbol===symbol&&stockExecutionPolicy(state,now).executable&&!!quote&&
+ return !!state&&Number.isFinite(state.leaseUntil)&&now<state.leaseUntil!&&state.symbol===symbol&&stockExecutionPolicy(state,now,marketSymbols(r).stocks).executable&&!!quote&&
    !!state.tick&&quote.micro===Math.round(state.tick.price*1e6)&&quote.at===state.tick.timestamp;
 }
 export function requireQuote(r:Room,symbol:Symbol,now=Date.now()){
  ensure(stockExecutable(r,symbol,now),"Stock market closed or verified live state unavailable.",503);
- const q=r.quotes?.[symbol];ensure(q&&Number.isSafeInteger(q.micro)&&q.micro>0&&(isStockSymbol(symbol)?now-q.at<60_000:now-q.at<=10_000)&&now>=q.at,"Live price unavailable. Trading is paused.",503);return q.micro;
+ const q=r.quotes?.[symbol];ensure(q&&Number.isSafeInteger(q.micro)&&q.micro>0&&(stockSymbol(symbol,r)?now-q.at<60_000:now-q.at<=10_000)&&now>=q.at,"Live price unavailable. Trading is paused.",503);return q.micro;
 }
 /** Only server-persisted USD quote cache is a settlement source, never USDT candles.
  * Missing/invalid cache retains the original claim without any financial mutation.
  */
 export function legacyQuote(r:Room,symbol:Symbol,now=Date.now()){
  const q=r.quotes?.[symbol];
- return isDelistedSymbol(symbol)&&q&&Number.isSafeInteger(q.micro)&&q.micro>0&&q.micro<=1e13&&Number.isSafeInteger(q.at)&&q.at>=0&&q.at<=now?q:null;
+ return delistedSymbol(symbol,r)&&q&&Number.isSafeInteger(q.micro)&&q.micro>0&&q.micro<=1e13&&Number.isSafeInteger(q.at)&&q.at>=0&&q.at<=now?q:null;
 }
 export function requireLegacyQuote(r:Room,symbol:Symbol,now=Date.now()){
  const q=legacyQuote(r,symbol,now);ensure(q,"Delisted asset pending valuation. Your claim is retained.",503);return q;
 }
 export function redeemLegacyHolding(r:Room,who:Identity,symbol:Symbol,now=Date.now()){
- ensure(isDelistedSymbol(symbol),"Asset is not delisted.");
+ ensure(delistedSymbol(symbol,r),"Asset is not delisted.");
  const m=r.members.find(m=>m.id===who.id),h=m?.holdings?.find(h=>h.symbol===symbol);
  ensure(m&&h&&h.units>0,"No holding to redeem.",404);
  const q=requireLegacyQuote(r,symbol,now),returned=value(h.units,q.micro);
@@ -65,11 +66,11 @@ function settle(r:Room,m:Member,p:Position,mark:number,reason:ClosedPosition["re
 }
 export function liquidate(r:Room,now=Date.now()){
  for(const m of r.members){for(const p of [...(m.positions||[])]){
- const q=r.quotes?.[p.symbol];if(stockExecutable(r,p.symbol,now)&&isActiveSymbol(p.symbol)&&q&&Number.isSafeInteger(q.micro)&&q.micro>0&&q.at<=now&&(isStockSymbol(p.symbol)?now-q.at<60_000:now-q.at<=10_000)&&liquidatable(p,q.micro))settle(r,m,p,q.micro,"Liq",now);
+ const q=r.quotes?.[p.symbol];if(stockExecutable(r,p.symbol,now)&&activeSymbol(p.symbol,r)&&q&&Number.isSafeInteger(q.micro)&&q.micro>0&&q.at<=now&&(stockSymbol(p.symbol,r)?now-q.at<60_000:now-q.at<=10_000)&&liquidatable(p,q.micro))settle(r,m,p,q.micro,"Liq",now);
  }}
 }
 export function spot(r:Room,who:Identity,symbol:Symbol,side:"buy"|"sell",amount:number,now=Date.now()){
- ensure(isActiveSymbol(symbol),"Asset is delisted. New orders are disabled.",410);
+ ensure(activeSymbol(symbol,r),"Asset is delisted. New orders are disabled.",410);
  const m=portfolio(register(r,who));
  const price=requireQuote(r,symbol,now);
  ensure(Number.isSafeInteger(amount)&&amount>=100&&amount<=100_000_000,"Use $1–$1,000,000 per order.");
@@ -87,7 +88,7 @@ export function spot(r:Room,who:Identity,symbol:Symbol,side:"buy"|"sell",amount:
  }
 }
 export function openPosition(r:Room,who:Identity,symbol:Symbol,side:"long"|"short",margin:number,leverage:number,id:string=randomUUID(),now=Date.now(),triggers:PositionTriggers={}){
- ensure(isActiveSymbol(symbol),"Asset is delisted. New orders are disabled.",410);
+ ensure(activeSymbol(symbol,r),"Asset is delisted. New orders are disabled.",410);
  const m=portfolio(register(r,who));
  const entry=requireQuote(r,symbol,now);ensure(Number.isSafeInteger(margin)&&margin>=100&&margin<=100_000_000&&m.wallet>=margin,"Not enough cash or invalid margin.");
  ensure(margin<=(r.limits?.maxTrade??1000000)*100&&margin*leverage<=(r.limits?.maxTrade??1000000)*100,"Position margin or notional exceeds the host’s trade limit.");
@@ -97,11 +98,11 @@ export function openPosition(r:Room,who:Identity,symbol:Symbol,side:"long"|"shor
  m.wallet-=margin;m.positions!.push(position);
 }
 export function closePosition(r:Room,who:Identity,id:string,now=Date.now(),reason:ClosedPosition["reason"]="Manual"){
- const m=r.members.find(m=>m.id===who.id);const p=m?.positions?.find(x=>x.id===id);ensure(m&&p,"Position not found.",404);settle(r,m,p,isDelistedSymbol(p.symbol)?requireLegacyQuote(r,p.symbol,now).micro:requireQuote(r,p.symbol,now),reason,now);
+ const m=r.members.find(m=>m.id===who.id);const p=m?.positions?.find(x=>x.id===id);ensure(m&&p,"Position not found.",404);settle(r,m,p,delistedSymbol(p.symbol,r)?requireLegacyQuote(r,p.symbol,now).micro:requireQuote(r,p.symbol,now),reason,now);
 }
-export function payout(b:Bet,n:number){
+export function payout(b:Bet,n:number,maxAmount=100_000){
  ensure(Number.isInteger(n)&&n>=0&&n<=36,"Invalid wheel result.");
- ensure(Number.isSafeInteger(b.amount)&&b.amount>=100&&b.amount<=100_000,"Bet $1–$1,000.");
+ ensure(Number.isSafeInteger(b.amount)&&b.amount>=100&&b.amount<=maxAmount,"Bet exceeds the allowed limit.");
  let win=false,mult=2;
  if(b.kind==="straight"){ensure(Number.isInteger(b.pick)&&b.pick!>=0&&b.pick!<=36,"Pick 0–36.");win=n===b.pick;mult=36;}
  else if(b.kind==="dozen"||b.kind==="column"){ensure(Number.isInteger(b.pick)&&b.pick!>=1&&b.pick!<=3,"Pick 1–3.");win=n!==0&&(b.kind==="dozen"?Math.ceil(n/12)===b.pick:(n-1)%3+1===b.pick);mult=3;}
@@ -118,13 +119,13 @@ export function spin(r:Room,who:Identity,bets:Bet[],n=randomInt(37),id:string=ra
  const m=portfolio(register(r,who));
  ensure(bets.length>=1&&bets.length<=20,"Choose 1–20 bets.");
  ensure(bets.every(b=>isWholeCasinoAmount(b.amount)),"Bets must be whole dollars.");
- const returned=bets.reduce((sum,b)=>sum+payout(b,n),0),stake=bets.reduce((sum,b)=>sum+b.amount,0);
- ensure(stake<=100_000&&m.wallet>=stake,"Not enough cash or total bet over $1,000.");
+ const returned=bets.reduce((sum,b)=>sum+payout(b,n,CASINO_LIMIT_MAX_CENTS),0),stake=bets.reduce((sum,b)=>sum+b.amount,0);
+ ensure(stake<=casinoLimits(r).rouletteMaxTotal&&m.wallet>=stake,"Not enough cash or total bet exceeds the roulette limit.");
  ensure(!m.spins![0]||now-m.spins![0].at>=1500,"Wait a moment before spinning again.",429);
  m.wallet+=returned-stake;r.house=(r.house||0)+stake-returned;
  m.spins=[{id,number:n,stake,returned,at:now},...m.spins!].slice(0,30);
 }
 export function assetsBook(m:Member){return (m.holdings||[]).reduce((n,h)=>n+h.cost,0)+(m.positions||[]).reduce((n,p)=>n+p.margin,0);}
 export function assetsMarket(r:Room,m:Member){
- const quotes={...r.quotes};for(const symbol of Object.keys(quotes) as Symbol[])if(isDelistedSymbol(symbol)&&!legacyQuote(r,symbol))delete quotes[symbol];
+ const quotes={...r.quotes};for(const symbol of Object.keys(quotes) as Symbol[])if(delistedSymbol(symbol,r)&&!legacyQuote(r,symbol))delete quotes[symbol];
  r={...r,quotes};return (m.holdings||[]).reduce((n,h)=>n+(r.quotes?.[h.symbol]?value(h.units,r.quotes[h.symbol]!.micro):h.cost),0)+(m.positions||[]).reduce((n,p)=>n+(r.quotes?.[p.symbol]?equity(p,r.quotes[p.symbol]!.micro):p.margin),0);}

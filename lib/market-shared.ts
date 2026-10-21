@@ -4,7 +4,7 @@ export const SYMBOLS=MARKET_CONFIG.symbols;
 // Persisted asset claims outlive the active market allowlist.
 export const DELISTED_SYMBOLS=["ZEC","HYPE","DOGE","LINK","ADA","NEAR","XLM","BCH","UNI","AVAX","SUI","HBAR","TAO","SHIB"] as const;
 export const TRADING_SYMBOLS=[...SYMBOLS,...STOCK_SYMBOLS] as const;
-export type Symbol=typeof SYMBOLS[number]|typeof DELISTED_SYMBOLS[number]|StockSymbol;
+export type Symbol=string;
 export function isTradingSymbol(symbol:string){return (TRADING_SYMBOLS as readonly string[]).includes(symbol);}
 export function isActiveSymbol(symbol:string){return (SYMBOLS as readonly string[]).includes(symbol)||isStockSymbol(symbol);}
 export function isDelistedSymbol(symbol:string){return (DELISTED_SYMBOLS as readonly string[]).includes(symbol);}

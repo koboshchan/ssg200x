@@ -1,7 +1,7 @@
+import {marketSymbols,activeSymbol,delistedSymbol,stockSymbol} from "./symbol-registry";
+import {readRoom} from "./db";
 import type { AnyBulkWriteOperation, ClientSession } from "mongodb";
-import {isStockSymbol} from "./stock-config";
 import { db } from "./db";
-import { SYMBOLS, TRADING_SYMBOLS, isDelistedSymbol } from "./market-shared";
 
 // Stored archive rows remain readable; all new observations come from the shared live feed.
 export const GRANULARITIES = { "1m": 60_000, "5m": 300_000, "15m": 900_000, "1h": 3_600_000, "6h": 21_600_000, "1d": 86_400_000 } as const;
@@ -15,11 +15,12 @@ async function collections() {
  await indexes;
  return {candles};
 }
-function validateSymbol(symbol: string) { if (!(TRADING_SYMBOLS as readonly string[]).includes(symbol)) throw new Error("Unsupported symbol"); }
+function validateSymbol(symbol: string, room:import("./types").Room) { if (!activeSymbol(symbol,room)) throw new Error("Unsupported symbol"); }
 function validateGranularity(g: string): asserts g is Granularity { if (!Object.hasOwn(GRANULARITIES,g)) throw new Error("Unsupported candle granularity"); }
 function key(c: Pick<Candle,"symbol"|"granularity"|"time">) { return `${c.symbol}:${c.granularity}:${c.time}`; }
 export async function candleRead(symbol: string, granularity: string, from: number, to: number, limit=1000): Promise<Candle[]> {
- if(!isDelistedSymbol(symbol))validateSymbol(symbol);validateGranularity(granularity);
+ const room=await readRoom();
+ if(!delistedSymbol(symbol,room))validateSymbol(symbol,room);validateGranularity(granularity);
  if(!Number.isFinite(from)||!Number.isFinite(to)||from>to||!Number.isFinite(limit)||limit<1)throw new Error("Invalid candle range");
  const {candles}=await collections();
  // Latest N points in the requested range, returned chronologically.
@@ -32,8 +33,9 @@ type QuoteSnapshot = Partial<Record<string,{micro:number;at:number}>>;
  */
 export async function candleUpdate(quotes: QuoteSnapshot | readonly QuoteSnapshot[], stockSession?:ClientSession) {
  const {candles}=await collections();
+ const room=await readRoom(),config=marketSymbols(room);
  const ops: AnyBulkWriteOperation<StoredCandle>[]=[];
- for(const snapshot of Array.isArray(quotes)?quotes:[quotes as QuoteSnapshot])for(const symbol of (stockSession?TRADING_SYMBOLS:SYMBOLS)) {
+ for(const snapshot of Array.isArray(quotes)?quotes:[quotes as QuoteSnapshot])for(const symbol of (stockSession?[...config.crypto,...config.stocks]:config.crypto)) {
   const q=snapshot[symbol];
   if(!q || !Number.isFinite(q.micro)||q.micro<=0||!Number.isSafeInteger(q.at)||q.at<0)continue;
   const price=q.micro/1e6;
@@ -47,7 +49,7 @@ export async function candleUpdate(quotes: QuoteSnapshot | readonly QuoteSnapsho
      close:{$cond:[{$or:[{$eq:[{$type:"$lastAt"},"missing"]},{$gte:[q.at,"$lastAt"]}]},price,"$close"]},
      high:{$max:[{$ifNull:["$high",price]},price]},low:{$min:[{$ifNull:["$low",price]},price]},
      firstAt:{$min:[{$ifNull:["$firstAt",q.at]},q.at]},lastAt:{$max:[{$ifNull:["$lastAt",q.at]},q.at]},
-     volume:{$ifNull:["$volume",0]},source:isStockSymbol(symbol)?"alpaca-iex":"coinbase",quoteCurrency:"USD"}}
+     volume:{$ifNull:["$volume",0]},source:stockSymbol(symbol,room)?"alpaca-iex":"coinbase",quoteCurrency:"USD"}}
    ],upsert:true}});
   }
  }

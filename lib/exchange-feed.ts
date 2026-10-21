@@ -5,6 +5,16 @@ export const STALE_MS=10_000;
 export const FUTURE_SKEW_MS=1000;
 export class ExchangeFeed {
  private socket?:Socket;
+ private subscribed:string[]=[];
+ private symbols(){return this.deps.symbols?.()??SYMBOLS;}
+ private sync(){
+  const symbols=[...this.symbols()],ws=this.socket;
+  if(!ws||ws.readyState!==1)return;
+  const removed=this.subscribed.filter(s=>!symbols.includes(s)),added=symbols.filter(s=>!this.subscribed.includes(s));
+  if(removed.length)ws.send(JSON.stringify({type:"unsubscribe",product_ids:removed.map(s=>s+"-USD"),channels:["ticker","heartbeat"]}));
+  if(added.length)ws.send(JSON.stringify({type:"subscribe",product_ids:added.map(s=>s+"-USD"),channels:["ticker","heartbeat"]}));
+  this.subscribed=symbols;
+ }
  private queue:Tick[]=[];
  private draining=false;
  private stopped=false;
@@ -15,14 +25,15 @@ export class ExchangeFeed {
  private seen=new Map<string,{sequence:number;at:number}>();
  private startedAt:number;
  readonly latest=new Map<string,number>();
- constructor(private deps:{socket:()=>Socket;apply:(ticks:Tick[])=>Promise<void>;now?:()=>number;log?:(message:string)=>void},private capacity=4096){this.startedAt=this.now();}
+ constructor(private deps:{socket:()=>Socket;apply:(ticks:Tick[])=>Promise<void>;now?:()=>number;symbols?:()=>readonly string[];log?:(message:string)=>void},private capacity=4096){this.startedAt=this.now();}
  private now(){return this.deps.now?.()??Date.now();}
  private log(s:string){this.deps.log?.(s);}
- staleSymbols(){const now=this.now();return SYMBOLS.filter(s=>now-(this.latest.get(s)??this.startedAt)>STALE_MS);}
+ staleSymbols(){const now=this.now();return this.symbols().filter(s=>now-(this.latest.get(s)??this.startedAt)>STALE_MS);}
  get connected(){return this.socket?.readyState===1;}
  get pending(){return this.queue.length;}
  step(){
   if(this.stopped)return;
+  this.sync();
   if(this.socket && this.now()-this.lastMessage>STALE_MS){this.disconnect("stalled");}
   if(!this.socket&&this.now()>=this.retryAt)this.connect();
  }
@@ -36,7 +47,7 @@ export class ExchangeFeed {
   this.lastMessage=this.now();
   try{
    const ws=this.deps.socket();this.socket=ws;
-   ws.onopen=()=>{if(this.socket!==ws)return;ws.send(JSON.stringify({type:"subscribe",product_ids:SYMBOLS.map(s=>s+"-USD"),channels:["ticker","heartbeat"]}));};
+   ws.onopen=()=>{if(this.socket!==ws)return;this.subscribed=[];this.sync();};
    ws.onmessage=e=>{if(this.socket===ws)this.receive(String(e.data));};
    ws.onclose=()=>{if(this.socket===ws)this.disconnect("closed");};
    ws.onerror=()=>{if(this.socket===ws)this.disconnect("error");};
@@ -50,13 +61,13 @@ export class ExchangeFeed {
   if(m.type==="subscriptions"){
    const channels=Array.isArray(m.channels)?m.channels:[];const ticker=channels.find(c=>c?.name==="ticker");
    const accepted=new Set(Array.isArray(ticker?.product_ids)?ticker.product_ids:[]);
-   const missing=SYMBOLS.filter(s=>!accepted.has(s+"-USD"));
+   const missing=this.symbols().filter(s=>!accepted.has(s+"-USD"));
    if(missing.length)this.log("Coinbase missing ticker products: "+missing.join(","));
    return;
   }
   if(m.type!=="ticker"&&m.type!=="heartbeat")return;
   const symbol=typeof m.product_id==="string"?m.product_id.replace(/-USD$/,""):"";
-  if(!SYMBOLS.includes(symbol as typeof SYMBOLS[number])||m.product_id!==symbol+"-USD"){
+  if(!this.symbols().includes(symbol)||m.product_id!==symbol+"-USD"){
    if(this.unknown.size<32&&!this.unknown.has(String(m.product_id))){this.unknown.add(String(m.product_id));this.log("Coinbase ignored unknown product: "+String(m.product_id).slice(0,80));}
    return;
   }

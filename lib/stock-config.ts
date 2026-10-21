@@ -4,7 +4,7 @@ export const STOCK_SYMBOLS = ["AAPL", "TSLA", "NVDA", "MSFT", "AMD", "SPCX", "SP
 export function stockDisplayName(symbol: string): string {
   return symbol === "SPY" ? "S&P 500 (SPY)" : symbol;
 }
-export type StockSymbol = typeof STOCK_SYMBOLS[number];
+export type StockSymbol = string;
 export function isStockSymbol(value: unknown): value is StockSymbol {
   return typeof value === "string" && (STOCK_SYMBOLS as readonly string[]).includes(value);
 }
