@@ -9,3 +9,4 @@
 .dd-formula{display:block}.dd-result span{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}.dd-result em{font-style:normal;font-weight:700}
 @media(max-width:600px){.dd-player{min-width:0;overflow-wrap:anywhere}.dd-custom input{width:100%;min-width:0}.dd-presets>*{flex:1 1 30%;min-width:0}}
 .dd-nominal{display:block;color:var(--muted);font-size:12px;line-height:1.5}
+.dd-demo-fx{display:flex;flex-wrap:wrap;gap:6px;margin:0 5% 8px}.dd-demo-fx button{font-size:12px;padding:6px 10px}
