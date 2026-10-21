@@ -76,3 +76,18 @@ test("repeat thresholds increment counts once per new streak; first reward only 
  assert.equal(m.advancements!.counts![7],2);assert.equal(m.wallet,102500);assert.equal(r.auditPending!.filter(e=>(e.new as {tier:number}).tier===7).length,1);
  assert.equal(m.advancements!.unlocked[7],700);assert.equal(m.advancements!.rewarded![7],2500);assertRoom(r);
 });
+test("approved first-unlock rewards pay exactly once at every tier",async()=>{
+ const {ADVANCEMENT_REWARDS_CENTS}=await import("../lib/advancements-shared");
+ assert.deepEqual(ADVANCEMENT_REWARDS_CENTS,{7:10000,8:10000,9:20000,10:20000,11:25000,12:25000,13:50000,14:50000});
+ const r=setup(),m=r.members[0];let expected=100000;
+ for(let round=1;round<=14;round++){
+  settleAdvancements(m,[wager()],0,round,round*100,r);
+  expected+=(ADVANCEMENT_REWARDS_CENTS as Record<number,number>)[round]??0;assert.equal(m.wallet,expected);assertRoom(r);
+ }
+ const wallet=m.wallet;
+ settleAdvancements(m,[wager()],1,15,1500,r);
+ for(let round=16;round<=29;round++)settleAdvancements(m,[wager()],0,round,round*100,r);
+ assert.equal(m.wallet,wallet);assert.equal(r.auditPending!.length,8);
+ for(const a of ADVANCEMENTS)assert.equal(m.advancements!.counts![a.tier],2);
+ assertRoom(r);
+});
