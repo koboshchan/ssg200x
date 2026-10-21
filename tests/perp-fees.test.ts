@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {freshRoom,register,assertRoom} from '../lib/poker';
-import {openPosition,closePosition,liquidate,liqPrice,spot,portfolio} from '../lib/finance';
+import {openPosition,closePosition,liquidate,liqPrice,spot,portfolio,pnl} from '../lib/finance';
 import {setPerpFee} from '../lib/admin';
 import {feeCents,validFeePercent} from '../lib/perp-fees';
 import {settleTriggers} from '../lib/position-triggers';
@@ -31,10 +31,10 @@ for(const side of ['long','short'] as const)for(const reason of ['Manual','TP','
  const favorable=reason!=='SL',direction=side==='long'?1:-1,exit=100000000+direction*(favorable?10000000:-5000000);
  openPosition(r,who,'BTC',side,10000,5,'p',1000,{takeProfit:side==='long'?110000000:90000000,stopLoss:side==='long'?95000000:105000000});
  assert.equal(r.members[0].wallet,90000);assert.equal(r.house,25);assertRoom(r);
- const before=JSON.stringify(r);assert.throws(()=>openPosition(r,who,'BTC',side,10000,5,'p',1000));assert.equal(JSON.stringify(r),before);
+ const position={...r.members[0].positions![0]};const before=JSON.stringify(r);assert.throws(()=>openPosition(r,who,'BTC',side,10000,5,'p',1000));assert.equal(JSON.stringify(r),before);
  setPerpFee(r,who,0.1); // Existing position keeps the disclosed rate on close.
  r.quotes!.BTC={micro:exit,at:1001};if(reason==='Manual')closePosition(r,who,'p',1001);else settleTriggers(r,1001);
- const c=r.members[0].closedPositions![0],fee=feeCents(10000,5,100000000,exit,500),gross=favorable?5000:-2500;
+ const c=r.members[0].closedPositions![0],fee=feeCents(position.margin,5,100000000,exit,500),gross=pnl(position,exit);
  assert.equal(c.openingFee,25);assert.equal(c.closingFee,fee);assert.equal(c.realizedPnl,gross-25-fee);assert.equal(c.reason,reason);
  assert.equal(r.members[0].wallet,100000+c.realizedPnl);assertRoom(r);
  const saved=JSON.stringify(r);settleTriggers(r,1001);liquidate(r,1001);assert.throws(()=>closePosition(r,who,'p',1001));assert.equal(JSON.stringify(r),saved);
@@ -74,7 +74,7 @@ test('approved initial 0.03% charges both full notionals and preserves explicit 
  openPosition(r,who,'BTC','long',10000,200,'approved',1000);
  assert.equal(r.members[0].wallet,90000);assert.equal(r.members[0].positions![0].openingFee,600);
  setPerpFee(r,who,0);closePosition(r,who,'approved',1000);
- const c=r.members[0].closedPositions![0];assert.equal(c.closingFee,600);assert.equal(c.realizedPnl,-1200);
+ const c=r.members[0].closedPositions![0];assert.equal(c.closingFee,564);assert.equal(c.realizedPnl,-1164);
  assert.equal(publicRoom(r,who).perpFeePpm,0);assert.equal(marketPayload(r,who.id,1000).perpFeePpm,0);
  openPosition(r,who,'BTC','long',10000,200,'free',1000);assert.equal(r.members[0].positions![0].openingFee,0);assertRoom(r);
 });

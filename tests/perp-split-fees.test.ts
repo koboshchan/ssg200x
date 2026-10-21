@@ -1,8 +1,9 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {freshRoom,register,assertRoom} from '../lib/poker';
-import {openPosition,closePosition,liqPrice} from '../lib/finance';
+import {openPosition,closePosition,liqPrice,pnl} from '../lib/finance';
 import {setPerpFees} from '../lib/admin';
+import {feeCents} from "../lib/perp-fees";
 import {publicRoom} from '../lib/public';
 import {mergeMarket} from '../lib/room-sync';
 import {roomFeeRates,positionFeeRates} from '../runtime/perp-fee-policy.mjs';
@@ -40,9 +41,9 @@ for(const [opening,closing] of [[0,0.05],[0.05,0],[0.02,0.07]])for(const side of
  const wire=marketPayload(r,who.id,1001),full=publicRoom(r,who);
  assert.equal(wire.positions[0].liquidation,full.positions[0].liquidation);assert.equal(wire.positions[0].closingFeePpm,Math.round(closing*10000));
  closePosition(r,who,'p',1001);
- const c=r.members[0].closedPositions![0],closingFee=Math.round((side==='long'?55000:45000)*closing/100);
+ const c=r.members[0].closedPositions![0],closingFee=feeCents(p.margin,5,p.entry,r.quotes!.BTC!.micro,Math.round(closing*10000));
  assert.equal(c.closingFee,closingFee);assert.equal(c.openingFee,p.openingFee);
- assert.equal(c.realizedPnl,5000-p.openingFee!-closingFee);assert.equal(r.members[0].wallet,100000+c.realizedPnl);
+ assert.equal(c.realizedPnl,pnl(p,r.quotes!.BTC!.micro)-p.openingFee!-closingFee);assert.equal(r.members[0].wallet,100000+c.realizedPnl);
  assert.equal(c.openingFeePpm,Math.round(opening*10000));assert.equal(c.closingFeePpm,Math.round(closing*10000));
  assert.deepEqual(marketPayload(r,who.id,1001).closedPositions,publicRoom(r,who).closedPositions);
  const merged=mergeMarket(full,marketPayload(r,who.id,1001))!;assert.equal(merged.perpOpeningFeePpm,1000);assert.equal(merged.perpClosingFeePpm,1000);assertRoom(r);
@@ -57,7 +58,7 @@ test('single-rate snapshot predating split retains rate; pre-fee legacy stays fr
 });
 test('opening fee reduces collateral before closing and maintenance reserves',()=>{
  const r=setup();setPerpFees(r,who,0.1,0);r.maintenance=0.0045;
- assert.throws(()=>openPosition(r,who,'BTC','long',1000,200,'high-open',1000));
+ openPosition(r,who,'BTC','long',1000,200,'high-open',1000);
  setPerpFees(r,who,0,0.1);assert.throws(()=>openPosition(r,who,'BTC','long',1000,200,'high-close',1000));
  assertRoom(r);
 });

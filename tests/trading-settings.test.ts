@@ -22,8 +22,8 @@ for(const side of ["long","short"] as const)for(const leverage of [2,200]){
   const p=member.positions![0];assert.equal(p.takeProfit,triggers.takeProfit);
   r.quotes.BTC!.micro=entry+1_000_000;
   editPositionTriggers(r,who,p.id,resolveTriggerInput(member,p,{takeProfitPnl:600,stopLossPnl:200}));
-  assert.equal(p.takeProfit,pnlTriggerPrice(basis,600,"takeProfit"));
-  assert.equal(p.stopLoss,pnlTriggerPrice(basis,200,"stopLoss"));
+  assert.equal(p.takeProfit,pnlTriggerPrice(p,600,"takeProfit"));
+  assert.equal(p.stopLoss,pnlTriggerPrice(p,200,"stopLoss"));
   const saved={...p};
   for(const loss of [1000,1100])assert.throws(()=>editPositionTriggers(r,who,p.id,resolveTriggerInput(member,p,{stopLossPnl:loss})));
   assert.deepEqual(p,saved);

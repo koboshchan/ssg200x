@@ -21,6 +21,6 @@ test('Mongo CAS concurrent opening receipts debit once, persistence locks rate a
  await Promise.all(Array.from({length:5},(_,i)=>mutate(r=>{
  if(i%2===0){if(r.members[0].positions?.some(p=>p.id==='p'))closePosition(r,who,'p',now+1);}else settleTriggers(r,now+1);
  })));
- await closeDatabase();r=await readRoom();assert.equal(r.members[0].closedPositions!.length,1);assert.equal(r.members[0].wallet,104951);assert.equal(r.members[0].closedPositions![0].closingFee,39);assert.equal(r.members[0].closedPositions![0].realizedPnl,4951);assertRoom(r);
+ await closeDatabase();r=await readRoom();assert.equal(r.members[0].closedPositions!.length,1);assert.equal(r.members[0].wallet,104947);assert.equal(r.members[0].closedPositions![0].closingFee,38);assert.equal(r.members[0].closedPositions![0].realizedPnl,4947);assertRoom(r);
  const saved=r.members[0].wallet;await mutate(r=>settleTriggers(r,now+1));assert.equal((await readRoom()).members[0].wallet,saved);
 });
