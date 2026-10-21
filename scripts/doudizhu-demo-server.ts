@@ -10,7 +10,7 @@ if(process.env.MONGODB_DB!=="fakebucks_demo_doudizhu")throw Error("Isolated demo
 const users=["You","Mochi","Dango"].map((name,i)=>({id:"demo-dd-"+i,name,email:"demo"+i+"@invalid.test",admin:i===0}));
 const stamp={requestId:z.string().uuid(),requestAt:z.number().int(),code:z.string().max(100).optional(),version:z.number().int().nonnegative().optional()};
 const schema=z.discriminatedUnion("type",[
-z.object({...stamp,type:z.literal("create"),rate:z.number().int().min(1).max(1e6).optional(),maxLoss:z.number().int().min(100).max(1e8).optional()}).strict(),
+z.object({...stamp,type:z.literal("create"),beansPerDollar:z.number().int().min(1).max(1e9).optional(),maxLoss:z.number().int().min(100).max(1e8).optional()}).strict(),
 ...(["join","ready","pass","leave"] as const).map(type=>z.object({...stamp,type:z.literal(type)}).strict()),
 z.object({...stamp,type:z.literal("bid"),bid:z.number().int().min(0).max(3)}).strict(),
 z.object({...stamp,type:z.literal("play"),cards:z.array(z.string().max(2)).min(1).max(20)}).strict()
