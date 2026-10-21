@@ -218,7 +218,10 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
     <div className="dm-find-box">
      <input ref={findInput} id="dm-find" role="combobox" aria-autocomplete="list" aria-expanded={options.length>0} aria-controls={options.length?findId:undefined} aria-activedescendant={options.length?findId+"-"+hintAt:undefined} value={find} placeholder="Exact username" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
       onChange={e=>{setFind(e.target.value);setCaret(e.target.selectionStart??e.target.value.length);setHint(0);setHintOpen(true);}}
-      onSelect={syncCaret} onFocus={()=>{setHintOpen(true);syncCaret();}} onBlur={()=>setHintOpen(false)}
+      onSelect={syncCaret} onFocus={()=>{setHintOpen(true);syncCaret();}} onBlur={()=>{
+       // Let native Tab navigation finish before removing the focused field's sibling list.
+       requestAnimationFrame(()=>{if(document.activeElement!==findInput.current)setHintOpen(false);});
+      }}
       onKeyDown={e=>{
        if(e.nativeEvent.isComposing)return;
        if(e.key==="Escape"){if(options.length){e.preventDefault();e.stopPropagation();}setHintOpen(false);return;}
