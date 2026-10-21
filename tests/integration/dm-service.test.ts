@@ -24,6 +24,16 @@ test('immutable collision-safe usernames, real encrypted delivery, isolation, bl
  const sent=await dm.handle('user_a','send',p);assert.equal(sent.duplicate,false);assert.deepEqual(await openDm(b,'user_b',sent.message),{ok:true,text:'DM_PLAINTEXT_CANARY',mine:false});assert.deepEqual(await openDm(a,'user_a',sent.message),{ok:true,text:'DM_PLAINTEXT_CANARY',mine:true});
  assert.equal((await dm.handle('user_a','send',p)).duplicate,true);
  assert.equal(await db.collection('dm_messages').countDocuments(),1);assert.equal(JSON.stringify(await db.collection('dm_messages').findOne({})).includes('DM_PLAINTEXT_CANARY'),false);
+ // Even if wall time does not advance (or goes backwards), later delivery sorts after the read watermark.
+ const firstCursor=sent.message.cursor;
+ await dm.handle('user_b','read',{v:1,userId:'user_a',cursor:firstCursor});
+ assert.deepEqual((await dm.handle('user_b','unread',{v:1})).counts,{});
+ // Use a separate pair to avoid changing this test's later four-message pagination fixture.
+ const pc=await dm.handle('user_a','lookup',{v:1,username:(await dm.handle('user_c','profile',{v:1})).username});
+ const sameClock=await dm.handle('user_a','send',await sealDm(a,'user_a',pc.peer,'same clock'));
+ clock--;
+ const earlierClock=await dm.handle('user_a','send',await sealDm(a,'user_a',pc.peer,'clock moved backwards'));
+ assert.ok(earlierClock.message.cursor>sameClock.message.cursor);clock++;
  const forged={...p,ciphertext:p.ciphertext.slice(0,-1)+(p.ciphertext.endsWith('A')?'B':'A')};await assert.rejects(dm.handle('user_a','send',forged));
  const conflict=await sealDm(a,'user_a',lookup.peer,'changed content',p.id);await assert.rejects(dm.handle('user_a','send',conflict),/conflict/);
  await assert.rejects(dm.handle('user_c','send',p),/identity_required/);

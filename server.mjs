@@ -231,7 +231,7 @@ io.on("connection",socket=>{
   });
  }
  // DM hints are emitted only to participant sockets, never to the global namespace.
- for(const event of ["profile","lookup","threads","history","send","block"]){
+ for(const event of ["profile","lookup","threads","history","send","block","unread","read"]){
   socket.on("dm:"+event,async(payload,ack)=>{
    if(typeof ack!=="function")return;
    if((socket.data.dmPending||0)>=4){ack({ok:false,error:"busy"});return;}
@@ -244,10 +244,10 @@ io.on("connection",socket=>{
     await checkChatSession(socket);
     if(!socket.connected||socket.data.expires<=Date.now())return;
     ack({ok:true,...result});
-    if(event==="block"||(event==="send"&&!result.duplicate)){
+    if(event==="read"||event==="block"||(event==="send"&&!result.duplicate)){
      const peer=event==="send"?result.message.toUserId:payload.userId;
      for(const target of io.sockets.sockets.values()){
-      if(target.connected&&target.data.expires>Date.now()&&[user,peer].includes(target.data.identity.id))target.emit("dm:changed");
+      if(target.connected&&target.data.expires>Date.now()&&(event==="read"?[user]:[user,peer]).includes(target.data.identity.id))target.emit("dm:changed");
      }
     }
    }catch(error){

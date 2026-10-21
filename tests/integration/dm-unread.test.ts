@@ -1,0 +1,34 @@
+import {test,after} from 'node:test';
+import assert from 'node:assert/strict';
+import {MongoClient} from 'mongodb';
+// @ts-expect-error runtime JS
+import {createDmService} from '../../runtime/dm-service.mjs';
+if(!process.env.MONGODB_DB?.startsWith('fakebucks_test_'))throw Error('QA DB required');
+const client=new MongoClient(process.env.MONGODB_URI!),db=client.db(process.env.MONGODB_DB+'_unread');
+after(async()=>{await db.dropDatabase();await client.close()});
+test('unread metadata is account isolated, monotonic, restart durable and never reads message text',async()=>{
+ await db.collection('rooms').insertOne({_id:'main' as never,members:['a','b','c'].map(id=>({id,approved:true}))});
+ const cursor=(n:number)=>String(n).padStart(16,'0')+'-00000000-0000-4000-8000-000000000000';
+ await db.collection('dm_messages').insertMany([{senderUserId:'a',toUserId:'b',id:'1',cursor:cursor(1),serverTs:1},{senderUserId:'a',toUserId:'b',id:'2',cursor:cursor(2),serverTs:2},{senderUserId:'b',toUserId:'a',id:'3',cursor:cursor(3),serverTs:3}]);
+ const dm=createDmService(db);await dm.ready;
+ assert.deepEqual((await dm.handle('b','unread',{v:1})).counts,{a:2});
+ assert.deepEqual((await dm.handle('a','unread',{v:1})).counts,{b:1});
+ assert.deepEqual((await dm.handle('c','unread',{v:1})).counts,{});
+ assert.equal((await dm.handle('b','threads',{v:1})).threads[0].unread,2);
+ await assert.rejects(dm.handle('c','read',{v:1,userId:'a',cursor:cursor(2)}),/unavailable/);
+ await assert.rejects(dm.handle('b','read',{v:1,userId:'a',cursor:cursor(999)}),/unavailable/);
+ await dm.handle('b','read',{v:1,userId:'a',cursor:cursor(1)});
+ assert.deepEqual((await dm.handle('b','unread',{v:1})).counts,{a:1});
+ await dm.handle('b','read',{v:1,userId:'a',cursor:cursor(2)});
+ await dm.handle('b','read',{v:1,userId:'a',cursor:cursor(1)});
+ const restarted=createDmService(db);await restarted.ready;
+ assert.deepEqual((await restarted.handle('b','unread',{v:1})).counts,{});
+ assert.deepEqual((await restarted.handle('a','unread',{v:1})).counts,{b:1});
+ await db.collection('dm_messages').insertOne({senderUserId:'a',toUserId:'b',id:'4',cursor:cursor(4),serverTs:4});
+ assert.deepEqual((await restarted.handle('b','unread',{v:1})).counts,{a:1});
+ const read=await db.collection('dm_reads').findOne({owner:'b'});assert.deepEqual(Object.keys(read!).sort(),['_id','cursor','owner','peer']);
+ await assert.rejects(dm.handle('b','read',{v:1,userId:'a',cursor:cursor(4),plaintext:'no'}),/malformed/);
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{'members.0.accessRevoked':true}});
+ assert.deepEqual((await restarted.handle('b','unread',{v:1})).counts,{});
+ await assert.rejects(restarted.handle('a','unread',{v:1}),/forbidden/);
+});

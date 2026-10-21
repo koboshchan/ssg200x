@@ -8,7 +8,7 @@ import {sealDm,openDm,pinOf,pinState,dmFingerprint,type DmWire,type DmHistoryMes
 import {suggest,applySuggestion} from "@/lib/dm-handle-words";
 import {inConversation,historyPinState,mergeRows,rowKey,dmError,scope,pendingKey,pendingPrefix,type DmRow,type DmLookupPeer} from "@/lib/dm-view";
 
-type Thread={userId:string;username:string;displayName?:string;blocked:boolean;updatedAt:number};
+type Thread={userId:string;username:string;displayName?:string;blocked:boolean;updatedAt:number;unread?:number};
 type Conv={peer:DmLookupPeer;pin:DmPin|undefined;changed:boolean;fp:string;oldFp:string;blocked:boolean};
 const time=(ts:number)=>new Date(ts).toLocaleString([],{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
 const code=(e:unknown)=>e instanceof Error?e.message:"unavailable";
@@ -92,6 +92,16 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
    if(loading.current===mine){loading.current=null;if(again.current){again.current=false;void refreshRef.current();}}
   }
  },[request,decryptAll]);
+ // Read markers contain only the last delivered incoming cursor, never plaintext or keys.
+ const lastRead=useRef(new Map<string,string>());
+ const acknowledge=useCallback(async()=>{
+  const c=convRef.current,user=meRef.current;if(!c||!user||document.visibilityState!=="visible"||!document.hasFocus())return;
+  const cursor=rows.filter(r=>!r.mine&&r.cursor).map(r=>r.cursor!).sort().at(-1);if(!cursor)return;
+  const key=JSON.stringify([user,c.peer.userId]);if((lastRead.current.get(key)||"")>=cursor)return;
+  const a=acct.current.value,ep=epoch.current.value;
+  try{await request("dm:read",{v:1,userId:c.peer.userId,cursor});if(acct.current.valid(a)&&epoch.current.valid(ep)){lastRead.current.set(key,cursor);void loadThreads();}}catch{}
+ },[rows,request,loadThreads]);
+ useEffect(()=>{void acknowledge();const read=()=>void acknowledge();window.addEventListener("focus",read);document.addEventListener("visibilitychange",read);return()=>{window.removeEventListener("focus",read);document.removeEventListener("visibilitychange",read);};},[acknowledge]);
  const refreshRef=useRef(refresh);refreshRef.current=refresh;
 
  useEffect(()=>{
@@ -239,7 +249,7 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
   </div>
   <ul className="dm-threads">
    {threads.length===0&&<li className="chat-note">No conversations yet.</li>}
-   {threads.map(t=><li key={t.userId}><button onClick={()=>void open(t.username)}><span>{t.displayName||t.username}</span>{t.blocked&&<small> Blocked</small>}<time dateTime={new Date(t.updatedAt).toISOString()}>{time(t.updatedAt)}</time></button></li>)}
+   {threads.map(t=><li key={t.userId}><button onClick={()=>void open(t.username)}><span>{t.displayName||t.username}</span>{(t.unread??0)>0&&<span className="dm-unread" aria-label={`${t.unread} unread messages`}>{t.unread}</span>}{t.blocked&&<small> Blocked</small>}<time dateTime={new Date(t.updatedAt).toISOString()}>{time(t.updatedAt)}</time></button></li>)}
   </ul>
  </div>;
 }

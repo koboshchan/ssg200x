@@ -13,8 +13,8 @@ const words=new Set(wordlist);
 function username(s){if(typeof s!=='string'||s.length>100||!/^\w+ \w+ \w+ \w+$/.test(s)||s.split(' ').some(w=>!words.has(w)))fail();return s;}
 // One bounded queue serializes all DM writes in the supported single server process.
 export function createDmService(db,{now=Date.now,generateUsername=generate,clerk,allowTestDevices=false}={}){
- const rooms=db.collection('rooms'),names=db.collection('dm_usernames'),messages=db.collection('dm_messages'),blocks=db.collection('dm_blocks'),rates=db.collection('dm_rates'),devices=db.collection('chat_devices'),versions=db.collection('chat_identity_versions');
- const ready=Promise.all([names.createIndex({username:1},{unique:true}),messages.createIndex({senderUserId:1,id:1},{unique:true}),messages.createIndex({pair:1,cursor:-1}),blocks.createIndex({owner:1,peer:1},{unique:true}),rates.createIndex({expiresAt:1},{expireAfterSeconds:0})]);
+ const rooms=db.collection('rooms'),names=db.collection('dm_usernames'),messages=db.collection('dm_messages'),blocks=db.collection('dm_blocks'),rates=db.collection('dm_rates'),reads=db.collection('dm_reads'),devices=db.collection('chat_devices'),versions=db.collection('chat_identity_versions');
+ const ready=Promise.all([names.createIndex({username:1},{unique:true}),messages.createIndex({senderUserId:1,id:1},{unique:true}),messages.createIndex({pair:1,cursor:-1}),blocks.createIndex({owner:1,peer:1},{unique:true}),rates.createIndex({expiresAt:1},{expireAfterSeconds:0}),reads.createIndex({owner:1,peer:1},{unique:true}),messages.createIndex({toUserId:1,senderUserId:1,cursor:1})]);
  let queue=Promise.resolve(),pending=0;
  const serial=fn=>{if(pending>=128)return Promise.reject(Object.assign(new Error('busy'),{chatCode:'busy'}));pending++;const r=queue.then(fn).finally(()=>pending--);queue=r.catch(()=>{});return r;};
  async function rate(user,kind,max){const id=digest(canonical([user,kind,Math.floor(now()/60000)]));await rates.updateOne({_id:id},{$setOnInsert:{count:0,expiresAt:new Date(now()+180000)}},{upsert:true});if(!(await rates.updateOne({_id:id,count:{$lt:max}},{$inc:{count:1}})).matchedCount)fail('rate_limited');}
@@ -57,7 +57,21 @@ export function createDmService(db,{now=Date.now,generateUsername=generate,clerk
   try{const name=clerkDisplayName(await clerkReads(clerk).user(clerk,user));return name==='Player'?handle:name;}catch{return handle;}
  }
  const pair=(a,b)=>digest(canonical([a,b].sort()));
+ async function unread(user,members){
+  const markers=await reads.find({owner:user}).limit(4096).toArray();
+  const allowed=markers.filter(r=>members.includes(r.peer));
+  const rows=await messages.aggregate([{$match:{toUserId:user,senderUserId:{$in:members},$or:[{senderUserId:{$nin:allowed.map(r=>r.peer)}},...allowed.map(r=>({senderUserId:r.peer,cursor:{$gt:r.cursor}}))]}},{$group:{_id:'$senderUserId',count:{$sum:1}}}]).toArray();
+  return Object.fromEntries(rows.map(r=>[r._id,r.count]));
+ }
  async function perform(user,event,p){await ready;text(user);await rate(user,'all',120);const members=await membership(user);
+  if(event==='unread'){shape(p,['v']);const counts=await unread(user,members);const current=await membership(user);return {counts:Object.fromEntries(Object.entries(counts).filter(([id])=>current.includes(id)))};}
+  if(event==='read'){
+   shape(p,['v','userId','cursor']);text(p.userId);await membership(user,p.userId);
+   if(typeof p.cursor!=='string'||!/^\d{16}-[0-9a-f-]{36}$/.test(p.cursor))fail();
+   // Only acknowledge an incoming message actually delivered to this account.
+   if(!await messages.findOne({toUserId:user,senderUserId:p.userId,cursor:p.cursor},{projection:{_id:1}}))fail('unavailable');
+   await reads.updateOne({owner:user,peer:p.userId},{$setOnInsert:{owner:user,peer:p.userId},$max:{cursor:p.cursor}},{upsert:true});return {};
+  }
   if(event==='profile'){shape(p,['v']);await backfill(members);await membership(user);return {username:await ensureName(user)};}
   if(event==='lookup'){shape(p,['v','username']);username(p.username);await backfill(members);const n=await names.findOne({username:p.username});if(!n||n._id===user||!members.includes(n._id))return {peer:null};let d;try{d=await active(n._id);}catch(e){if(e.chatCode==='identity_required')return {peer:null};throw e;}const name=await displayName(n._id,n.username);await membership(user,n._id);return {peer:{userId:n._id,username:n.username,displayName:name,deviceId:d.deviceId,keyVersion:d.keyVersion,dhPublic:d.dhPublic,signPublic:d.signPublic}};}
   if(event==='threads'){
@@ -65,7 +79,8 @@ export function createDmService(db,{now=Date.now,generateUsername=generate,clerk
    // Unique peer aggregation bounds response by room membership, never loads ciphertext.
    const rows=await messages.aggregate([{$match:{$or:[{senderUserId:user},{toUserId:user}]}},{$project:{peer:{$cond:[{$eq:['$senderUserId',user]},'$toUserId','$senderUserId']},serverTs:1}},{$group:{_id:'$peer',updatedAt:{$max:'$serverTs'}}},{$sort:{updatedAt:-1}},{$limit:4096}]).toArray();
    const ownBlocks=await blocks.find({owner:user}).limit(4096).toArray();for(const b of ownBlocks)if(!rows.some(r=>r._id===b.peer))rows.push({_id:b.peer,updatedAt:0});
-   const threads=[];for(const r of rows){if(r._id!==user&&members.includes(r._id))threads.push({userId:r._id,username:await ensureName(r._id),blocked:await blocked(user,r._id),updatedAt:r.updatedAt});}
+   const counts=await unread(user,members);
+   const threads=[];for(const r of rows){if(r._id!==user&&members.includes(r._id))threads.push({userId:r._id,username:await ensureName(r._id),blocked:await blocked(user,r._id),updatedAt:r.updatedAt,unread:counts[r._id]||0});}
    await Promise.all(threads.map(async t=>{t.displayName=await displayName(t.userId,t.username);}));
    const currentMembers=await membership(user);return {threads:threads.filter(t=>currentMembers.includes(t.userId))};
   }
@@ -83,7 +98,12 @@ export function createDmService(db,{now=Date.now,generateUsername=generate,clerk
    await membership(user,p.toUserId);if(await blocked(user,p.toUserId))fail('unavailable');await unchanged(user,sender);await unchanged(p.toUserId,recipient);
    await membership(user,p.toUserId);if(await blocked(user,p.toUserId))fail('unavailable');
    if(prior)return {message:clean(prior),duplicate:true};
-   const serverTs=now();const doc={_id:randomUUID(),...Object.fromEntries(wireFields.map(k=>[k,p[k]])),senderUserId:user,senderDhPublic:sender.dhPublic,senderSignPublic:sender.signPublic,recipientDhPublic:recipient.dhPublic,recipientSignPublic:recipient.signPublic,serverTs,cursor:String(serverTs).padStart(16,'0')+'-'+randomUUID(),pair:pair(user,p.toUserId),content};await messages.insertOne(doc);return {message:clean(doc),duplicate:false};
+   const serverTs=now();
+   // Keep delivery cursors increasing even for same-millisecond sends or clock adjustments.
+   // A message arriving after a read watermark must never sort behind that watermark.
+   const latest=await messages.findOne({pair:pair(user,p.toUserId)},{sort:{cursor:-1},projection:{cursor:1}});
+   const cursorTs=Math.max(serverTs,Number(latest?.cursor?.slice(0,16)||0)+1);
+   const doc={_id:randomUUID(),...Object.fromEntries(wireFields.map(k=>[k,p[k]])),senderUserId:user,senderDhPublic:sender.dhPublic,senderSignPublic:sender.signPublic,recipientDhPublic:recipient.dhPublic,recipientSignPublic:recipient.signPublic,serverTs,cursor:String(cursorTs).padStart(16,'0')+'-'+randomUUID(),pair:pair(user,p.toUserId),content};await messages.insertOne(doc);return {message:clean(doc),duplicate:false};
   }
   fail('unknown_event');
  }
