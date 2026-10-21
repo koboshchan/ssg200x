@@ -2,6 +2,7 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {freshRoom,register} from "../lib/poker";
 import {spot,openPosition} from "../lib/finance";
+import {publicStockState} from "../lib/stock-room-policy";
 import {publicRoom} from "../lib/public";
 // JS module is also consumed directly by the custom server without a TS loader.
 // @ts-expect-error runtime JavaScript has no generated declarations
@@ -20,4 +21,18 @@ test("roulette escrow stays in private net worth and public standings",()=>{
  const r=freshRoom(),who={id:"escrow",name:"Escrow",email:"escrow@test",admin:false};register(r,who);
  const room=r as typeof r & {roulette:unknown};room.roulette={round:1,started:Date.now(),bets:[{userId:who.id,bet:{kind:"red",amount:2500}}],history:[]};r.members[0].wallet-=2500;
  const payload=marketPayload(r,who.id);assert.equal(payload.netWorth,100000);assert.equal(payload.leaderboard[0].netWorth,100000);assert.equal(payload.wallet,97500);
+});
+
+test("SPY socket execution status matches the shared stock policy",()=>{
+ const r=freshRoom(),who={id:"spy-holder",name:"Holder",email:"spy@test",admin:false};
+ register(r,who);const now=Date.parse("2026-10-19T15:00:00Z");
+ const close=Date.parse("2026-10-19T20:00:00Z");
+ r.stockExecution={SPY:{symbol:"SPY",leaseUntil:now+10000,connected:true,leader:true,authorized:true,
+  tick:{symbol:"SPY",price:600,timestamp:now-100,receivedAt:now,feed:"alpaca-iex"},
+  clock:{timestamp:now,receivedAt:now,isOpen:true,nextOpen:now+86400000,nextClose:close},
+  sessions:[{date:"2026-10-19",open:Date.parse("2026-10-19T13:30:00Z"),close}]}};
+ r.quotes={SPY:{micro:600_000_000,at:now-100}};
+ assert.equal(marketPayload(r,who.id,now).stockExecution.SPY.executable,true);
+ assert.equal(marketPayload(r,who.id,now).stockExecution.SPY.executable,publicStockState(r,now).SPY.executable);
+ assert.equal(marketPayload(r,who.id,close).stockExecution.SPY.executable,false);
 });

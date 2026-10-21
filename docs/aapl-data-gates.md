@@ -89,3 +89,5 @@ chat sources stabilize. No second Next build or production deployment is part of
 this work. Focused compilation and 112 tests passed; the real isolated Mongo
 replica-set publication test also passed. These are not a substitute for that
 final combined build or authenticated browser QA.
+
+SPY joins the same pooled IEX stock pipeline as the six configured company stocks. It is the S&P 500 tracking ETF, displayed as "S&P 500 (SPY)", not a directly streamed index. It uses the same regular-session calendar, fresh-trade execution guards, server-built candles and chart allowlist. No new connection, historical polling or extended-hours trading is introduced. SPY identity reference: https://www.ssga.com/us/en/intermediary/etfs/state-street-spdr-sp-500-etf-trust-spy .

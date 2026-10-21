@@ -10,7 +10,7 @@ test("public stock state never executes a mismatched cached mark or leaks raw pr
  r.quotes.AAPL!.micro=200_000_000;
  const status=publicStockState(r,now);
  assert.equal(status.AAPL.executable,true);
- assert.equal(Object.keys(status).length,6);
+ assert.equal(Object.keys(status).length,7);
  assert.deepEqual(Object.keys(status.AAPL).sort(),["checkedAt","executable","reason","validUntil"]);
  assert.equal(publicStockState(r,now+10000).AAPL.executable,false);
 });

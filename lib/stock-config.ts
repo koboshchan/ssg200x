@@ -1,5 +1,9 @@
 /** Server-only prerequisites, never import provider credentials into client code. */
-export const STOCK_SYMBOLS = ["AAPL", "TSLA", "NVDA", "MSFT", "AMD", "SPCX"] as const;
+export const STOCK_SYMBOLS = ["AAPL", "TSLA", "NVDA", "MSFT", "AMD", "SPCX", "SPY"] as const;
+/** SPY is the ETF tracking the index, not a direct index feed. */
+export function stockDisplayName(symbol: string): string {
+  return symbol === "SPY" ? "S&P 500 (SPY)" : symbol;
+}
 export type StockSymbol = typeof STOCK_SYMBOLS[number];
 export function isStockSymbol(value: unknown): value is StockSymbol {
   return typeof value === "string" && (STOCK_SYMBOLS as readonly string[]).includes(value);

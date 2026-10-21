@@ -26,10 +26,11 @@ test("all stock executions share failclosed policy without mutation",()=>{
   }
 });
 
-test("all six equities use their own ticks, never cross-symbol prices",()=>{
-  for(const symbol of ["AAPL","TSLA","NVDA","MSFT","AMD","SPCX"] as const){
+test("all seven stock instruments use their own ticks, never cross-symbol prices",()=>{
+  for(const symbol of ["AAPL","TSLA","NVDA","MSFT","AMD","SPCX","SPY"] as const){
     const s=state();s.symbol=symbol;s.tick={...s.tick!,symbol};
     assert.equal(stockExecutionPolicy(s,now).executable,true);
+    assert.equal(stockExecutionPolicy({...s,clock:{...s.clock!,isOpen:false}},now).executable,false);
     s.tick={...s.tick!,symbol:symbol==="AAPL"?"TSLA":"AAPL"};
     assert.equal(stockExecutionPolicy(s,now).executable,false);
   }
