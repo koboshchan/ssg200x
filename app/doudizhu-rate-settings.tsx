@@ -1,6 +1,7 @@
 "use client";
 import {useCallback,useEffect,useState} from "react";
 import {getTabHeaders} from "@/lib/tab-identity";
+import {BeanAmount} from "./doudizhu-fx";
 export default function DoudizhuRateSettings(){
  const [maxBeansPerDollar,setMaxRate]=useState<number|null>(null),[value,setValue]=useState(""),[hidden,setHidden]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(""),[saved,setSaved]=useState("");
  const load=useCallback(async()=>{
@@ -32,7 +33,7 @@ export default function DoudizhuRateSettings(){
   <h2 id="doudizhu-rate-title">Dou Dizhu</h2>
   {maxBeansPerDollar===null?<p role="status">Loading maximum Happy Beans per $1…</p>:<fieldset className="admin-set admin-fields" disabled={busy}>
    <label><span>Max Happy Beans per $1</span><input type="number" inputMode="numeric" min={1} max={1000000000} step={1} required value={value} onChange={e=>{setValue(e.target.value);setSaved("");}} aria-describedby="doudizhu-rate-help"/></label>
-   <p id="doudizhu-rate-help">New rooms default to 1,000 beans per $1, with 1,000, 2,000 and 3,000 presets. This maximum applies only when creating a room. Existing rooms are unaffected.</p>
+   <p id="doudizhu-rate-help">New rooms default to <BeanAmount v="1,000"/> per $1, with <BeanAmount v="1,000"/>, <BeanAmount v="2,000"/> and <BeanAmount v="3,000"/> presets. This maximum applies only when creating a room. Existing rooms are unaffected.</p>
    <button type="submit" className="primary">Save maximum</button>
   </fieldset>}
   {saved?<p role="status">{saved}</p>:null}

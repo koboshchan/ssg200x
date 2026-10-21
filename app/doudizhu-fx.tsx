@@ -67,8 +67,8 @@ export function FxLayer({list}:{list:{id:number;kind:FxKind;text?:string}[]}){
   return <div key={e.id} className={"fx-end fx-"+e.kind}>{confetti.map(c=><b key={c} style={{"--x":(c*37%100)+"%","--r":(c*53%360)+"deg","--t":(c%6)*.1+"s","--h":c%4} as React.CSSProperties}/>)}</div>;
  })}</div>;
 }
-export type SettleRow={name:string;self:boolean;win:boolean;beans?:string;money:string};
-export function Settlement({win,spring,note,rows,animate}:{win:boolean;spring:boolean;note?:string;rows:SettleRow[];animate:boolean}){
+export type SettleRow={name:string;self:boolean;win:boolean;beans?:React.ReactNode;money:string};
+export function Settlement({win,spring,note,rows,animate}:{win:boolean;spring:boolean;note?:React.ReactNode;rows:SettleRow[];animate:boolean}){
  return <div className={"dd-settle "+(win?"is-win":"is-lose")+(animate?" is-anim":"")} role="status">
   <div className="dd-settle-head"><svg viewBox="0 0 120 70" aria-hidden="true" focusable="false" className="dd-laurel"><path d="M60 8 66 26 86 26 70 38 76 58 60 46 44 58 50 38 34 26 54 26z" fill={win?"#ffe08a":"#9aa5b8"} stroke={win?"#8a5d10":"#4a5568"} strokeWidth="2.5" strokeLinejoin="round"/><path d="M14 52C6 36 12 18 28 10M106 52c8-16 2-34-14-42" fill="none" stroke={win?"#f6dc8e":"#8b94a6"} strokeWidth="4" strokeLinecap="round"/></svg>
    <strong>{win?"VICTORY":"DEFEAT"}{spring?<small>Spring ×2</small>:null}</strong></div>
@@ -76,3 +76,6 @@ export function Settlement({win,spring,note,rows,animate}:{win:boolean;spring:bo
   <ul>{rows.map((r,i)=><li key={i} className={(r.self?"is-self ":"")+(r.win?"up":"down")} style={{"--i":i} as React.CSSProperties}><b>{r.name}{r.self?" (you)":""}</b>{r.beans?<em>{r.beans}</em>:null}<small>{r.money}</small></li>)}</ul>
  </div>;
 }
+
+export const BeanIcon=()=><svg className="dd-bean" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><defs><linearGradient id="ddbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#ffe9a0"/><stop offset="1" stopColor="#d9962b"/></linearGradient></defs><path d="M10 1.5c4.6 0 8 3.3 8 7.6 0 5.2-3.6 9.4-8.2 9.4C5.6 18.5 2 15.3 2 11 2 5.8 5.6 1.5 10 1.5z" fill="url(#ddbg)" stroke="#a8691a" strokeWidth="1"/><path d="M6.5 6.5c1.2-1.4 3-2 4.6-1.6" stroke="#fff8d6" strokeWidth="1.4" strokeLinecap="round" fill="none"/></svg>;
+export const BeanAmount=({v,sign}:{v:string|number;sign?:string}):React.ReactElement=><span className="dd-beanamt">{sign}{v}<BeanIcon/></span>;
