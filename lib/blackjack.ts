@@ -11,7 +11,7 @@ import type {Room,Identity} from './types';
 // Six-deck S17; initial Black 78 > blackjack, both paying 3:2; five-card Charlie pays 1:1. One split only; split aces receive one card,
 // no resplit, no insurance/surrender. Double any initial two cards (including splits).
 export type BlackjackHand={cards:string[];bet:number;chips?:number[];done:boolean;split:boolean;payout:number;result?:string};
-export const BLACKJACK_IDLE_MS=300_000;
+export const BLACKJACK_IDLE_MS=180_000;
 export type BlackjackSeat={userId:string;bet:number;chips?:number[];hands:BlackjackHand[];leaveAfter:boolean;idleRemaining?:number;idleDeadline?:number|null;privateCards?:string[];privatePolicy?:true};
 export type BlackjackState={phase:'betting'|'playing'|'settled';seats:(BlackjackSeat|null)[];dealer:string[];shoe:string[];turn:number|null;hand:number;deadline:number|null;round:number;revealed:boolean};
 export type BlackjackAction={type:'join';seat:number}|{type:'leave'}|{type:'bet';amount:number;chips?:unknown}|{type:'hit'|'stand'|'double'|'split'};

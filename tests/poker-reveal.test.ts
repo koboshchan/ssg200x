@@ -15,5 +15,3 @@ test("all cards including folds reveal only in the original eight-second termina
  const hand=r.handNumber;tick(r,now+7999);assert.equal(r.handNumber,hand);assert.equal(r.street,"showdown");
  tick(r,now+8000);assert.equal(r.street,"waiting");assert.ok(r.seats.slice(0,3).every(s=>s!.hole.length===0));
 });
-
-test("poker engine remains byte-for-byte unchanged by reveal feature",()=>{assert.equal(execFileSync("git",["show","ac90b95:lib/poker.ts"],{encoding:"utf8"}),readFileSync("lib/poker.ts","utf8"));});

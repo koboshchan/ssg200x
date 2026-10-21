@@ -10,7 +10,7 @@ import { ensure } from "./errors";
 import type { Room, Seat, Identity, Member, Action, Payout } from "./types";
 export const SMALL = 100, BIG = 200, STRADDLE = 500;
 export const TURN_MS = ACTION_TURN_MS, BREAK_MS = 8_000, IDLE_MS = 90_000;
-export const READY_MS = 300_000;
+export const READY_MS = 180_000;
 const MAX_MEMBERS = 100;
 export function freshRoom(): Room {
  return { _id: "main", version: 0, members: [], seats: Array(6).fill(null), button: -1, street: "waiting", handNumber: 0, board: [], deck: [], currentBet: 0, minRaise: BIG, pending: [], turn: null, deadline: null, nextDeal: null, readyDeadline: null, payouts: [], log: [], receipts: [] };
@@ -233,7 +233,8 @@ export function tick(r: Room, now: number) {
  let changed = false;
  if (active(r) && r.deadline !== null && now >= r.deadline && r.turn !== null) {
   const i=r.turn;
-  forfeitSeat(r,i);
+  const s=r.seats[i]!;s.folded=true;s.actedAt=r.currentBet;
+  addLog(r,playerReference(r.members.find(m=>m.id===s.userId))+" auto-folded (turn timed out)");
   advance(r,i,now);
   changed = true;
  }

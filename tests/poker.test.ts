@@ -17,7 +17,7 @@ test("full raise resets pending action; raises are to total not increments",()=>
 test("check through all streets reaches showdown and conserves every cent",()=>{const r=setup();callThrough(r);assert.equal(r.street,"showdown");assert.equal(r.board.length,5);assert.equal(pot(r),0);assert.equal(totalChips(r),200_000);assertRoom(r);});
 test("fold immediately awards whole pot and never shows opponent holes",()=>{const r=setup();const i=r.turn!;act(r,r.seats[i]!.userId,{type:"fold"},1100);assert.equal(r.street,"showdown");assert.equal(r.payouts[0].amount,300);const view=publicRoom(r,user(i));assert.deepEqual(view.seats[1-i]!.hole,["?","?"]);assertRoom(r);});
 test("active snapshots hide deck, email, user IDs and opponent holes",()=>{const r=setup();const view=publicRoom(r,{...user(0),admin:false});const text=JSON.stringify(view);assert.ok(!text.includes("deck"));assert.ok(!text.includes("user_"));assert.ok(!text.includes("@example.test"));assert.deepEqual(view.seats[1]!.hole,["?","?"]);assert.equal(view.seats[0]!.hole.length,2);});
-test("timeout kicks and forfeits even when checking would be free",()=>{for(const free of [false,true]){const r=setup();if(free)act(r,r.seats[r.turn!]!.userId,{type:"call"},2000);const i=r.turn!,wallet=r.members[i].wallet;tick(r,r.deadline!);assert.equal(r.seats[i],null);assert.equal(r.street,"showdown");assert.equal(r.members[i].wallet,wallet);assertRoom(r);}});
+test("timeout auto-folds without unseating or forfeiting remaining stack even when checking is free",()=>{for(const free of [false,true]){const r=setup();if(free)act(r,r.seats[r.turn!]!.userId,{type:"call"},2000);const i=r.turn!,wallet=r.members[i].wallet,stack=r.seats[i]!.stack,beforePot=pot(r);tick(r,r.deadline!);assert.ok(r.seats[i]);assert.equal(r.seats[i]!.folded,true);assert.equal(r.seats[i]!.stack,stack);assert.equal(r.payouts[0].amount,beforePot);assert.equal(r.street,"showdown");assert.equal(r.members[i].wallet,wallet);assertRoom(r);}});
 test("leave during hand is rejected without scheduling cashout",()=>{const r=setup();const i=r.turn!,id=r.seats[i]!.userId;assert.throws(()=>applyAction(r,user(i),{type:"leave"},1100));assert.equal(r.seats[i]!.leaveAfter,false);act(r,id,{type:"fold"},1200);applyAction(r,user(i),{type:"leave"},1300);assert.equal(r.seats[i],null);assertRoom(r);});
 
 test("seat restrictions and insufficient funds are enforced",()=>{const r=setup();assert.throws(()=>applyAction(r,user(0),{type:"join",seat:3,buyIn:10_000},1200));register(r,user(3));assert.throws(()=>applyAction(r,user(3),{type:"join",seat:0,buyIn:10_000},1200));assert.throws(()=>applyAction(r,user(3),{type:"join",seat:2,buyIn:100_001},1200));assert.throws(()=>applyAction(r,user(3),{type:"join",seat:-1,buyIn:10_000},1200));});
@@ -71,7 +71,7 @@ test("random legal play across 500 hands preserves invariant after every action"
  assert.equal(totalChips(r),600_000);
 });
 
-test("joining never deals; all seated players must explicitly ready, with a five-minute waiting window",()=>{
+test("joining never deals; all seated players must explicitly ready, with a three-minute waiting window",()=>{
  const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
  assert.equal(r.street,"waiting");assert.equal(r.handNumber,0);
  applyAction(r,user(0),{type:"ready"},2000);assert.equal(r.readyDeadline,2000+READY_MS);
@@ -129,10 +129,10 @@ test("showdown inHand is historical: cashout is allowed after settlement without
  assert.equal(r.street,"showdown");assertRoom(r);
 });
 
-test("readiness window protects idle unready blockers for the full five minutes",()=>{
+test("readiness window protects idle unready blockers for the full three minutes",()=>{
  const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
  applyAction(r,user(0),{type:"ready"},2000);applyAction(r,user(1),{type:"ready"},3000);
- const expiry=r.readyDeadline!;
+ const expiry=r.readyDeadline!;assert.equal(READY_MS,180000);assert.equal(expiry,182000);
  tick(r,93001);
  assert.equal(r.seats.filter(Boolean).length,3);assert.equal(r.street,"waiting");assert.equal(r.handNumber,0);assert.equal(r.readyDeadline,expiry);
  tick(r,expiry-1);
@@ -205,7 +205,7 @@ test("ready cashout credits exactly once and cannot cash out an active or folded
  assert.equal(r.members[0].wallet,100000);assert.equal(r.seats[0],null);assert.equal(r.readyDeadline,null);
  assert.throws(()=>applyAction(r,user(0),{type:"leave"},4000));assertRoom(r);
 });
-test("unready last ready player keeps original five-minute normal-refund window",()=>{
+test("unready last ready player keeps original three-minute normal-refund window",()=>{
  const r=freshRoom();register(r,user(0),1000);applyAction(r,user(0),{type:"join",seat:0,buyIn:20000},1000);
  applyAction(r,user(0),{type:"ready"},2000);const expiry=r.readyDeadline!;
  applyAction(r,user(0),{type:"unready"},3000);tick(r,expiry);
@@ -230,4 +230,18 @@ test("ready window refunds never-ready seats and deals only 2+ ready players; lo
  assert.equal(r.handNumber,0);assert.equal(r.seats[0]!.stack,20000);assert.equal(pot(r),0);assertRoom(r);
  applyAction(r,user(0),{type:"leave"},expiry+5*READY_MS);
  assert.equal(r.members[0].wallet,100000);assertRoom(r);
+});
+
+
+test("unready before dealing permits immediate full cashout without starting a hand",()=>{
+ const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
+ applyAction(r,user(0),{type:"ready"},2000);
+ applyAction(r,user(1),{type:"ready"},2100);
+ const deadline=r.readyDeadline;
+ applyAction(r,user(0),{type:"unready"},2200);
+ assert.equal(r.seats[0]!.ready,false);assert.equal(r.readyDeadline,deadline);
+ assert.equal(r.street,"waiting");assert.equal(r.handNumber,0);
+ applyAction(r,user(0),{type:"leave"},2300);
+ assert.equal(r.seats[0],null);assert.equal(r.members[0].wallet,100000);
+ assert.equal(r.street,"waiting");assert.equal(r.handNumber,0);assertRoom(r);
 });

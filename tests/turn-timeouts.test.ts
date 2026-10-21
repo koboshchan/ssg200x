@@ -18,13 +18,13 @@ test("100s deadlines accept just-before but reject at and after expiry",()=>{
  assert.ok(r.seats[i]);assert.equal(r.deadline,deadline-1+TURN_MS);assertRoom(r);
  const q=playing(),j=q.turn!,d=q.deadline!;
  assert.throws(()=>act(q,user(j).id,{type:"call"},d),/expired/);
- tick(q,d);assert.equal(q.seats[j],null);assertRoom(q);
+ tick(q,d);assert.equal(q.seats[j]!.folded,true);assertRoom(q);
 });
-test("timeout midhand detaches contribution, adds stack to pot and pays winner",()=>{
+test("timeout midhand folds, preserves remaining stack and existing pot for winner",()=>{
  const r=playing(),i=r.turn!,wallet=r.members[i].wallet,oldPot=pot(r),stack=r.seats[i]!.stack;
- tick(r,r.deadline!);assert.equal(r.seats[i],null);assert.equal(r.members[i].wallet,wallet);
- assert.equal(pot(r),oldPot+stack);assertRoom(r);
- const remaining=r.seats.flatMap((s,j)=>s?[j]:[]);
+ tick(r,r.deadline!);assert.equal(r.seats[i]!.folded,true);assert.equal(r.seats[i]!.stack,stack);assert.equal(r.members[i].wallet,wallet);
+ assert.equal(pot(r),oldPot);assertRoom(r);
+ const remaining=r.seats.flatMap((s,j)=>s&&!s.folded?[j]:[]);
  const loser=r.turn!,winner=remaining.find(j=>j!==loser)!;
  const before=r.seats[winner]!.stack,amount=pot(r);
  act(r,user(loser).id,{type:"fold"},r.deadline!-1);
