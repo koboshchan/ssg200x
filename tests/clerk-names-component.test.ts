@@ -8,9 +8,10 @@ const {build}=require("esbuild");
 test("mounted Wallet preview/history and TableTalk own/historical messages rename from live server frames without reconnect",async()=>{
  const bundle=await build({stdin:{contents:`
  import React from "react";import {createRoot} from "react-dom/client";
+ import ReleaseProvider from "./app/release-provider";
  import Wallet from "./app/(room)/wallet/page";import ChatDock from "./app/chat-dock";import LiveProvider from "./app/live-provider";
- createRoot(document.getElementById("root")).render(<LiveProvider><Wallet/><ChatDock/></LiveProvider>);
- `,resolveDir:process.cwd(),loader:"tsx"},bundle:true,write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"empty",".css":"empty"},plugins:[{name:"identity-fixtures",setup(b:any){
+ createRoot(document.getElementById("root")).render(<ReleaseProvider><LiveProvider><Wallet/><ChatDock/></LiveProvider></ReleaseProvider>);
+ `,resolveDir:process.cwd(),loader:"tsx"},bundle:true,define:{"process.env.NEXT_PUBLIC_SSG_RELEASE":'"development"'},write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"empty",".css":"empty"},plugins:[{name:"identity-fixtures",setup(b:any){
   b.onResolve({filter:/^@clerk\/nextjs$/},()=>({path:"auth",namespace:"mock"}));
   b.onLoad({filter:/auth/,namespace:"mock"},()=>({contents:'export function useAuth(){return {getToken:async()=>"test"}};export function useUser(){return {isLoaded:true,user:{id:"alice",firstName:"CLIENT SPOOF"}}}',loader:"js"}));
   b.onResolve({filter:/^next\/navigation$/},()=>({path:"navigation",namespace:"route-fixture"}));

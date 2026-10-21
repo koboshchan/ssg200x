@@ -27,11 +27,12 @@ function snapshots(){
 test("mounted live guard intercepts client links for all games, preserves navigation semantics and never writes money",async()=>{
  const bundle=await build({stdin:{contents:`
  import React from "react";import {createRoot} from "react-dom/client";
+ import ReleaseProvider from "./app/release-provider";
  import Guard from "./app/in-play-navigation";import LiveProvider from "./app/live-provider";
  import {usePathname,useRouter} from "next/navigation";
- function App(){const path=usePathname(),router=useRouter();const link=(href,id,text,props={})=><a id={id} href={href} {...props} onClick={e=>{if(!e.defaultPrevented&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&e.button===0&&!props.target&&!props.download){e.preventDefault();router.push(href)}}}>{text}</a>;return <LiveProvider><header>{link("/wallet?from=header#send","header","Wallet")}</header><aside>{link("/markets","sidebar","Markets")}</aside><main><output id="path">{path}</output>{link(path+"#same","same","Same page")}{link("/wallet","blank","New tab",{target:"_blank"})}{link("/wallet","download","Download",{download:"receipt"})}<a id="external" href="https://elsewhere.test/">External</a>{link("/wallet","modified","Modified")}</main><Guard/></LiveProvider>}
+ function App(){const path=usePathname(),router=useRouter();const link=(href,id,text,props={})=><a id={id} href={href} {...props} onClick={e=>{if(!e.defaultPrevented&&!e.ctrlKey&&!e.metaKey&&!e.shiftKey&&!e.altKey&&e.button===0&&!props.target&&!props.download){e.preventDefault();router.push(href)}}}>{text}</a>;return <ReleaseProvider><LiveProvider><header>{link("/wallet?from=header#send","header","Wallet")}</header><aside>{link("/markets","sidebar","Markets")}</aside><main><output id="path">{path}</output>{link(path+"#same","same","Same page")}{link("/wallet","blank","New tab",{target:"_blank"})}{link("/wallet","download","Download",{download:"receipt"})}<a id="external" href="https://elsewhere.test/">External</a>{link("/wallet","modified","Modified")}</main><Guard/></LiveProvider></ReleaseProvider>}
  createRoot(document.getElementById("root")).render(<App/>);
- `,resolveDir:process.cwd(),loader:"tsx"},bundle:true,write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".css":"empty"},plugins:[{name:"guard-fixtures",setup(b:any){
+ `,resolveDir:process.cwd(),loader:"tsx"},bundle:true,define:{"process.env.NEXT_PUBLIC_SSG_RELEASE":'"development"'},write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".css":"empty",".module.css":"empty"},plugins:[{name:"guard-fixtures",setup(b:any){
  b.onResolve({filter:/in-play-navigation\.module\.css$/},()=>({path:"styles",namespace:"guard-css"}));
  b.onLoad({filter:/.*/,namespace:"guard-css"},()=>({contents:'export default {dialog:"in-play-navigation",actions:"in-play-navigation-actions"}',loader:"js"}));
  b.onResolve({filter:/^@clerk\/nextjs$/},()=>({path:"auth",namespace:"fixture"}));

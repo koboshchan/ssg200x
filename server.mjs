@@ -4,6 +4,7 @@ const polyPublic=createPolymarketPublic();
 import {createPolymarketHistory,authorizePolymarketHistory,polymarketFinancialPins} from "./runtime/polymarket-history.mjs";
 import {createPolymarketStream,attachPolymarketPresence} from "./runtime/polymarket-stream.mjs";
 import {createPokerTaunts} from "./runtime/poker-taunts.mjs";
+import {serveRelease,attachReleaseHandshake} from "./runtime/release.mjs";
 import {subscribeMarket} from "./runtime/market-subscription.mjs";
 import {attachSocketAuth} from "./runtime/socket-auth.mjs";
 import {createTabLeases} from "./runtime/tab-leases.mjs";
@@ -33,6 +34,7 @@ import {verifiedSocketIdentity} from "./runtime/socket-identity.mjs";
 process.env.INTERNAL_LIVE_SECRET=randomBytes(32).toString("hex");
 const port=Number(process.env.PORT||3000),hostname=process.env.HOSTNAME||"0.0.0.0";
 const dev=process.argv.includes("--dev");
+const release=dev?"development":readFileSync(new URL("./.next/BUILD_ID",import.meta.url),"utf8").trim();
 const config=dev?undefined:JSON.parse(readFileSync(new URL("./.next/required-server-files.json",import.meta.url))).config;
 // Read the baked artifact, never mutable runtime environment or a git checkout.
 let serverCommit="unknown";
@@ -42,6 +44,7 @@ await app.prepare();
 const nextHandler=app.getRequestHandler();
 const server=createServer(async(request,response)=>{
  if(serveCommit(request,response,serverCommit))return;
+ if(serveRelease(request,response,release))return;
  if(!["/internal-airdrop","/internal-tab-check","/internal-chat-reset","/internal-polymarket"].includes(request.url)){nextHandler(request,response);return;}
  response.setHeader("Cache-Control","no-store");
  const supplied=request.headers["x-internal-live-secret"],secret=process.env.INTERNAL_LIVE_SECRET;
@@ -82,6 +85,7 @@ const server=createServer(async(request,response)=>{
  }catch{response.writeHead(503).end();}
 });
 const io=new Server(server,{cors:{origin:process.env.APP_ORIGIN,credentials:true},maxHttpBufferSize:CHAT_MAX_PAYLOAD,transports:["websocket"],pingInterval:25000,pingTimeout:20000});
+attachReleaseHandshake(io,release);
 // Runtime-only Clerk keys; the legacy NEXT_PUBLIC name is accepted from the container environment only.
 const clerkPublishableKey=(process.env.CLERK_PUBLISHABLE_KEY||process.env["NEXT_PUBLIC_"+"CLERK_PUBLISHABLE_KEY"]||"").trim()||undefined;
 const clerkSecretKey=(process.env.CLERK_SECRET_KEY||"").trim()||undefined;

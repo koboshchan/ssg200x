@@ -6,7 +6,7 @@ const require=createRequire(import.meta.url);
 const {chromium}=require("/home/kit/out/cal-browser-evidence/node_modules/playwright");
 const {build}=require("esbuild");
 test("mounted Wallet keeps independent requests, cancels one, expires codes, and shares the phrase picker",async()=>{
- const bundle=await build({entryPoints:["tests/fixtures/wallet-live.tsx"],bundle:true,outfile:"wallet-fixture.js",write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"empty"},plugins:[{name:"wallet-fixtures",setup(b:any){
+ const bundle=await build({entryPoints:["tests/fixtures/wallet-live.tsx"],bundle:true,define:{"process.env.NEXT_PUBLIC_SSG_RELEASE":'"development"'},outfile:"wallet-fixture.js",write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"empty"},plugins:[{name:"wallet-fixtures",setup(b:any){
  b.onResolve({filter:/^@clerk\/nextjs$/},()=>({path:"auth",namespace:"fixture"}));
  b.onLoad({filter:/auth/,namespace:"fixture"},()=>({contents:'export function useAuth(){return {getToken:async()=>"test"}}',loader:"js"}));
  b.onResolve({filter:/^next\/navigation$/},()=>({path:"nav",namespace:"fixture"}));

@@ -1,4 +1,6 @@
 "use client";
+import {useRelease} from "./release-provider";
+import {RELEASE_EVENT} from "../runtime/release.mjs";
 import {attachSocketAuthClient} from "../runtime/socket-auth.mjs";
 import PaymentAnnouncement from "./payment-announcement";
 import CheckInBanner from "./check-in-banner";
@@ -24,6 +26,7 @@ const Context=createContext<Live|null>(null);
 export function useLive(){const v=useContext(Context);if(!v)throw new Error("LiveProvider missing");return v;}
 export function useLiveEvent(event:string,handler:(payload:any)=>void){const {subscribe}=useLive(),ref=useRef(handler);ref.current=handler;useEffect(()=>subscribe(event,p=>ref.current(p)),[subscribe,event]);}
 export default function LiveProvider({children}:{children:React.ReactNode}){
+ const release=useRelease();
  const pathname=usePathname(),routeRef=useRef(pathname||"/");routeRef.current=pathname||"/";
  const [tabBlocked,setTabBlocked]=useState(false);
  const {getToken}=useAuth(),tokenRef=useRef(getToken);tokenRef.current=getToken;
@@ -54,10 +57,11 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    if(closed)return;
    socket=io({path:"/socket.io",transports:["websocket"],reconnection:true,reconnectionDelayMax:10000,auth:cb=>{tokenRef.current({skipCache:true}).then(token=>cb({token,...getTabIdentity(),route:routeRef.current,pokerTableId:readPokerTableId()})).catch(()=>cb({}));}});
    socketRef.current=socket;
+   socket.on(RELEASE_EVENT,release.observe);
    disposeAuth=attachSocketAuthClient(socket,()=>tokenRef.current({skipCache:true}));
-   socket.on("connect",()=>{receiver.clear();latest.current.clear();attempts=0;setConnection("connected");socket?.emit("poker:subscribe",readPokerTableId());report();});
+   socket.on("connect",()=>{receiver.clear();latest.current.clear();void release.check();attempts=0;setConnection("connected");socket?.emit("poker:subscribe",readPokerTableId());report();});
    socket.on("disconnect",()=>{receiver.clear();latest.current.clear();setConnection("disconnected");later();});
-   socket.on("connect_error",e=>{setConnection("disconnected");if(e.message==="maintenance")setMaintenance(m=>({admin:false,active:true,manual:false,...m,blocked:true}));later();});
+   socket.on("connect_error",e=>{void release.check();setConnection("disconnected");if(e.message==="maintenance")setMaintenance(m=>({admin:false,active:true,manual:false,...m,blocked:true}));later();});
    socket.io.on("reconnect_attempt",()=>setConnection("connecting"));
    for(const event of STATE_STREAMS)socket.on(event,(message:unknown)=>{
     const result=receiver.receive(event,message);if(!result.ok)return;
@@ -80,7 +84,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    socket.on("dm:changed",(p:unknown)=>dispatch("dm:changed",p));
   }).catch(()=>setConnection("disconnected"));
   return()=>{closed=true;clearInterval(reportTimer);document.removeEventListener("visibilitychange",report);window.removeEventListener("pageshow",report);receiver.clear();latest.current.clear();clearTimeout(retry);disposeAuth?.();socket?.disconnect();socketRef.current=undefined;};
- },[]);
+ },[release]);
  const value=useMemo<Live>(()=>({connection,maintenance,lastMessageAt,...api}),[connection,maintenance,lastMessageAt,api]);
  return <Context.Provider value={value}>{children}<AirdropAnnouncement subscribe={api.subscribe}/><AdvancementAnnouncement subscribe={api.subscribe}/><CheckInBanner/><PaymentAnnouncement subscribe={api.subscribe}/>{tabBlocked?<TabBlockedOverlay/>:null}</Context.Provider>;
 }

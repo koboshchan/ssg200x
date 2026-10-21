@@ -23,14 +23,15 @@ test("every client HTTP mutation carries the document identity",()=>{
 test("mounted provider reports routes without reconnect, blocks accessibly, and retains only document-local identity",async()=>{
  const bundle=await build({stdin:{contents:`
  import React from "react";import {createRoot} from "react-dom/client";
+ import ReleaseProvider from "./app/release-provider";
  import LiveProvider from "./app/live-provider";import {getTabIdentity,getTabHeaders} from "./lib/tab-identity";
  const root=createRoot(document.getElementById("root"));
  window.harness={
-  mount:()=>root.render(<LiveProvider><button id="game">Game action</button></LiveProvider>),
+  mount:()=>root.render(<ReleaseProvider><LiveProvider><button id="game">Game action</button></LiveProvider></ReleaseProvider>),
   unmount:()=>root.unmount(),identity:getTabIdentity,headers:getTabHeaders,
   navigate:(path)=>{history.pushState(null,"",path);window.dispatchEvent(new Event("popstate"));}
  };window.harness.mount();
- `,resolveDir:process.cwd(),loader:"tsx"},bundle:true,write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".css":"empty"},plugins:[{name:"tab-client-fixtures",setup(b:any){
+ `,resolveDir:process.cwd(),loader:"tsx"},bundle:true,define:{"process.env.NEXT_PUBLIC_SSG_RELEASE":'"development"'},write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".css":"empty",".module.css":"empty"},plugins:[{name:"tab-client-fixtures",setup(b:any){
   b.onResolve({filter:/^@clerk\/nextjs$/},()=>({path:"auth",namespace:"fixture"}));
   b.onResolve({filter:/^next\/navigation$/},()=>({path:"navigation",namespace:"fixture"}));
   b.onResolve({filter:/^socket.io-client$/},()=>({path:"socket",namespace:"fixture"}));
@@ -108,7 +109,7 @@ test("mounted provider reports routes without reconnect, blocks accessibly, and 
   const isolated=await context.newPage();
   await isolated.route("https://identity.test/**",(route:any)=>route.fulfill({contentType:"text/html",body:"<!doctype html><meta charset=utf-8>"}));
   await isolated.goto("https://identity.test");
-  const identityBundle=await build({entryPoints:["lib/tab-identity.ts"],bundle:true,write:false,format:"iife",globalName:"tabIdentity",platform:"browser"});
+  const identityBundle=await build({entryPoints:["lib/tab-identity.ts"],bundle:true,define:{"process.env.NEXT_PUBLIC_SSG_RELEASE":'"development"'},write:false,format:"iife",globalName:"tabIdentity",platform:"browser"});
   await isolated.addScriptTag({content:identityBundle.outputFiles[0].text});
   await isolated.evaluate(()=>{Object.defineProperty(window,"crypto",{value:undefined,configurable:true});});
   assert.deepEqual(await isolated.evaluate(()=>(window as any).tabIdentity.getTabHeaders()),{});
