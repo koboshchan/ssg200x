@@ -41,3 +41,9 @@ test("failed own messages offer plain Remove and Retry, never a posted-message d
  assert.match(ui,/<button type="button" onClick=\{\(\)=>client.dismiss\(m\)\}>Remove<\/button>/);
  assert.doesNotMatch(ui,/>Discard<\/button>/);
 });
+test("phone chat button is a bottom bar and the page scrolls above it",()=>{
+ const m=css.match(/@media\(max-width:760px\)\{[\s\S]*?\n\}/);
+ assert.ok(m,"phone block");
+ assert.match(m[0],/html:has\(\.chat-toggle\) body\{height:calc\(100dvh - 46px - env\(safe-area-inset-bottom\)\);min-height:0;overflow-y:auto/);
+ assert.match(m[0],/\.chat-toggle\{left:0;right:0;bottom:0;width:auto;height:calc\(46px \+ env\(safe-area-inset-bottom\)\)/);
+});

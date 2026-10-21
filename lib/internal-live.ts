@@ -10,4 +10,4 @@ export const socketIdentity=z.object({id:z.string().min(1).max(256),name:z.strin
 
 // Only the custom server, authenticated by its process-random secret, can supply
 // this freshly fetched batch. No public endpoint accepts a client profile label.
-export const liveSnapshotInput=z.object({identity:socketIdentity,profiles:z.array(z.tuple([z.string().min(1).max(256),z.object({name:z.string().min(1).max(80),avatar:z.null()}).strict()])).max(10000)}).strict();
+export const liveSnapshotInput=z.object({pokerTableId:z.enum(["01","02","03"]).default("01"),identity:socketIdentity,profiles:z.array(z.tuple([z.string().min(1).max(256),z.object({name:z.string().min(1).max(80),avatar:z.string().max(2048).refine(v=>{try{const u=new URL(v);return u.protocol==="https:"&&u.hostname==="img.clerk.com"&&!u.username&&!u.password&&u.port===""}catch{return false}}).nullable()}).strict()])).max(10000)}).strict();

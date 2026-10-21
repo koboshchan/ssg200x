@@ -45,15 +45,17 @@ async function seal(u:string,e:string,k:CryptoKey):Promise<Sealed>{
  try{return {v:1,iv:b64(iv),ciphertext:b64(await crypto.subtle.encrypt({name:"AES-GCM",iv,additionalData:aad(u,e)},key,raw))};}
  finally{raw.fill(0);}
 }
-export function indexedDbStore():ChatStore{
+export function indexedDbStore(room="main"):ChatStore{
+ const pendingId=(u:string,id:string)=>"pending:"+u+":"+(room==="main"?"":room+":")+id;
+ const epoch=(e:string)=>room==="main"?e:room+":"+e;
  const store:ChatStore={
   async getPending(u){
    const rows:SendPayload[]=[];
    await tx("readonly",s=>{const r=s.openCursor();r.onsuccess=()=>{const c=r.result;if(!c)return;if(typeof c.key==="string"&&c.key.startsWith("pending:"+u+":"))rows.push(c.value);c.continue();};return undefined;});
-   return rows;
+   return rows.filter(p=>p.room===room);
   },
-  putPending:(u,p)=>put("pending:"+u+":"+p.id,p),
-  deletePending:(u,id)=>del("pending:"+u+":"+id),
+  putPending:(u,p)=>put(pendingId(u,p.id),p),
+  deletePending:(u,id)=>del(pendingId(u,id)),
 
   getIdentity:u=>get<Identity>("identity:"+u),
   putIdentity:(u,i)=>put("identity:"+u,i),
@@ -81,20 +83,20 @@ export function indexedDbStore():ChatStore{
   },
   clearSetup:u=>del("setup:"+u),
   async getEpoch(u,e){
-   const id="epoch:"+u+":"+e,record=await get<Sealed|CryptoKey>(id);if(!record)return;
+   const id="epoch:"+u+":"+epoch(e),record=await get<Sealed|CryptoKey>(id);if(!record)return;
    // Upgrade old directly stored CryptoKeys in place. Do not claim physical disk erasure.
    if("algorithm" in record){await store.putEpoch(u,e,record);return record;}
    if(record.v!==1)throw new Error("bad_local_epoch");
-   const raw=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:bytes(record.iv),additionalData:aad(u,e)},await kek(u),bytes(record.ciphertext)));
+   const raw=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:bytes(record.iv),additionalData:aad(u,epoch(e))},await kek(u),bytes(record.ciphertext)));
    try{return await importEpochKey(raw);}finally{raw.fill(0);}
   },
-  async putEpoch(u,e,k){await put("epoch:"+u+":"+e,await seal(u,e,k));},
-  getBootstrap:(u,e)=>get<BootstrapPayload>("bootstrap:"+u+":"+e),
+  async putEpoch(u,e,k){await put("epoch:"+u+":"+epoch(e),await seal(u,epoch(e),k));},
+  getBootstrap:(u,e)=>get<BootstrapPayload>("bootstrap:"+u+":"+epoch(e)),
   async putBootstrap(u,e,k,w){
-   const sealed=await seal(u,e,k);
-   await tx("readwrite",s=>{s.put(sealed,"epoch:"+u+":"+e);return s.put(w,"bootstrap:"+u+":"+e);});
+   const sealed=await seal(u,epoch(e),k);
+   await tx("readwrite",s=>{s.put(sealed,"epoch:"+u+":"+epoch(e));return s.put(w,"bootstrap:"+u+":"+epoch(e));});
   },
-  clearBootstrap:(u,e)=>del("bootstrap:"+u+":"+e),
+  clearBootstrap:(u,e)=>del("bootstrap:"+u+":"+epoch(e)),
   getPin:(u,o)=>get<Pin>("pin:"+u+":"+o),
   putPin:(u,o,p)=>put("pin:"+u+":"+o,p),
  };

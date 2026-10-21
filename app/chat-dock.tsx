@@ -1,5 +1,6 @@
 "use client";
 import {useEffect,useRef,useState,useSyncExternalStore} from "react";
+import {usePathname} from "next/navigation";
 import {useUser} from "@clerk/nextjs";
 import {useLive,useLiveEvent} from "./live-provider";
 import {ChatClient,type ChatMessage,type Snapshot} from "@/lib/chat-client";
@@ -16,16 +17,20 @@ const idle:Snapshot={phase:"loading",error:null,words:null,messages:[],members:[
 
 export default function ChatDock(){
  const {user,isLoaded}=useUser(),live=useLive(),userId=user?.id;
- const [client,setClient]=useState<ChatClient|null>(null);
+ const pathname=usePathname();
+ const [pokerTableId,setPokerTableId]=useState("01");
+ const chatRoom=pathname==="/poker"&&pokerTableId!=="01"?"poker-"+pokerTableId:"main";
+ const [binding,setBinding]=useState<{room:string;user:string;client:ChatClient}|null>(null);
+ const client=binding?.room===chatRoom&&binding.user===userId?binding.client:null;
  const [open,setOpen]=useState(false),[names,setNames]=useState<Record<string,string>>({}),[seen,setSeen]=useState<number|null>(null);
  const [tab,setTab]=useState<"room"|"dm">("room");
  const [preferencesUser,setPreferencesUser]=useState<string|null>(null);
  const preferencesReady=preferencesUser===userId;
  useEffect(()=>{
   if(!isLoaded||!userId)return;
-  const c=new ChatClient(userId,(event,payload)=>live.request("chat:"+event,payload),indexedDbStore());
-  setClient(c);return()=>{c.close();setClient(null);};
- },[isLoaded,userId,live.request]);
+  const c=new ChatClient(userId,(event,payload)=>live.request("chat:"+event,{...(payload as object),chatRoom}),indexedDbStore(chatRoom),Date.now,undefined,undefined,chatRoom);
+  setBinding({room:chatRoom,user:userId,client:c});return()=>{c.close();setBinding(null);};
+ },[isLoaded,userId,live.request,chatRoom]);
  useEffect(()=>{
   if(!userId)return;
   const key="tabletalk:"+userId;
@@ -47,7 +52,7 @@ export default function ChatDock(){
  },[open]);
  useEffect(()=>{if(client&&live.connection==="connected")void client.reconnect();},[client,live.connection]);
  useLiveEvent("chat:changed",()=>client?.hint());
- useLiveEvent("room:state",(room:{chatNames?:{publicId:string;name:string}[];leaderboard?:{publicId:string;name:string}[]})=>{const rows=room?.chatNames??room?.leaderboard;if(rows)setNames(Object.fromEntries(rows.map(r=>[r.publicId,r.name])));});
+ useLiveEvent("room:state",(room:{pokerTableId?:string;chatNames?:{publicId:string;name:string}[];leaderboard?:{publicId:string;name:string}[]})=>{if(["01","02","03"].includes(room?.pokerTableId||""))setPokerTableId(room.pokerTableId!);const rows=room?.chatNames??room?.leaderboard;if(rows)setNames(Object.fromEntries(rows.map(r=>[r.publicId,r.name])));});
  const snap=useSyncExternalStore(client?client.subscribe:()=>()=>{},client?client.getSnapshot:()=>idle,()=>idle);
  const unread=snap.messages.filter(m=>!m.mine&&m.status==="ok"&&seen!==null&&m.serverTs>seen).length;
  useEffect(()=>{

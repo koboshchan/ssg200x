@@ -197,3 +197,55 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
  .game-top>div:first-child{min-width:0}
  .wallet{flex-shrink:0}
 }
+
+.table-picker{display:flex;gap:8px;margin:0 0 12px}.table-pick{display:grid;gap:2px;text-align:left;padding:8px 14px;border:1px solid var(--line);border-radius:8px}.table-pick.active{background:var(--ink);color:var(--paper)}.table-pick small{opacity:.7}.table-elsewhere{margin:0 0 12px;color:var(--muted)}.link-button{border:0;padding:0;text-decoration:underline;font-weight:600}
+
+/* dense 7-12 seat tables: ring on desktop, stacked grid on small screens */
+.felt-wrapper.dense{height:var(--dense-h)}
+.felt-wrapper.dense .felt{inset:21% 20%}
+.felt-wrapper.dense .seat{left:var(--x);top:var(--y);right:auto;bottom:auto;transform:translate(-50%,-50%);width:120px;min-width:0;max-width:120px}
+.felt-wrapper.dense .seat-top{padding:6px;gap:5px}
+.felt-wrapper.dense .seat-top strong{max-width:68px;font-size:10px}
+.felt-wrapper.dense .seat-top small{font-size:9px}
+.felt-wrapper.dense .hole{height:36px}
+.felt-wrapper.dense .seat .hole{justify-content:center;padding-left:0}
+.felt-wrapper.dense .seat-bet{bottom:-19px;top:auto}
+.felt-wrapper.dense .seat>button{padding:12px 6px;font-size:9px}
+.felt-wrapper.dense .board{inset:45% 0 auto;top:auto;transform:translateY(-50%)}
+@media(max-width:760px){.felt-wrapper.dense{height:auto;display:grid;grid-template-columns:1fr 1fr;gap:10px 10px;margin-top:10px}.felt-wrapper.dense .felt{position:relative;inset:auto;grid-column:1/-1;height:230px;order:-1}.felt-wrapper.dense .seat{position:static;transform:none;width:auto;max-width:none;margin-bottom:14px}.felt-wrapper.dense .board{inset:auto;top:50%;left:0;right:0}}
+
+.bj-seat-who{display:flex;align-items:center;gap:6px;min-width:0}.bj-seat-who strong{min-width:0}
+
+
+/* Ephemeral poker reactions */
+.poker-taunt-controls{margin:14px 0 4px}.poker-taunt-heading{display:flex;justify-content:space-between;gap:8px}.poker-taunt-heading button{font-size:12px;padding:8px 0;border:0;background:none;font-weight:500}.poker-taunt-heading button:last-child{color:var(--muted)}.poker-taunt-picker{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--line)}.poker-emote-choices,.poker-throw-choices{display:flex;align-items:center;gap:4px}.poker-emote-choices button,.poker-throw-choices button{padding:4px;min-width:44px;height:44px;border:0;background:var(--surface);font-size:26px;border-radius:8px}.poker-throw-choices svg{width:30px;height:30px;display:block;margin:auto}.poker-throw-choices select{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;min-height:44px;max-width:160px;padding:8px}.poker-taunt-picker>small{width:100%;font-size:11px;color:var(--muted)}.poker-effects{position:absolute;inset:0;z-index:8;pointer-events:none;overflow:visible}.poker-emote-bubble{position:absolute;font-size:40px;line-height:1;background:var(--surface);border-radius:16px;padding:10px;box-shadow:0 4px 16px #0003;transform:translate(-50%,-125%);animation:poker-emote 3.2s both}.poker-projectile{position:absolute;left:0;top:0;width:36px;height:36px;animation:poker-flight .65s cubic-bezier(.2,.4,.7,1) both}.poker-projectile svg,.poker-splat svg{width:100%;height:100%}.poker-splat{position:absolute;width:90px;height:72px;transform:translate(-50%,-50%);animation:poker-splat 3.2s both}.poker-splat.egg{width:84px}@keyframes poker-flight{0%{transform:translate(calc(var(--sx) - 18px),calc(var(--sy) - 18px)) rotate(-25deg);opacity:1}50%{transform:translate(calc(var(--mx) - 18px),calc(var(--my) - 18px)) rotate(150deg);opacity:1}99%{opacity:1}100%{transform:translate(calc(var(--tx) - 18px),calc(var(--ty) - 18px)) rotate(310deg);opacity:0}}@keyframes poker-splat{0%,19%{opacity:0;scale:.3}23%,75%{opacity:1;scale:1}100%{opacity:0;scale:1.05}}@keyframes poker-emote{0%{opacity:0;scale:.6}8%,75%{opacity:1;scale:1}100%{opacity:0;scale:1}}@media(prefers-reduced-motion:reduce){.poker-projectile{display:none}.poker-splat,.poker-emote-bubble{animation:none}.poker-splat{opacity:.85}}@media(max-width:560px){.poker-taunt-picker{gap:8px}.poker-emote-choices{gap:2px}.poker-emote-bubble{font-size:32px;padding:8px}.poker-splat{width:74px;height:60px}.poker-throw-choices select{max-width:190px}}
+
+.poker-emote-choices svg{width:32px;height:32px;display:block;margin:auto}.poker-emote-bubble svg{display:block;width:40px;height:40px}@media(max-width:560px){.poker-emote-bubble svg{width:32px;height:32px}}
+
+.poker-throw-choices button{height:auto;min-height:54px}.poker-throw-price{display:block;font-size:10px;line-height:1.4;font-variant-numeric:tabular-nums}
+
+/* Shared occupied-player menu, anchored to the viewport rather than clipped by felt. */
+.poker-player-menu-scope{min-width:0}
+.seat[aria-haspopup=menu]{-webkit-touch-callout:none;user-select:none}
+.seat[aria-haspopup=menu]:focus-visible{outline:2px solid var(--blue);outline-offset:4px}
+.poker-player-menu-backdrop{position:fixed;inset:0;z-index:200;background:#0002}
+.poker-player-menu{position:absolute;width:240px;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow-y:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);padding:6px;box-shadow:0 8px 32px #0003}
+.poker-player-menu-name{padding:9px 10px;font-size:13px;font-weight:600;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.poker-player-menu button{width:100%;display:flex;align-items:center;gap:10px;min-height:44px;text-align:left;background:transparent;border:0;border-radius:6px;padding:8px 10px;font-size:14px;color:var(--ink)}
+.poker-player-menu button:hover:not(:disabled),.poker-player-menu button:focus-visible{background:var(--surface-2);outline:2px solid var(--blue);outline-offset:-2px}
+.poker-player-menu svg{width:25px;height:25px;flex:none}
+.poker-menu-price{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--muted)}
+.poker-player-menu small{display:block;font-size:12px;padding:8px 10px;color:var(--muted)}
+.poker-player-menu .poker-menu-dismiss{border-top:1px solid var(--line);color:var(--muted)}
+.poker-taunt-controls>small{display:block;font-size:11px;color:var(--muted);margin-top:4px}
+
+.poker-player-menu .poker-emote-choices{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px}
+.poker-player-menu .poker-emote-choices button{justify-content:center}
+.poker-player-menu .poker-emote-choices svg{width:32px;height:32px}
+.poker-taunt-heading>small{align-self:center;color:var(--muted);font-size:12px}
+/* On phones the chat button is a bottom bar and the page scrolls above it, so it can never cover a seat at any scroll position. */
+@media(max-width:760px){
+html:has(.chat-toggle){height:100%;overflow:hidden}
+html:has(.chat-toggle) body{height:calc(100dvh - 46px - env(safe-area-inset-bottom));min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.chat-toggle{left:0;right:0;bottom:0;width:auto;height:calc(46px + env(safe-area-inset-bottom));padding:0 18px env(safe-area-inset-bottom) 0;border-radius:0;border-width:1px 0 0;box-shadow:none;display:flex;justify-content:flex-end;align-items:center}
+}

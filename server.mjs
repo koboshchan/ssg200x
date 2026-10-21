@@ -1,3 +1,4 @@
+import {createPokerTaunts} from "./runtime/poker-taunts.mjs";
 import {subscribeMarket} from "./runtime/market-subscription.mjs";
 import {attachSocketAuth} from "./runtime/socket-auth.mjs";
 import {createTabLeases} from "./runtime/tab-leases.mjs";
@@ -11,7 +12,7 @@ import {emitState,STATE_STREAMS} from "./runtime/state-stream.mjs";
 import {sessionGuard} from "./runtime/chat-session.mjs";
 import {createDmService} from "./runtime/dm-service.mjs";
 import {createChatDmGate} from "./runtime/chat-dm-gate.mjs";
-import {createChatService} from "./runtime/chat-service.mjs";
+import {createPokerChatService} from "./runtime/poker-chat-service.mjs";
 import {CHAT_MAX_PAYLOAD} from "./runtime/chat-protocol.mjs";
 import {createServer} from "node:http";
 import {readFileSync} from "node:fs";
@@ -74,12 +75,13 @@ io.use(async(socket,next)=>{
 });
 const client=new MongoClient(process.env.MONGODB_URI,{serverSelectionTimeoutMS:5000});await client.connect();
 const collection=client.db(process.env.MONGODB_DB||"pokerroom").collection("rooms");
-const chat=createChatService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
+const chat=createPokerChatService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
 const dm=createDmService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
 await Promise.all([chat.ready,dm.ready]);
 const chatDmGate=createChatDmGate(chat,dm);
 const announceAirdrop=createAirdropBroadcaster(io,client.db(process.env.MONGODB_DB||"pokerroom").collection("airdrop_receipts"));
 const checkChatSession=sessionGuard(clerk,{reads:clerkReads(clerk)});
+const attachPokerTaunts=createPokerTaunts({collection,auditCollection:client.db(process.env.MONGODB_DB||"pokerroom").collection("audit"),io,checkSession:checkChatSession,checkTab:tabLeases.check});
 let hintTimer;
 function hintChatChanged(){if(hintTimer)return;hintTimer=setTimeout(()=>{hintTimer=null;io.emit("chat:changed",{v:1});},100);hintTimer.unref();}
 async function pushState(socket,force=false,profiles){
@@ -93,15 +95,15 @@ async function pushState(socket,force=false,profiles){
    profiles=await loadClerkProfiles(clerk,[socket.data.identity.id,...(room?.members||[]).map(m=>m.id),...(socket.data.chatNameIds||[])]);
   }
   socket.data.identity.name=profileName(profiles,socket.data.identity.id);
-  const snapshotAdmin=socket.data.identity.admin;
+  const snapshotAdmin=socket.data.identity.admin,snapshotTable=socket.data.pokerTableId||"01";
   const response=await fetch(`http://127.0.0.1:${port}/api/internal-live`,{
    method:"POST",headers:{"content-type":"application/json","x-internal-live-secret":process.env.INTERNAL_LIVE_SECRET,...(socket.data.chart?{"x-chart-symbol":socket.data.chart.symbol,"x-chart-granularity":socket.data.chart.granularity}:{})},
-   body:JSON.stringify({identity:socket.data.identity,profiles:[...profiles].map(([id,p])=>[id,{name:p.name,avatar:null}])}),signal:AbortSignal.timeout(10000)
+   body:JSON.stringify({pokerTableId:socket.data.pokerTableId||"01",identity:socket.data.identity,profiles:[...profiles].map(([id,p])=>[id,{name:p.name,avatar:p.avatar??null}])}),signal:AbortSignal.timeout(10000)
   });
   if(!response.ok)throw new Error("Live snapshot unavailable");
   const data=await response.json();
   await checkChatSession(socket);
-  if(snapshotAdmin!==socket.data.identity.admin)return;
+  if(snapshotAdmin!==socket.data.identity.admin||snapshotTable!==(socket.data.pokerTableId||"01"))return;
   if(!socket.connected||socket.data.expires<=Date.now())return;
   force=force||socket.data.forceFull===true;socket.data.forceFull=false;
   for(const [key,event] of [["maintenance","maintenance:state"]]){
@@ -115,9 +117,15 @@ async function pushState(socket,force=false,profiles){
 }
 io.on("connection",socket=>{
  try{tabLeases.attach(socket.data.identity.id,socket,socket.handshake.auth);}catch(error){socket.emit("live:error",{error:error.message});socket.disconnect(true);return;}
+ attachPokerTaunts(socket);
  socket.on("state:resync",event=>{
   if(!STATE_STREAMS.includes(event)||Date.now()<(socket.data.resyncAt||0))return;
   socket.data.resyncAt=Date.now()+1000;socket.data.forceFull=true;socket.data.statusAt=0;
+ });
+ socket.data.pokerTableId=["01","02","03"].includes(socket.handshake.auth?.pokerTableId)?socket.handshake.auth.pokerTableId:"01";
+ socket.on("poker:subscribe",id=>{
+  if(!["01","02","03"].includes(id))return;
+  socket.data.pokerTableId=id;socket.data.forceFull=true;socket.data.initialized=false;socket.data.statusAt=0;
  });
  socket.data.marketRoute=socket.handshake.auth?.route;
  socket.on("tab:report",report=>{if(typeof report?.route!=="string")return;socket.data.marketRoute=report.route;if(report.route!=="/markets"){subscribeMarket(socket,null);subscribeChart(socket,null);}});

@@ -132,3 +132,17 @@ test("trusted live batch cannot enter without internal secret and public action 
  assert.match(readFileSync("server.mjs","utf8"),/const profiles=due.length\?await loadClerkProfiles/);
  assert.match(readFileSync("app/chat-dock.tsx","utf8"),/room\?\.chatNames\?\?room\?\.leaderboard/);
 });
+test("poker and blackjack seats expose only fresh trusted Clerk avatar or null without persisting profile data",async()=>{
+ const r=room(),before=structuredClone(r);
+ const profiles=await loadClerkProfiles({users:{getUserList:async()=>({data:[
+  {id:alice.id,firstName:'Alice',imageUrl:'https://img.clerk.com/trusted-avatar'},
+  {id:bob.id,firstName:'Bob',imageUrl:'https://evil.test/tracker?email=private'},
+ ]})}},[alice.id,bob.id]);
+ const wire=await freshPublicRoom(r,alice,profiles);
+ assert.equal(wire.seats[0]?.avatar,'https://img.clerk.com/trusted-avatar');
+ assert.equal(wire.seats[1]?.avatar,null);
+ const table=wire.blackjack.tables.find(t=>t.id==='lounge')!;
+ assert.equal(table.seats[0]?.avatar,'https://img.clerk.com/trusted-avatar');
+ assert.equal(table.seats[1]?.avatar,null);
+ assert.deepEqual(r,before);
+});

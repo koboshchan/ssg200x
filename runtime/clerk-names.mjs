@@ -27,7 +27,7 @@ export const profileName=(profiles,id)=>profiles.get(id)?.name||"Player";
 export function roomWithClerkNames(room,profiles){
  // A presentation-only copy. Never write fetched profile labels into financial state.
  const r=structuredClone(room);
- r.members=r.members.map(m=>({...m,name:profileName(profiles,m.id)}));
+ r.members=r.members.map(m=>({...m,name:profileName(profiles,m.id),avatar:profiles.get(m.id)?.avatar??null}));
  const byPublicId=new Map(r.members.map(m=>[m.publicId,m.name]));
  const historyText=text=>{
   if(text.includes("[[player:"))return text.replace(/\[\[player:([a-f0-9]{16})\]\]/g,(_,id)=>byPublicId.get(id)||"Player");
@@ -38,6 +38,7 @@ export function roomWithClerkNames(room,profiles){
    .replace(/^(Sent \$[\d,.]+ to |Received \$[\d,.]+ from ).+$/,"$1Player");
  };
  r.log=(r.log||[]).map(historyText);
+ for(const table of Object.values(r.pokerTables||{}))if(table)table.log=(table.log||[]).map(historyText);
  for(const m of r.members)m.activity=(m.activity||[]).map(historyText);
  if(r.roulette)for(const h of r.roulette.history||[])for(const w of h.winners||[])w.name=byPublicId.get(w.publicId)||"Player";
  return r;

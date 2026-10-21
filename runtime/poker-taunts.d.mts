@@ -1,0 +1,5 @@
+export const TAUNT_COOLDOWN_MS: number;
+export const POKER_EMOTES: Readonly<Record<string,{emoji:string;label:string}>>;
+export type PokerTauntEvent={tableId:"01"|"02"|"03";id:string;at:number;kind:"emote"|"throw";value:string;source:number;sourceId:string;target?:number;targetId?:string};
+type Socket={connected:boolean;data:{identity:{id:string};expires:number;marketRoute?:string;pokerTableId?:string};handshake:{auth:{tabId?:string;tabProof?:string}};on:(event:string,handler:(payload:unknown,ack:(result:unknown)=>void)=>void)=>unknown;emit:(event:string,payload:PokerTauntEvent)=>unknown;disconnect:(close?:boolean)=>unknown};
+export function createPokerTaunts(options:{collection:{findOne:(query:any,options?:any)=>Promise<any>;updateOne:(query:any,update:any)=>Promise<any>};auditCollection?:any;io:{sockets:{sockets:Map<string,Socket>}};checkSession:(socket:Socket)=>Promise<unknown>;checkTab:(user:string,tabId:string|undefined,proof:string|undefined,game:string)=>string|null;now?:()=>number}):(socket:Socket)=>void;

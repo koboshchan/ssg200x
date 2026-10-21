@@ -10,12 +10,12 @@ function table(){
  for(let i=0;i<8;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
  return r;
 }
-test("eight unique seats accept joins, schema and engine reject the ninth",()=>{
- const r=table();assert.equal(r.seats.length,8);assert.equal(r.seats.filter(Boolean).length,8);
+test("eight occupied seats remain valid with room to grow to twelve",()=>{
+ const r=table();assert.equal(r.seats.length,12);assert.equal(r.seats.filter(Boolean).length,8);
  const base={requestId:"b66d4984-f360-4673-8ef9-cd448a9cad93",handNumber:0,turnDeadline:null,requestAt:1000,type:"join",buyIn:20000};
  for(const seat of [6,7])assert.equal(actionSchema.safeParse({...base,seat}).success,true);
- for(const seat of [-1,8,1.5])assert.equal(actionSchema.safeParse({...base,seat}).success,false);
- register(r,user(8));assert.throws(()=>applyAction(r,user(8),{type:"join",seat:8,buyIn:20000},1000));
+ for(const seat of [-1,12,1.5])assert.equal(actionSchema.safeParse({...base,seat}).success,false);
+ register(r,user(8));assert.throws(()=>applyAction(r,user(8),{type:"join",seat:12,buyIn:20000},1000));
  assert.throws(()=>applyAction(r,user(8),{type:"join",seat:7,buyIn:20000},1000));
  assert.equal(r.members[8].wallet,100000);assertRoom(r);
 });
@@ -26,8 +26,8 @@ test("all eight ready, clockwise blinds and actions include both centre seats, a
  applyAction(r,user(7),{type:"ready"},now);
  assert.equal(r.button,0);assert.equal(r.seats[6]!.bet,100);assert.equal(r.seats[1]!.bet,200);assert.equal(r.seats[2]!.bet,500);assert.equal(r.turn,3);
  assert.equal(r.deadline,now+TURN_MS);
- const holes=r.seats.flatMap(s=>s!.hole);assert.equal(holes.length,16);assert.equal(new Set(holes).size,16);
- const spectator={...user(99)};register(r,spectator,now);for(const s of publicRoom(r,spectator).seats)assert.deepEqual(s!.hole,["?","?"]);
+ const holes=r.seats.flatMap(s=>s?.hole??[]);assert.equal(holes.length,16);assert.equal(new Set(holes).size,16);
+ const spectator={...user(99)};register(r,spectator,now);for(const s of publicRoom(r,spectator).seats)if(s)assert.deepEqual(s.hole,["?","?"]);
  const turns:number[]=[];let steps=0;
  while(String(r.street)!=="showdown"&&steps++<100){turns.push(r.turn!);const i=r.turn!;act(r,user(i).id,{type:legal(r,i)!.check?"check":"call"},now+steps);assertRoom(r);}
  assert.equal(r.street,"showdown");assert.equal(r.board.length,5);assert.ok(turns.includes(6));assert.ok(turns.includes(7));
@@ -35,7 +35,7 @@ test("all eight ready, clockwise blinds and actions include both centre seats, a
  for(let i=0;i<8;i++)assert.deepEqual(publicRoom(r,spectator).seats[i]!.hole,r.seats[i]!.hole);
  assert.equal(totalChips(r),900000);
  tick(r,r.nextDeal!-1);assert.equal(r.street,"showdown");
- tick(r,r.nextDeal!);assert.equal(r.street,"waiting");assert.ok(r.seats.every(s=>s!.hole.length===0&&!s!.ready));
+ tick(r,r.nextDeal!);assert.equal(r.street,"waiting");assert.ok(r.seats.every(s=>!s||(s.hole.length===0&&!s.ready)));
  for(let i=0;i<8;i++)applyAction(r,user(i),{type:"ready"},now+10000);
  assert.equal(r.button,POKER_SEAT_ORDER[1]);assertRoom(r);
 });

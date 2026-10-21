@@ -1,4 +1,6 @@
 import {tickDoudizhu,doudizhuNeedsTick} from "./doudizhu";
+import {applyPokerKick,reconcilePokerKickVotes,pokerKickNeedsTick,type PokerKickRequest} from "./poker-kicks";
+import {seatedPokerTable,pokerTableRoom,touchPokerSeat,applyPokerTableAction,tickPokerTables,pokerTableNeedsTick,POKER_TABLE_IDS,type PokerTableId} from "./poker-tables";
 import {tickRoulette} from "./roulette-store";
 import {blackjackTablesTick,blackjackNeedsTick} from "./blackjack";
 import {flushAudit,compactAudit} from "./audit";
@@ -13,6 +15,7 @@ export async function mutate<T>(fn: (r: Room)=>T | Promise<T>) {
   const previous=await readRoom(), next=structuredClone(previous);
   await compactAudit(next);
   const result=await fn(next);
+  reconcilePokerKickVotes(next,Date.now());
   assertRoom(next);
   const {_id,...fields}=next; Reflect.deleteProperty(fields,"chatMutationLock"); fields.version=previous.version+1;
   if((await(await rooms()).updateOne({_id,version:previous.version},{$set:fields,$unset:{chatMutationLock:""}})).matchedCount) {
@@ -23,27 +26,24 @@ export async function mutate<T>(fn: (r: Room)=>T | Promise<T>) {
 }
 export async function visit(who: Identity) {
  const existing=await readRoom();
- const s=existing.seats[seatOf(existing,who.id)];
+ const ownTable=seatedPokerTable(existing,who.id);
+ const s=ownTable?pokerTableRoom(existing,ownTable).seats.find(s=>s?.userId===who.id):null;
  if(existing.members.some(m=>m.id===who.id) && (!s || Date.now()-s.seen < 15_000) && existing.members.find(m=>m.id===who.id)!.approved) {
   return existing;
  }
  return (await mutate(r=>{
   register(r,who);
-  const i=seatOf(r,who.id); if(i>=0)r.seats[i]!.seen=Date.now();
+  touchPokerSeat(r,who.id,Date.now());
  })).room;
 }
-export async function move(who:Identity, action:Action, requestId:string, handNumber:number, turnDeadline:number|null,requestAt:number) {
+export async function move(who:Identity, action:Action, requestId:string, handNumber:number, turnDeadline:number|null,requestAt:number,tableId:PokerTableId="01") {
  return (await mutate(r=>{
   register(r,who);
   ensure(Date.now()-requestAt>=-10_000&&Date.now()-requestAt<=120_000,"Request expired. Try again.",409);
   const repeated=r.receipts.find(receipt=>receipt.id===requestId);
   if(repeated) {ensure(repeated.userId===who.id,"Invalid request.",409);return;}
   const now=Date.now();
-  tick(r,now);
-  // Actions refer to a specific hand, never become an accidental bet in the next.
-  if(["fold","check","call","raise"].includes(action.type))ensure(r.handNumber===handNumber&&r.deadline===turnDeadline,"The turn has changed. Refresh first.",409);
-  if(action.type==="ready"||action.type==="resume"||action.type==="unready")ensure(r.handNumber===handNumber,"The hand has changed. Refresh first.",409);
-  applyAction(r,who,action,now);
+  applyPokerTableAction(r,tableId,who,action,handNumber,turnDeadline,now);
   r.receipts=[{id:requestId,userId:who.id,at:now},...r.receipts.filter(x=>x.at&&now-x.at<300_000)];
  })).room;
 }
@@ -52,7 +52,7 @@ export async function tickRoom() {
  await tickRoulette();
  if(doudizhuNeedsTick(r,now))await mutate(r=>tickDoudizhu(r,Date.now()));
  if(Object.values(r.blackjackTables?.tables||{}).some(t=>t&&blackjackNeedsTick(t,now)))await mutate(r=>blackjackTablesTick(r,Date.now()));
- if((!active(r)&&((r.readyDeadline!=null&&now>=r.readyDeadline)||(r.readyDeadline==null&&r.seats.some(s=>s?.ready)))) || (r.deadline!==null && now>=r.deadline) || (r.nextDeal!==null && now>=r.nextDeal) || (!active(r)&&r.seats.some(s=>s&&!s.ready&&(s.leaveAfter||s.stack===0))))await mutate(r=>tick(r,Date.now()));
+ if(pokerKickNeedsTick(r,now)||POKER_TABLE_IDS.some(id=>pokerTableNeedsTick(pokerTableRoom(r,id),now)))await mutate(r=>tickPokerTables(r,Date.now()));
 }
 let indexes:Promise<unknown>|undefined;
 export async function rateLimit(id:string,limit=180) {
@@ -93,3 +93,5 @@ export async function mutateStockPublication(owner:string,fn:(room:Room)=>void,c
   },{readConcern:{level:"snapshot"},writeConcern:{w:"majority"}});
  }finally{await session.endSession();}
 }
+
+export async function pokerKick(who:Identity,request:PokerKickRequest){return (await mutate(r=>{register(r,who);applyPokerKick(r,who,request,Date.now());})).room;}

@@ -8,6 +8,7 @@ import {AIRDROP_EVENT,createAirdropReceiver} from "../runtime/airdrop-events.mjs
 import {createContext,useContext,useEffect,useMemo,useRef,useState} from "react";
 import {usePathname} from "next/navigation";
 import {getTabIdentity} from "@/lib/tab-identity";
+import {readPokerTableId} from "@/lib/poker-table-selection";
 import {useAuth} from "@clerk/nextjs";
 import {createStateReceiver,STATE_STREAMS} from "../runtime/state-stream.mjs";
 import type {Socket} from "socket.io-client";
@@ -41,7 +42,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
  },[pathname]);
  useEffect(()=>{
   let closed=false,retry:ReturnType<typeof setTimeout>|undefined,attempts=0,socket:Socket|undefined,disposeAuth:(()=>void)|undefined;
-  const dispatch=(event:string,p:unknown)=>{if(event!==AIRDROP_EVENT)latest.current.set(event,p);setLast(Date.now());listeners.current.get(event)?.forEach(h=>h(p));};
+  const dispatch=(event:string,p:unknown)=>{if(event!==AIRDROP_EVENT&&event!=="poker:taunt")latest.current.set(event,p);setLast(Date.now());listeners.current.get(event)?.forEach(h=>h(p));};
   airdropReceiver.current??=createAirdropReceiver(p=>listeners.current.get(AIRDROP_EVENT)?.forEach(h=>h(p)));
   const receiver=createStateReceiver(event=>socket?.connected&&socket.emit("state:resync",event));
   const later=()=>{if(closed||!socket||socket.active)return;clearTimeout(retry);attempts++;retry=setTimeout(()=>socket?.connect(),Math.min(10000,500*2**Math.min(attempts,5)));};
@@ -51,10 +52,10 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
   window.addEventListener("pageshow",report);
   import("socket.io-client").then(({io})=>{
    if(closed)return;
-   socket=io({path:"/socket.io",transports:["websocket"],reconnection:true,reconnectionDelayMax:10000,auth:cb=>{tokenRef.current({skipCache:true}).then(token=>cb({token,...getTabIdentity(),route:routeRef.current})).catch(()=>cb({}));}});
+   socket=io({path:"/socket.io",transports:["websocket"],reconnection:true,reconnectionDelayMax:10000,auth:cb=>{tokenRef.current({skipCache:true}).then(token=>cb({token,...getTabIdentity(),route:routeRef.current,pokerTableId:readPokerTableId()})).catch(()=>cb({}));}});
    socketRef.current=socket;
    disposeAuth=attachSocketAuthClient(socket,()=>tokenRef.current({skipCache:true}));
-   socket.on("connect",()=>{receiver.clear();latest.current.clear();attempts=0;setConnection("connected");report();});
+   socket.on("connect",()=>{receiver.clear();latest.current.clear();attempts=0;setConnection("connected");socket?.emit("poker:subscribe",readPokerTableId());report();});
    socket.on("disconnect",()=>{receiver.clear();latest.current.clear();setConnection("disconnected");later();});
    socket.on("connect_error",e=>{setConnection("disconnected");if(e.message==="maintenance")setMaintenance(m=>({admin:false,active:true,manual:false,...m,blocked:true}));later();});
    socket.io.on("reconnect_attempt",()=>setConnection("connecting"));
@@ -70,6 +71,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
     }
    });
    socket.on(AIRDROP_EVENT,(p:unknown)=>airdropReceiver.current?.(p));
+   socket.on("poker:taunt",(p:unknown)=>dispatch("poker:taunt",p));
    // TableTalk's encrypted protocol and invalidation hints stay untouched.
    socket.on("chat:changed",(p:unknown)=>dispatch("chat:changed",p));
    // Payload-free hint that a direct message or block changed for this user.
