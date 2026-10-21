@@ -35,7 +35,7 @@ export function publicRoom(r:Room,who:Identity) {
   seats:r.seats.map((s,i)=>{
    if(!s)return null;
    const m=r.members.find(m=>m.id===s.userId)!;
-   const show=s.userId===who.id||(r.street==="showdown"&&r.board.length===5&&s.inHand&&!s.folded);
+   const show=s.userId===who.id||(r.street==="showdown"&&r.nextDeal!==null&&Date.now()<r.nextDeal);
    return {seat:i,publicId:m.publicId,name:m.name,stack:s.stack,bet:s.bet,committed:s.committed,folded:s.folded,inHand:s.inHand,ready:s.ready===true,sitOut:s.sitOut,leaveAfter:s.leaveAfter,
     hole:show?s.hole:s.hole.map(()=>"?"),isYou:s.userId===who.id};
   }),

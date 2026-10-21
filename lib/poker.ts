@@ -9,7 +9,7 @@ import {assetsBook} from "./finance";
 import { ensure } from "./errors";
 import type { Room, Seat, Identity, Member, Action, Payout } from "./types";
 export const SMALL = 100, BIG = 200, STRADDLE = 500;
-export const TURN_MS = ACTION_TURN_MS, BREAK_MS = 8_000, IDLE_MS = 90_000;
+export const TURN_MS = ACTION_TURN_MS, BREAK_MS = 5_000, IDLE_MS = 90_000;
 export const READY_MS = 300_000;
 const MAX_MEMBERS = 100;
 export function freshRoom(): Room {
@@ -141,6 +141,7 @@ function advance(r: Room, after: number, now: number) {
 }
 export function startHand(r: Room, now: number, rng?: (max: number) => number) {
  ensure(!active(r), "Hand already running.", 409);
+ if(r.street==="showdown"&&now<(r.nextDeal??Infinity))return;
  const eligible = (s: Seat) => s.ready === true && !s.sitOut && !s.leaveAfter && s.stack > 0;
  if (r.seats.some(s => s && !eligible(s) && !s.sitOut)) return;
  if (r.seats.filter(s => s && eligible(s)).length < 2) { r.street = "waiting"; r.nextDeal = null; return; }
