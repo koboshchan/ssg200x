@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {freshRoom,register,applyAction,act,tick,startHand,showdown,forfeitSeat,assertRoom,pot,TURN_MS} from "../lib/poker";
 import {blackjackAction,blackjackTick,blackjackAssets,type BlackjackState} from "../lib/blackjack";
-import {ACTION_TURN_MS,turnCountdown,serverClock} from "../lib/turn-timer";
+import {ACTION_TURN_MS,POKER_TURN_MS,POKER_WARNING_MS,turnCountdown,serverClock} from "../lib/turn-timer";
 import type {Room,Identity} from "../lib/types";
 const user=(n:number):Identity=>({id:"t"+n,name:"Player "+n,email:n+"@test",admin:false});
 function seated(n=3){
@@ -11,9 +11,9 @@ function seated(n=3){
  return r;
 }
 function playing(n=3){const r=seated(n);for(let i=0;i<n;i++)applyAction(r,user(i),{type:"ready"},1000);return r;}
-test("100s deadlines accept just-before but reject at and after expiry",()=>{
+test("60s poker deadlines accept just-before but reject at and after expiry",()=>{
  const r=playing(),deadline=r.deadline!,i=r.turn!;
- assert.equal(deadline,1000+TURN_MS);assert.equal(TURN_MS,ACTION_TURN_MS);
+ assert.equal(deadline,1000+TURN_MS);assert.equal(TURN_MS,60_000);assert.equal(ACTION_TURN_MS,100_000);
  act(r,user(i).id,{type:"call"},deadline-1);
  assert.ok(r.seats[i]);assert.equal(r.deadline,deadline-1+TURN_MS);assertRoom(r);
  const q=playing(),j=q.turn!,d=q.deadline!;
@@ -112,4 +112,22 @@ test("shared public countdown hides above 30%, appears exactly at 30s, and handl
  assert.equal(serverClock(70000,1000000000,1000005000),75000);
  assert.equal(turnCountdown(100000,serverClock(70000,1000000000,1000005000)),25);
  assert.equal(turnCountdown(100000,serverClock(85000,2000,3000)),14);
+});
+
+test("poker warning starts at 30 seconds left, not 30 percent of sixty",()=>{
+ const countdown=(deadline:number|null,now:number)=>turnCountdown(deadline,now,POKER_TURN_MS,POKER_WARNING_MS);
+ assert.equal(countdown(61000,1000),null);
+ assert.equal(countdown(61000,30999),null);
+ assert.equal(countdown(61000,31000),30);
+ assert.equal(countdown(61000,31001),30);
+ assert.equal(countdown(61000,60999),1);
+ assert.equal(countdown(61000,61000),0);
+ assert.equal(countdown(null,1000),null);
+ assert.equal(countdown(61000,serverClock(31000,1000000000,1000005000)),25);
+ const r=playing(),i=r.turn!,stack=r.seats[i]!.stack;
+ const restored:Room=JSON.parse(JSON.stringify(r));
+ assert.equal(restored.deadline,61000);
+ tick(restored,60999);assert.equal(restored.seats[i]!.folded,false);
+ tick(restored,61000);assert.equal(restored.seats[i]!.folded,true);
+ assert.equal(restored.seats[i]!.stack,stack);assertRoom(restored);
 });

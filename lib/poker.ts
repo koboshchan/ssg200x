@@ -1,7 +1,7 @@
 import {casinoLimits} from "./casino-limits";
 import {isWholeCasinoAmount} from "./casino-amount";
 import {playerReference} from "../runtime/clerk-names.mjs";
-import {ACTION_TURN_MS} from "./turn-timer";
+import {POKER_TURN_MS} from "./turn-timer";
 import { randomInt, createHash } from "node:crypto";
 import {rouletteAssets} from "./roulette";
 import {blackjackTablesAssets} from "./blackjack";
@@ -10,7 +10,7 @@ import {assetsBook} from "./finance";
 import { ensure } from "./errors";
 import type { Room, Seat, Identity, Member, Action, Payout } from "./types";
 export const SMALL = 100, BIG = 200, STRADDLE = 500;
-export const TURN_MS = ACTION_TURN_MS, BREAK_MS = 5_000, IDLE_MS = 90_000;
+export const TURN_MS = POKER_TURN_MS, BREAK_MS = 5_000, IDLE_MS = 90_000;
 export const READY_MS = 180_000;
 const MAX_MEMBERS = 100;
 export function freshRoom(): Room {
