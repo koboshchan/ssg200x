@@ -1,8 +1,8 @@
+import {financeSchema as schema} from "@/lib/finance-input";
+import {checkFinanceRequest,recordFinanceRequest} from "@/lib/finance-requests";
 import {openingFeeCents,roomFeeRates,closingFeeMode} from "../../../runtime/perp-fee-policy.mjs";
 import {sellAllSpot} from "@/lib/spot-sell-all";
-import {rouletteBetSchema as bet} from "@/lib/casino-schemas";
 import {randomUUID} from "node:crypto";
-import {z} from "zod";
 import {endpoint,parse} from "@/lib/api";
 import {mutate,rateLimit} from "@/lib/store";
 import {freshPublicRoom as publicRoom} from "@/lib/public";
@@ -13,27 +13,11 @@ import {resolveTriggerInput} from "@/lib/trading-settings";
 import {register} from "@/lib/poker";
 import {audit} from "@/lib/audit";
 import {financeAuditSnapshot} from "@/lib/finance-audit";
-const base={requestId:z.string().uuid(),requestAt:z.number().int()};
-const money=z.number().int().min(100).max(100_000_000),symbol=z.string().regex(/^[A-Z][A-Z0-9.\-]{0,14}$/);
-const triggerPrice=z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
-const triggerMode=z.enum(["price","pnl"]);
-const openTriggers={triggerInputMode:triggerMode.optional(),takeProfit:triggerPrice.optional(),stopLoss:triggerPrice.optional(),takeProfitPnl:triggerPrice.optional(),stopLossPnl:triggerPrice.optional()};
-const editTriggers={triggerInputMode:triggerMode.optional(),takeProfit:triggerPrice.nullable().optional(),stopLoss:triggerPrice.nullable().optional(),takeProfitPnl:triggerPrice.nullable().optional(),stopLossPnl:triggerPrice.nullable().optional()};
-const schema=z.discriminatedUnion("type",[
- z.object({...base,type:z.literal("sell-all-spot"),symbol}).strict(),
- z.object({...base,type:z.literal("redeem-legacy"),symbol}).strict(),
- z.object({...base,type:z.literal("spin"),bets:z.array(bet).min(1).max(20)}).strict(),
- z.object({...base,type:z.literal("spot"),symbol,side:z.enum(["buy","sell"]),amount:money}).strict(),
- z.object({...base,type:z.literal("open"),symbol,side:z.enum(["long","short"]),margin:money,leverage:z.number().int().min(1).max(200),expectedOpeningFeePpm:z.number().int().min(0).max(1000).optional(),expectedClosingFeePpm:z.number().int().min(0).max(1000000).optional(),expectedClosingFeeMode:z.enum(["notional","profit"]).optional(),expectedFeePpm:z.number().int().min(0).max(1000).optional(),...openTriggers}).strict(),
- z.object({...base,type:z.literal("triggers"),positionId:z.string().uuid(),...editTriggers}).strict(),
- z.object({...base,type:z.literal("close"),positionId:z.string().uuid()}).strict(),
-]);
 export const POST=(request:Request)=>endpoint(request,async who=>{
  await rateLimit("finance:"+who.id,40);const input=await parse(request,schema);
  const id=randomUUID();
  const {room}=await mutate(r=>{
- ensure(Date.now()-input.requestAt>=-10_000&&Date.now()-input.requestAt<=120_000,"Request expired. Try again.",409);
- const receipt=r.receipts.find(x=>x.id===input.requestId);if(receipt){ensure(receipt.userId===who.id,"Invalid request.",409);return;}
+ if(checkFinanceRequest(r,who.id,input))return;
  if(input.type==="spin")ensure(false,"Instant spins are disabled. Use the shared roulette table.",410);
  else if(input.type==="redeem-legacy"){
   const result=redeemLegacyHolding(r,who,input.symbol);
@@ -66,6 +50,6 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
   const closed=member.closedPositions!.find(p=>p.id===input.positionId)!;
   audit(r,who,"finance-close",input.positionId,{...financeAuditSnapshot(input.requestId,"Manual",old,closed.exit),exists:true},{...financeAuditSnapshot(input.requestId,closed.reason==="Liq"?"Liq":"Manual",old,closed.exit),exists:false,...(legacyValuation?{legacyValuation}:{}),openingFee:closed.openingFee,closingFee:closed.closingFee,assessedClosingFee:closed.assessedClosingFee,waivedClosingFee:closed.waivedClosingFee,realizedPnl:closed.realizedPnl,closedAt:closed.closedAt});
  }
- r.receipts=[{id:input.requestId,userId:who.id,at:Date.now()},...r.receipts.filter(x=>x.at&&Date.now()-x.at<300_000)];
+ recordFinanceRequest(r,who.id,input,"committed");
  });return publicRoom(room,who);
 });

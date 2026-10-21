@@ -1,4 +1,5 @@
 "use client";
+import {usePendingFinance} from "./use-pending-finance";
 import PerpFeeControl from "./perp-fee-control";
 import {getTabHeaders} from "@/lib/tab-identity";
 import DeviceFingerprint from "./device-fingerprint";
@@ -101,7 +102,9 @@ function Game({tab}:{tab:RoomTab}){
  useEffect(()=>{if(room&&tab==="access"&&!room.me.admin)router.replace("/poker");},[room,tab,router]);
  useEffect(()=>{if(!room)return;const settled=settledNotices(room.activity||[]);if(!seenActivity.current){seenActivity.current=new Set(settled.map(s=>s.id));return;}const fresh=settled.filter(s=>!seenActivity.current!.has(s.id));for(const s of settled)seenActivity.current.add(s.id);if(fresh.length)setMarketNotice(fresh.reverse().map(s=>s.text.replace(/ · position \S+/g,"").replace(/(\d+\.\d{2}) returned/g,(_,n)=>"$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+" returned")).join(". "));},[room?.activity]);
  const {connection}=useLive();
- const busyRef=useRef(false),busy=busyState||connection!=="connected";
+ const {user}=useUser();
+ const finance=usePendingFinance(user?.id,connection==="connected",data=>setRoom(current=>mergeRoom(current,data)));
+ const busyRef=useRef(false),busy=busyState||connection!=="connected"||!finance?.ready||!!finance?.pending;
  useEffect(()=>{
   const controller=new AbortController();
   fetch("/api/room",{cache:"no-store",signal:controller.signal}).then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error);setRoom(current=>mergeRoom(current,data as PublicRoom));}).catch(e=>{if(!controller.signal.aborted)setError(e instanceof Error?e.message:"Connection lost.");});
@@ -109,10 +112,13 @@ function Game({tab}:{tab:RoomTab}){
  },[]);
  useLiveEvent("room:state",(payload:PublicRoom)=>{if(payload&&typeof payload.version==="number"){setRoom(current=>mergeRoom(current,payload));setError("");}});
  useLiveEvent("market:update",(payload:MarketSnapshot)=>{setRoom(current=>mergeMarket(current,payload));});
+ const receivedRoomAt=useRef(Date.now());
+ useEffect(()=>{receivedRoomAt.current=Date.now();},[room?.serverNow]);
  const clock=useServerClock(room?.serverNow??0);
  useEffect(()=>{if(room?.legal)setRaise(String(Math.ceil(room.legal.minTo/100)));},[room?.handNumber,room?.street,room?.legal?.minTo]);
  async function post(path:string,body:object){
-  if(busyRef.current)return;if(connection!=="connected"){setError("Disconnected. Wait for the connection to return.");return;}busyRef.current=true;setBusy(true);setError("");
+  if(path==="/api/finance"){if(!busyRef.current&&room&&finance)await finance.submit(body,room.serverNow+Math.max(0,Date.now()-receivedRoomAt.current));return;}
+  if(busyRef.current||!finance?.ready)return;if(connection!=="connected"){setError("Disconnected. Wait for the connection to return.");return;}busyRef.current=true;setBusy(true);setError("");
   try{const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json",...getTabHeaders()},body:JSON.stringify({...body,requestAt:Date.now()})});const data=await response.json();if(!response.ok)throw new Error(data.error);setRoom(current=>mergeRoom(current,data));}
   catch(e){setError(e instanceof Error?e.message:"Could not complete action.");}
   finally{busyRef.current=false;setBusy(false);}
@@ -132,6 +138,9 @@ function Game({tab}:{tab:RoomTab}){
  return <main className="game-main"><section className="game-top"><div><h1>{"Good to see you, "+me.name+"."}</h1>{pokerHeader?<p>No-limit hold’em · Six seats · $1 / $2 / $5</p>:null}</div><div className="wallet"><span>Wallet</span><strong>{money(me.wallet)}</strong>{pokerHeader?<small>+ {money(mySeat?.stack||0)} at the table</small>:null}</div></section>
  <div className="room-status"><span className="connection"><span className="status-dot"/> {connection==="connected"?"LIVE ROOM":connection==="connecting"?"CONNECTING":"OFFLINE"}</span></div>
  <ConnectionBadge/>
+ {finance&&!finance.ready?<p role="status">{finance.pending?"Checking your previous order. New orders are paused.":"Refreshing the room before trading."}{finance.error?" "+finance.error:""} <button disabled={connection!=="connected"||finance.working} onClick={()=>void finance.sync()}>Check again</button></p>:null}
+ {finance?.ready&&finance.error?<p role="alert">{finance.error}</p>:null}
+ {finance?.message?<p role="status">{finance.message}</p>:null}
  {marketNotice?<div className="winner-note" role="status" aria-live="polite">{marketNotice}<button aria-label="Dismiss market notice" onClick={()=>setMarketNotice("")}>×</button></div>:null}
  {error?<div className="error" role="alert">{error}<button aria-label="Dismiss error" onClick={()=>setError("")}>×</button></div>:null}
  <div id="panel">

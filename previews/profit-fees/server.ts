@@ -12,6 +12,7 @@ import {sellAllSpot} from "../../lib/spot-sell-all";
 const who={id:"fixture",name:"Fixture",email:"fixture@example.test",admin:true};
 let room=freshRoom();function reset(){room=freshRoom();register(room,who);room.quotes={BTC:{micro:82_700_000_000,at:Date.now()}};setPerpFees(room,who,0.03,1,"profit");spot(room,who,"BTC","buy",100);room.quotes!.BTC!.micro=84_500_000_000;}reset();
 createServer(async(req,res)=>{res.setHeader("Cache-Control","no-store");
+if(req.url==="/commit"){res.setHeader("Content-Type","text/plain");return res.end(process.env.DEMO_COMMIT||"working-tree");}
 if(req.url==="/client.js"){res.setHeader("Content-Type","text/javascript");return res.end(readFileSync(new URL("./client.js",import.meta.url)));}
 if(req.url==="/style.css"){res.setHeader("Content-Type","text/css");return res.end(readFileSync(new URL("../../app/globals.css",import.meta.url)));}
 if(req.url==="/reset"){reset();return res.end("ok");}
