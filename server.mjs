@@ -1,3 +1,4 @@
+import {subscribeMarket} from "./runtime/market-subscription.mjs";
 import {attachSocketAuth} from "./runtime/socket-auth.mjs";
 import {createTabLeases} from "./runtime/tab-leases.mjs";
 const tabLeases=createTabLeases();
@@ -108,7 +109,10 @@ io.on("connection",socket=>{
   if(!STATE_STREAMS.includes(event)||Date.now()<(socket.data.resyncAt||0))return;
   socket.data.resyncAt=Date.now()+1000;socket.data.forceFull=true;socket.data.statusAt=0;
  });
- socket.on("candles:subscribe",selection=>subscribeChart(socket,selection));
+ socket.data.marketRoute=socket.handshake.auth?.route;
+ socket.on("tab:report",report=>{if(typeof report?.route!=="string")return;socket.data.marketRoute=report.route;if(report.route!=="/markets"){subscribeMarket(socket,null);subscribeChart(socket,null);}});
+ socket.on("market:subscribe",symbol=>{if(symbol===null||socket.data.marketRoute==="/markets")subscribeMarket(socket,symbol);});
+ socket.on("candles:subscribe",selection=>{if(selection===null||socket.data.marketRoute==="/markets")subscribeChart(socket,selection);});
  for(const event of ["register","state","claim","wrap","send","history","keys:get","keys:put"]){
   socket.on("chat:"+event,async(payload,ack)=>{
    if(typeof ack!=="function")return;

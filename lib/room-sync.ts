@@ -1,6 +1,11 @@
 import type {PublicRoom} from "./public";
 export type MarketSnapshot=Pick<PublicRoom,"version"|"serverNow"|"quotes"|"holdings"|"positions"|"closedPositions"|"activity"|"leaderboard">&{perpFeePpm?:number;stockExecution?:PublicRoom["stockExecution"];wallet:number;netWorth:number};
-export function mergeRoom(current:PublicRoom|null,next:PublicRoom){return current&&next.version<current.version?current:next;}
+let quoteCache:PublicRoom["quotes"]={} as PublicRoom["quotes"];
+export function mergeRoom(current:PublicRoom|null,next:PublicRoom){
+ if(current&&next.version<current.version)return current;
+ quoteCache=Object.fromEntries(Object.entries({...quoteCache,...current?.quotes,...next.quotes}).sort((a,b)=>(b[1]?.at??0)-(a[1]?.at??0)).slice(0,64));
+ return {...next,quotes:quoteCache};
+}
 export function mergeMarket(current:PublicRoom|null,next:MarketSnapshot):PublicRoom|null{
  if(!current||next.version<current.version)return current;
  return {...current,perpFeePpm:next.perpFeePpm??current.perpFeePpm,version:next.version,serverNow:next.serverNow,stockExecution:next.stockExecution??current.stockExecution,quotes:next.quotes,holdings:next.holdings,positions:next.positions,closedPositions:next.closedPositions,activity:next.activity,leaderboard:next.leaderboard,me:{...current.me,wallet:next.wallet}};

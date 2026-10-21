@@ -9,6 +9,9 @@ const require=createRequire(import.meta.url),{build}=require("esbuild");
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||"/opt/hako/lib/node_modules/playwright");
 test("portfolio Sell all works in desktop/mobile light/dark using exact-unit settlement",async()=>{
  const bundle=await build({entryPoints:["tests/fixtures/spot-sell-all-live.tsx"],bundle:true,write:false,loader:{".module.css":"empty"},jsx:"automatic",plugins:[{name:"chart-only",setup(b:any){
+ b.onResolve({filter:/^\.\/live-provider$/},()=>({path:"live",namespace:"live-stub"}));
+ b.onLoad({filter:/.*/,namespace:"live-stub"},()=>({contents:'export function useLive(){return {connection:"connected",emit(){}}}',loader:"js"}));
+
  b.onResolve({filter:/^\.\/cached-chart$/},()=>({path:"chart",namespace:"stub"}));
  b.onLoad({filter:/.*/,namespace:"stub"},()=>({contents:"export default function Chart(){return null}",loader:"js"}));
  }}]});

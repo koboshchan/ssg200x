@@ -1,4 +1,5 @@
 "use client";
+import {useLive} from "./live-provider";
 import {feeCents} from "@/lib/perp-fees";
 import {stockDisplayName} from "@/lib/stock-config";
 import MarketSymbolPicker,{type MarketSymbols} from "./market-symbol-picker";
@@ -44,6 +45,8 @@ export function Markets({room,busy,post}:Props){
  const ms=(room as unknown as {marketSymbols:MarketSymbols}).marketSymbols,changes=(room as unknown as {marketChanges?:Record<string,number|null>}).marketChanges;
  const isStockSymbol=(s:string)=>ms.stocks.includes(s),isDelistedSymbol=(s:string)=>ms.delisted.includes(s);
  const active=[...ms.crypto,...ms.stocks],symbol:string=active.includes(picked)?picked:active[0]??"";
+ const {connection,emit}=useLive();
+ useEffect(()=>{if(connection==="connected")emit("market:subscribe",symbol||null);return()=>emit("market:subscribe",null);},[symbol,connection,emit]);
  const tmode=room.me.triggerInputMode,pnlMode=tmode==="pnl",basis:Basis|null=q0(room,symbol,amount,leverage,direction);
  const lev=String(Math.min(Number(leverage),room.limits.maxLeverage)),q=(room.quotes as Record<string,{micro:number;at:number}|undefined>)[symbol],fresh=Boolean((!isStockSymbol(symbol)||(room.stockExecution?.[symbol]?.executable&&clock<room.stockExecution[symbol].validUntil))&&q&&Math.max(clock,room.serverNow)>=q.at&&Math.max(clock,room.serverNow)-q.at<(isStockSymbol(symbol)?60_000:10_000));
  const selling=mode==="spot"&&side==="sell",holding=room.holdings.find(h=>h.symbol===symbol);
@@ -54,6 +57,7 @@ export function Markets({room,busy,post}:Props){
  const choosePercent=(percent:number)=>{setSellSelection({symbol,percent});setAmount((Math.floor((holding?.value||0)*percent/100)/100).toFixed(2));};
  const send=(body:object)=>post("/api/finance",{...body,requestId:crypto.randomUUID()});
  const sellReason=(h:PublicRoom["holdings"][number])=>{
+  if(h.symbol!==symbol)return h.value<1?"Worth less than $0.01 · units retained":h.value>Math.min(room.limits.maxTrade*100,100_000_000)?"Above trade limit · use order ticket":"";
   const quote=(room.quotes as Record<string,{micro:number;at:number}|undefined>)[h.symbol];
   if(!quote||!Number.isSafeInteger(quote.micro)||quote.micro<=0||Math.max(clock,room.serverNow)<quote.at||Math.max(clock,room.serverNow)-quote.at>=(isStockSymbol(h.symbol)?60_000:10_000))return "Live price unavailable";
   if(isStockSymbol(h.symbol)&&(!room.stockExecution?.[h.symbol]?.executable||clock>=room.stockExecution[h.symbol].validUntil))return "Stock market closed or unavailable";

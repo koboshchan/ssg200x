@@ -45,7 +45,7 @@ test("actual server has exactly one room emission helper, including connect, pol
  assert.match(server,/return pushState\(socket,!socket.data.initialized,new Map\(/);
  assert.match(server,/socket.data.forceFull=true/);
  const helper=readFileSync(new URL("../runtime/room-state.mjs",import.meta.url),"utf8");
- assert.match(helper,/emitState\(socket,"room:state",data.room,force\)/);
+ assert.match(helper,/scopeMarketRoom\(data.room,socket.data.marketSymbol\)/);
 });
 
 import {createServer} from "node:http";
@@ -58,7 +58,7 @@ test("actual room helper transports trimmed DTO, preserves wallet keys and recov
  const r=fixture(),bob={id:"bob",name:"Bob",email:"bob@test.com",admin:false};
  register(r,bob);r.members[1].wallet=12345;
  let peer:any;const snapshot=publicRoom(r,who);
- server.on("connection",s=>{peer=s;s.on("state:resync",()=>emitRoomState(s,{maintenance:{blocked:false},room:snapshot},true));emitRoomState(s,{maintenance:{blocked:false},room:snapshot},true);});
+ server.on("connection",s=>{peer=s;s.data.marketSymbol="BTC";s.on("state:resync",()=>emitRoomState(s,{maintenance:{blocked:false},room:snapshot},true));emitRoomState(s,{maintenance:{blocked:false},room:snapshot},true);});
  await new Promise<void>(resolve=>http.listen(0,"127.0.0.1",resolve));
  const client=io("http://127.0.0.1:"+(http.address() as any).port,{transports:["websocket"],autoConnect:false,reconnection:false});
  const frames:any[]=[],values:any[]=[];

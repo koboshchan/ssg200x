@@ -1,6 +1,7 @@
 "use client";
 import {useEffect,useRef,useState} from "react";
 import {mergeChartCandles,tickCandle,type LiveQuote} from "@/lib/live-candle";
+import {chartCache} from "@/lib/client-market-cache";
 import {useLive} from "./live-provider";
 import type {Symbol} from "@/lib/market-shared";
 const intervals={"1m":60000,"5m":300000,"15m":900000,"1h":3600000,"6h":21600000,"1d":86400000};
@@ -14,7 +15,7 @@ export default function CachedChart({symbol,quote}:{symbol:Symbol;quote?:LiveQuo
  useEffect(()=>{
  let unsubscribe:(()=>void)|undefined;
  let closed=false,chart:import("lightweight-charts").IChartApi|undefined;const controller=new AbortController();
- const width=intervals[interval];
+ const width=intervals[interval],cacheKey=symbol+":"+interval;
  async function start(){
  const {createChart,CandlestickSeries,ColorType}=await import("lightweight-charts");if(closed||!node.current)return;
  const dark=matchMedia("(prefers-color-scheme: dark)").matches;
@@ -22,16 +23,17 @@ export default function CachedChart({symbol,quote}:{symbol:Symbol;quote?:LiveQuo
  const series=chart.addSeries(CandlestickSeries);
  const live=new Map<number,Row>();let lastAt=-1;
  const point=(c:Row)=>({...c,time:Math.floor(c.time/1000) as import("lightweight-charts").UTCTimestamp});
- push.current=q=>{if(closed||q.at<lastAt||Date.now()-q.at>10000||q.at>Date.now()+1000)return;const time=Math.floor(q.at/width)*width;const row=tickCandle(live.get(time),q,width);if(!row)return;lastAt=q.at;live.set(time,row);series.update(point(row));};
+ push.current=q=>{if(closed||q.at<lastAt||Date.now()-q.at>10000||q.at>Date.now()+1000)return;const time=Math.floor(q.at/width)*width;const row=tickCandle(live.get(time),q,width);if(!row)return;lastAt=q.at;live.set(time,row);chartCache.put(cacheKey,[row],chartCache.get(cacheKey)?.checkedAt??0);series.update(point(row));};
  let fitted=false,receivedSnapshot=false;
- function render(history:Row[]){
+ function render(history:Row[],checkedAt=Date.now()){
   if(closed)return;
-  const rows=mergeChartCandles(history,live);
+  const rows=mergeChartCandles(chartCache.put(cacheKey,history,checkedAt).rows,live);
   for(const row of rows)if(live.has(row.time))live.set(row.time,row);
   const oldest=rows[0]?.time??0;for(const time of live.keys())if(time<oldest)live.delete(time);
   series.setData(rows.map(point));if(latest.current)push.current?.(latest.current);
   if((rows.length||live.size)&&!fitted){chart?.timeScale().fitContent();fitted=true;}
  }
+ const cached=chartCache.get(cacheKey);if(cached){render(cached.rows,cached.checkedAt);setStatus("Cached history, updating live");}
  unsubscribe=subscribe("candles:state",snapshot=>{
   if(snapshot?.symbol!==symbol||snapshot.granularity!==interval||!Array.isArray(snapshot.candles))return;
   receivedSnapshot=true;render(snapshot.candles);
@@ -40,7 +42,7 @@ export default function CachedChart({symbol,quote}:{symbol:Symbol;quote?:LiveQuo
  emit("candles:subscribe",{symbol,granularity:interval});
  if(latest.current)push.current?.(latest.current);
  async function load(){try{
- const to=Math.floor(Date.now()/width)*width,from=to-width*300;
+ const range=chartCache.range(cacheKey,width);if(!range)return;const {from,to}=range;
  const p=new URLSearchParams({symbol,granularity:interval,from:String(from),to:String(to)}),response=await fetch("/api/candles?"+p,{signal:controller.signal}),data=await response.json();
  if(!response.ok)throw new Error(data.error||"Chart unavailable");if(closed)return;
  if(receivedSnapshot)return;
