@@ -50,3 +50,12 @@ test("report requests are existing authenticated admin reads; refresh includes b
  const audit=readFileSync(new URL("../lib/blackjack-audit.ts",import.meta.url),"utf8");
  assert.match(audit,/ensure\(who.admin/);assert.match(audit,/\.limit\(100\)/);
 });
+
+test("poker-only header labels are conditional while greeting and wallet remain shared",()=>{
+ const room=readFileSync(new URL("../app/room-client.tsx",import.meta.url),"utf8");
+ assert.ok(room.includes('{pokerHeader?<p>No-limit hold’em · Six seats · $1 / $2 / $5</p>:null}'));
+ assert.ok(room.includes('{pokerHeader?<small>+ {money(mySeat?.stack||0)} at the table</small>:null}'));
+ assert.ok(room.includes('const pokerHeader=pathname==="/poker"||(pathname==="/"&&tab==="table");'));
+ assert.ok(room.includes('<h1>{"Good to see you, "+me.name+"."}</h1>'));
+ assert.ok(room.includes('<strong>{money(me.wallet)}</strong>'));
+});

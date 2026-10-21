@@ -89,7 +89,8 @@ export function RoomView({tab}:{tab:RoomTab}){
  return <Game tab={tab}/>;
 }
 function Game({tab}:{tab:RoomTab}){
- const router=useRouter();
+ const router=useRouter(),pathname=usePathname();
+ const pokerHeader=pathname==="/poker"||(pathname==="/"&&tab==="table");
  const [room,setRoom]=useState<PublicRoom|null>(null),[error,setError]=useState(""),[busyState,setBusy]=useState(false),[raise,setRaise]=useState("10"),[buyIn,setBuyIn]=useState("200");
  const [marketNotice,setMarketNotice]=useState("");
  const seenActivity=useRef<Set<string>|null>(null);
@@ -124,7 +125,7 @@ function Game({tab}:{tab:RoomTab}){
  const readyClock=Math.floor(readySeconds/60)+":"+String(readySeconds%60).padStart(2,"0");
  const canReady=room.street==="waiting"&&mySeat&&!mySeat.ready;
  const canCashOut=mySeat&&!(mySeat.inHand&&room.street!=="waiting"&&room.street!=="showdown");
- return <main className="game-main"><section className="game-top"><div><h1>{"Good to see you, "+me.name+"."}</h1><p>No-limit hold’em · Six seats · $1 / $2 / $5</p></div><div className="wallet"><span>Wallet</span><strong>{money(me.wallet)}</strong><small>+ {money(mySeat?.stack||0)} at the table</small></div></section>
+ return <main className="game-main"><section className="game-top"><div><h1>{"Good to see you, "+me.name+"."}</h1>{pokerHeader?<p>No-limit hold’em · Six seats · $1 / $2 / $5</p>:null}</div><div className="wallet"><span>Wallet</span><strong>{money(me.wallet)}</strong>{pokerHeader?<small>+ {money(mySeat?.stack||0)} at the table</small>:null}</div></section>
  <div className="room-status"><span className="connection"><span className="status-dot"/> {connection==="connected"?"LIVE ROOM":connection==="connecting"?"CONNECTING":"OFFLINE"}</span></div>
  <ConnectionBadge/>
  {marketNotice?<div className="winner-note" role="status" aria-live="polite">{marketNotice}<button aria-label="Dismiss market notice" onClick={()=>setMarketNotice("")}>×</button></div>:null}
