@@ -1,22 +1,23 @@
+import {quoteFresh} from "./price-policy";
 import {marketSymbols} from "./symbol-registry";
 import {StockRuntime} from "./stock-runtime";
 import type {StockSocket} from "./stock-feed";
-import {SYMBOLS} from "./market-shared";
 import {candleUpdate} from "./candles";
 import {applyMarketTick} from "./market-tick";
 import {mutate,mutateStockPublication} from "./store";
 import {readRoom,db} from "./db";
 import {randomUUID} from "node:crypto";
-import {pollingInterval,decodeRates} from "./price-policy";
 import {ExchangeFeed,type Tick} from "./exchange-feed";
 type Worker={runOnce:()=>Promise<void>;ready:Promise<void>;owner:string;feed:ExchangeFeed;timer:ReturnType<typeof setInterval>;stop:()=>void};
 const globalWorker=globalThis as typeof globalThis & {exchangePriceWorker?:Worker};
 export async function persistExchangeTicks(ticks:Tick[]){
 
+ // Queued prints can age out during a persistence failure or CAS retry.
+ ticks=ticks.filter(t=>quoteFresh(t.at,Date.now()));
  if(!ticks.length)return;
  await mutate(room=>{
   for(const tick of ticks){
-   if(!marketSymbols(room).crypto.includes(tick.symbol))continue;
+   if(!marketSymbols(room).crypto.includes(tick.symbol)||!quoteFresh(tick.at,Date.now()))continue;
    const previous=room.quotes?.[tick.symbol as keyof typeof room.quotes];
    if(previous&&previous.at>tick.at)continue;
    // Feed sequence validation proves these are newer trades, even within one millisecond.
@@ -25,12 +26,12 @@ export async function persistExchangeTicks(ticks:Tick[]){
   }
  });
  // Preserve every print's high/low and bucket boundary, not just the last mark.
- await candleUpdate(ticks.map(tick=>({[tick.symbol]:{micro:tick.micro,at:tick.at}})));
+ await candleUpdate(ticks.filter(t=>quoteFresh(t.at,Date.now())).map(tick=>({[tick.symbol]:{micro:tick.micro,at:tick.at}})));
 }
 export function startPriceWorker(){
  if(globalWorker.exchangePriceWorker)return globalWorker.exchangePriceWorker;
  const owner=randomUUID();
- let running=false,leaseUntil=0,nextRest=0,stopped=false;
+ let running=false,leaseUntil=0,stopped=false;
  let feed:ExchangeFeed;
  let symbols=marketSymbols();
  const makeFeed=()=>new ExchangeFeed({symbols:()=>symbols.crypto,socket:()=>{if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Price lease unavailable");return new WebSocket("wss://ws-feed.exchange.coinbase.com");},apply:async ticks=>{if(stopped||Date.now()>=leaseUntil)throw new Error("Price lease expired");await persistExchangeTicks(ticks);},log:message=>console.warn(message)});
@@ -67,29 +68,10 @@ export function startPriceWorker(){
    symbols=marketSymbols(await readRoom());
    void stocks.step();
    feed.step();feed.retryPending();
-   const stale=feed.staleSymbols();
-   if(!stale.length||now<nextRest)return;
-   const room=await readRoom(),interval=pollingInterval(room);nextRest=now+interval;
-   const budget=(await db()).collection<{_id:string;nextAt:number}>("workers");
-   await budget.updateOne({_id:"coinbase-history-budget"},{$setOnInsert:{nextAt:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
-   if(!(await budget.updateOne({_id:"coinbase-history-budget",nextAt:{$lte:now}},{$set:{nextAt:now+Math.max(334,interval)}})).matchedCount)return;
-   const response=await fetch("https://api.coinbase.com/v2/exchange-rates?currency=USD",{cache:"no-store",signal:AbortSignal.timeout(3000)});
-   if(!response.ok){
-    if(response.status===429){nextRest=Date.now()+Math.max(1000,Math.min(60000,Number(response.headers.get("retry-after"))*1000||5000));await budget.updateOne({_id:"coinbase-history-budget"},{$max:{nextAt:nextRest}});}
-    return;
-   }
-   const quotes=decodeRates(await response.json(),Date.now(),symbols.crypto);
-   const fallback:typeof quotes={};
-   const current=await readRoom();
-   for(const symbol of feed.staleSymbols()){
-    const q=quotes[symbol],previous=current.quotes?.[symbol as keyof typeof current.quotes];
-    // Rates has no provider event time. An unchanged response cannot prove freshness.
-    if(q&&q.micro!==previous?.micro)fallback[symbol]=q;
-   }
-   if(Object.keys(fallback).length){
-    await mutate(r=>{const safe=Object.fromEntries(Object.entries(fallback).filter(([s,q])=>feed.staleSymbols().includes(s as never)&&(!r.quotes?.[s as keyof typeof r.quotes]||r.quotes[s as keyof typeof r.quotes]!.at<q.at)));applyMarketTick(r,safe);});
-    await candleUpdate(fallback);
-   }
+   // No executable REST fallback. The v2 rates body has no provider event time:
+   // changing values, HTTP Date/Age and receipt time cannot establish freshness.
+   // Keep reconnecting the verified WS source; expired marks pause all execution.
+
   }catch{stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;}
   finally{running=false;}
  }

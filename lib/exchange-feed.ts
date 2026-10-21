@@ -1,7 +1,8 @@
 import {SYMBOLS} from "./market-shared";
 export type Tick={symbol:string;micro:number;at:number;sequence:number};
 type Socket=Pick<WebSocket,"send"|"close"|"readyState"|"onopen"|"onmessage"|"onerror"|"onclose">;
-export const STALE_MS=10_000;
+import {STALE_MS} from "./price-policy";
+export {STALE_MS} from "./price-policy";
 export const FUTURE_SKEW_MS=1000;
 export class ExchangeFeed {
  private socket?:Socket;
@@ -79,7 +80,7 @@ export class ExchangeFeed {
   if(!Number.isSafeInteger(sequence)||Number(sequence)<0||!Number.isFinite(price)||price<=0||!Number.isSafeInteger(micro)||micro<=0||micro>1e13)return;
   const previous=this.seen.get(symbol);
   if(previous&&(Number(sequence)<=previous.sequence||at<previous.at))return;
-  if(this.queue.length>=this.capacity){this.disconnect("queue overflow; recovering via REST");return;}
+  if(this.queue.length>=this.capacity){this.disconnect("queue overflow; reconnecting verified feed");return;}
   this.seen.set(symbol,{sequence:Number(sequence),at});
   this.queue.push({symbol,micro,at:Math.min(at,this.now()),sequence:Number(sequence)});
   void this.drain();

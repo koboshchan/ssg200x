@@ -1,3 +1,4 @@
+import {quoteFresh} from "./price-policy";
 import {activeSymbol,stockSymbol} from "./symbol-registry";
 import {type StockSymbol} from "./stock-config";
 import type {StockExecutionState} from "./stock-policy";
@@ -9,7 +10,7 @@ export function applyMarketTick(room:Room,quotes:Partial<Record<string,Quote>>,n
  if(stockStates)room.stockExecution=stockStates;
  room.quotes??={};
  for(const [symbol,q] of Object.entries(quotes)){
-  if(!activeSymbol(symbol,room)||!q||!Number.isSafeInteger(q.micro)||q.micro<=0||!Number.isSafeInteger(q.at)||q.at>now||(stockSymbol(symbol,room)?now-q.at>=60000:now-q.at>10000))continue;
+  if(!activeSymbol(symbol,room)||!q||!Number.isSafeInteger(q.micro)||q.micro<=0||!quoteFresh(q.at,now,stockSymbol(symbol,room)))continue;
   if(stockSymbol(symbol,room)){const state=room.stockExecution?.[symbol];if(!stockStates||!state?.tick||state.symbol!==symbol||state.tick.symbol!==symbol||state.tick.timestamp!==q.at||Math.round(state.tick.price*1e6)!==q.micro)continue;}
   const key=symbol as keyof typeof room.quotes,previous=room.quotes[key];
   if(!previous||q.at>previous.at){
