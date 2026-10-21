@@ -33,7 +33,14 @@ test("portfolio Sell all works in desktop/mobile light/dark using exact-unit set
  assert.ok(Math.abs(bb!.x+bb!.width-hb!.x-hb!.width)<2,"sell aligns to header right");
  assert.ok(bb!.x+bb!.width<=width,"sell stays inside viewport");
  assert.equal(await page.locator('[data-label="Action"]').count(),0);
- await button.click();await page.getByText("No spot holdings yet.",{exact:true}).waitFor();assert.equal(r.members[0].wallet,100002);assert.equal(r.members[0].holdings!.length,0);
+ assert.equal(await page.getByRole("slider").count(),0);
+ await page.getByLabel("Order side").selectOption("sell");
+ const slider=page.getByRole("slider",{name:"Sell percentage of BTC"}),amount=page.getByLabel("Order value ($)",{exact:true});
+ await slider.focus();await slider.press("Home");assert.equal(await amount.inputValue(),"0.00");
+ assert.ok(await page.getByRole("button",{name:"Sell BTC",exact:true}).isDisabled());
+ await amount.fill("0.51");assert.equal(await slider.inputValue(),"50");
+ await slider.press("End");assert.equal(await amount.inputValue(),"1.02");
+ await page.getByRole("button",{name:"Sell BTC",exact:true}).click();await page.getByText("No spot holdings yet.",{exact:true}).waitFor();assert.equal(r.members[0].wallet,100002);assert.equal(r.members[0].holdings!.length,0);assert.ok(await slider.isDisabled());
  await page.close();
  }}finally{await browser.close();}
 });

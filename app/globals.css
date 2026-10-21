@@ -151,3 +151,5 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
 
 /* Keep liquidation alongside the asset, not in a separate card row. */
 .side-positions .spot-holding-header{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}.side-positions .spot-holding-header button{flex:none}
+
+.order-ticket .spot-sell-slider input[type=range]{padding:0;min-height:32px;accent-color:var(--green);cursor:pointer}.order-ticket .spot-sell-slider input:disabled{cursor:not-allowed}
