@@ -1,3 +1,4 @@
+import {readFileSync} from "node:fs";
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {freshRoom,register,assertRoom} from "../lib/poker";
@@ -23,4 +24,20 @@ test("banner shown once daily is persisted independent of claiming",()=>{
  assert.equal(markCheckInBanner(m,now),true);assert.equal(markCheckInBanner(m,now),false);assert.equal(m.wallet,100000);
  assert.equal(checkInView(m,now).claimed,false);claimCheckIn(r,m,now);assert.equal(markCheckInBanner(m,now),false);
  assert.equal(markCheckInBanner(m,now+86400000),true);assert.equal(checkInView(m,now+86400000).streak,2);
+});
+
+test("persistent check-in section and repeatable claim access are confined to Advancements",()=>{
+ const page=readFileSync("app/advancements-client.tsx","utf8");
+ assert.match(page,/className="check-in-page"/);assert.match(page,/onClick={claim}/);
+ const provider=readFileSync("app/live-provider.tsx","utf8");
+ assert.doesNotMatch(provider,/CheckInRow|check-in-page/);
+ assert.match(provider,/<CheckInBanner\/>/);
+});
+test("reloads retain the server banner marker until the next Vancouver day",()=>{
+ const {m}=setup(),before=Date.parse("2026-10-21T06:59:59Z");
+ assert.equal(markCheckInBanner(m,before),true);
+ const reloaded=JSON.parse(JSON.stringify(m));
+ assert.equal(markCheckInBanner(reloaded,before+500),false);
+ assert.equal(markCheckInBanner(reloaded,before+1000),true);
+ assert.equal(markCheckInBanner(reloaded,before+2000),false);
 });
