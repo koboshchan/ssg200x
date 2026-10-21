@@ -10,6 +10,7 @@ import {createAirdropBroadcaster} from "./runtime/airdrop-events.mjs";
 import {emitState,STATE_STREAMS} from "./runtime/state-stream.mjs";
 import {sessionGuard} from "./runtime/chat-session.mjs";
 import {createDmService} from "./runtime/dm-service.mjs";
+import {createChatDmGate} from "./runtime/chat-dm-gate.mjs";
 import {createChatService} from "./runtime/chat-service.mjs";
 import {CHAT_MAX_PAYLOAD} from "./runtime/chat-protocol.mjs";
 import {createServer} from "node:http";
@@ -41,7 +42,7 @@ const server=createServer(async(request,response)=>{
   for await(const chunk of request){body+=chunk;if(Buffer.byteLength(body)>1024){response.writeHead(413).end();return;}}
   if(request.url==="/internal-chat-reset"){
    const {actor,payload}=JSON.parse(body);
-   try{const result=await chat.adminReset(actor,payload);hintChatChanged();response.writeHead(200,{"Content-Type":"application/json"}).end(JSON.stringify(result));}
+   try{const result=await chatDmGate.adminReset(actor,payload);hintChatChanged();response.writeHead(200,{"Content-Type":"application/json"}).end(JSON.stringify(result));}
    catch(e){response.writeHead(e.chatCode==='forbidden'?403:e.chatCode==='rate_limited'?429:409,{"Content-Type":"application/json"}).end(JSON.stringify({error:e.chatCode||'unavailable'}));}
    return;
   }
@@ -76,6 +77,7 @@ const collection=client.db(process.env.MONGODB_DB||"pokerroom").collection("room
 const chat=createChatService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
 const dm=createDmService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
 await Promise.all([chat.ready,dm.ready]);
+const chatDmGate=createChatDmGate(chat,dm);
 const announceAirdrop=createAirdropBroadcaster(io,client.db(process.env.MONGODB_DB||"pokerroom").collection("airdrop_receipts"));
 const checkChatSession=sessionGuard(clerk,{reads:clerkReads(clerk)});
 let hintTimer;
@@ -153,7 +155,7 @@ io.on("connection",socket=>{
     await checkChatSession(socket);
     if(!socket.connected||socket.data.expires<=Date.now()){socket.disconnect(true);return;}
     const user=socket.data.identity.id;
-    const result=await dm.handle(user,event,payload);
+    const result=await chatDmGate.handle(user,event,payload);
     await checkChatSession(socket);
     if(!socket.connected||socket.data.expires<=Date.now())return;
     ack({ok:true,...result});
