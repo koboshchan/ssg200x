@@ -1,3 +1,4 @@
+import {hideFromLeaderboard} from "./privacy-settings";
 import {advancementView} from "./advancements";
 import type {AdvancementState} from "./advancements-shared";
 import {assetsMarket} from "./finance";
@@ -15,7 +16,7 @@ export function displayName(name:string){
  return !clean||clean.includes("@")||/\buser_[a-z0-9]+\b/i.test(clean)?"Player":clean;
 }
 export function leaderboardSnapshot(room:Room|null,now=Date.now(),profiles?:DisplayProfiles):LeaderboardSnapshot{
- const rows=(room?.members||[]).map(member=>{
+ const rows=(room?.members||[]).filter(member=>!hideFromLeaderboard(member)).map(member=>{
   const name=displayName(member.name);
   const seat=room!.seats.find(s=>s?.userId===member.id);
   const netWorth=member.wallet+assetsMarket(room!,member)+blackjackMemberAssets(room!,member.id)+rouletteAssets(room!,member.id)+(seat?seat.stack+(active(room!)?seat.committed:0):0);

@@ -1,3 +1,4 @@
+import {hideFromLeaderboard} from "./leaderboard-privacy.mjs";
 import {DEFAULT_PERP_FEE_PPM} from "./perp-fee-policy.mjs";
 // Socket identities are supplied only by verified Clerk claims, never client messages.
 export function marketPayload(room,userId,now=Date.now()) {
@@ -17,7 +18,7 @@ export function marketPayload(room,userId,now=Date.now()) {
   const roulette=(room.roulette?.bets||[]).reduce((n,w)=>n+(w.userId===m.id?w.bet.amount:0),0);
   return m.wallet+spot+perps+blackjack+roulette+(seat?seat.stack+(active?seat.committed:0):0);
  };
- const leaderboard=room.members.map(m=>{const netWorth=netWorthFor(m);return {publicId:m.publicId,name:m.name,netWorth,pnl:netWorth-100000-(m.adjustments||0)};}).sort((a,b)=>b.netWorth-a.netWorth||a.name.localeCompare(b.name));
+ const leaderboard=room.members.filter(m=>!hideFromLeaderboard(m)).map(m=>{const netWorth=netWorthFor(m);return {publicId:m.publicId,name:m.name,netWorth,pnl:netWorth-100000-(m.adjustments||0)};}).sort((a,b)=>b.netWorth-a.netWorth||a.name.localeCompare(b.name));
  const stockExecution=Object.fromEntries((room.marketSymbols?.stocks??["AAPL","TSLA","NVDA","MSFT","AMD","SPCX","SPY"]).map(symbol=>{
   const state=room.stockExecution?.[symbol],q=quotes[symbol],tick=state?.tick,clock=state?.clock;
   const session=state?.sessions?.find(s=>now>=s.open&&now<s.close);
