@@ -1,10 +1,11 @@
 "use client";
-import {useCallback,useEffect,useRef,useState} from "react";
+import {useCallback,useEffect,useId,useRef,useState} from "react";
 import {useUser} from "@clerk/nextjs";
 import {useLive,useLiveEvent} from "./live-provider";
 import {indexedDbStore,getDmPin,putDmPin} from "@/lib/chat-store";
 import {MAX_TEXT_BYTES,type Identity} from "@/lib/chat-crypto";
 import {sealDm,openDm,pinOf,pinState,dmFingerprint,type DmWire,type DmHistoryMessage,type DmPin} from "@/lib/dm-crypto";
+import {suggest,applySuggestion} from "@/lib/dm-handle-words";
 import {inConversation,historyPinState,mergeRows,rowKey,dmError,scope,pendingKey,pendingPrefix,type DmRow,type DmLookupPeer} from "@/lib/dm-view";
 
 type Thread={userId:string;username:string;blocked:boolean;updatedAt:number};
@@ -20,6 +21,11 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
  const [username,setUsername]=useState<string|null>(null),[copied,setCopied]=useState(false);
  const [threads,setThreads]=useState<Thread[]>([]),[conv,setConv]=useState<Conv|null>(null),[rows,setRows]=useState<DmRow[]>([]);
  const [cursor,setCursorState]=useState<string|null>(null),[find,setFind]=useState(""),[err,setErr]=useState<string|null>(null),[busy,setBusy]=useState(false),[text,setText]=useState("");
+ const findId=useId(),findInput=useRef<HTMLInputElement>(null),[caret,setCaret]=useState(0),[hint,setHint]=useState(0),[hintOpen,setHintOpen]=useState(false),hintCaret=useRef<number|null>(null);
+ const options=hintOpen?suggest(find,caret):[],hintAt=Math.min(hint,Math.max(0,options.length-1));
+ const syncCaret=()=>{const c=findInput.current?.selectionStart??find.length;if(c!==caret){setHint(0);setHintOpen(true);}setCaret(c);};
+ const pickHint=(w:string)=>{const r=applySuggestion(find,caret,w);hintCaret.current=r.caret;setFind(r.value);setCaret(r.caret);setHint(0);setHintOpen(false);findInput.current?.focus();};
+ useEffect(()=>{if(hintCaret.current!==null&&findInput.current){findInput.current.setSelectionRange(hintCaret.current,hintCaret.current);hintCaret.current=null;}},[find]);
  const convRef=useRef<Conv|null>(null),identityRef=useRef<Identity|null|undefined>(undefined),meRef=useRef(me);
  const pending=useRef(new Map<string,{wire:DmWire;text:string;ts:number}>());
  const acct=useRef(scope()),epoch=useRef(scope()),cursorRef=useRef<string|null>(null),firstLoaded=useRef(false);
@@ -210,7 +216,20 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
    <p>Your username{username?<>: <strong>{username}</strong> <button onClick={copy}>{copied?"Copied":"Copy"}</button></>:" is loading…"}</p>
    <form className="dm-find" onSubmit={e=>{e.preventDefault();void open(find);}}>
     <label className="sr-only" htmlFor="dm-find">Exact username</label>
-    <input id="dm-find" value={find} onChange={e=>setFind(e.target.value)} placeholder="Exact username" autoComplete="off" autoCapitalize="none" spellCheck={false}/>
+    <div className="dm-find-box">
+     <input ref={findInput} id="dm-find" role="combobox" aria-autocomplete="list" aria-expanded={options.length>0} aria-controls={options.length?findId:undefined} aria-activedescendant={options.length?findId+"-"+hintAt:undefined} value={find} placeholder="Exact username" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+      onChange={e=>{setFind(e.target.value);setCaret(e.target.selectionStart??e.target.value.length);setHint(0);setHintOpen(true);}}
+      onSelect={syncCaret} onFocus={()=>{setHintOpen(true);syncCaret();}} onBlur={()=>setHintOpen(false)}
+      onKeyDown={e=>{
+       if(e.nativeEvent.isComposing)return;
+       if(e.key==="Escape"){if(options.length){e.preventDefault();e.stopPropagation();}setHintOpen(false);return;}
+       if((e.key==="ArrowDown"||e.key==="ArrowUp")&&options.length){e.preventDefault();setHint((hintAt+(e.key==="ArrowDown"?1:-1)+options.length)%options.length);return;}
+       if(e.key==="Enter"&&options.length){e.preventDefault();pickHint(options[hintAt]);}
+      }}/>
+     {options.length>0&&<ul className="dm-find-hints" role="listbox" id={findId} aria-label="Word suggestions">
+      {options.map((w,i)=><li key={w} id={findId+"-"+i} role="option" aria-selected={i===hintAt} onPointerDown={e=>e.preventDefault()} onClick={()=>pickHint(w)}>{w}</li>)}
+     </ul>}
+    </div>
     <button className="primary" disabled={busy||!find.trim()}>Message</button>
    </form>
    {err&&<p className="chat-error" role="alert">{err}</p>}
