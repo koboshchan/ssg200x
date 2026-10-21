@@ -13,6 +13,8 @@ test("mounted Wallet preview/history and TableTalk own/historical messages renam
  `,resolveDir:process.cwd(),loader:"tsx"},bundle:true,write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"empty",".css":"empty"},plugins:[{name:"identity-fixtures",setup(b:any){
   b.onResolve({filter:/^@clerk\/nextjs$/},()=>({path:"auth",namespace:"mock"}));
   b.onLoad({filter:/auth/,namespace:"mock"},()=>({contents:'export function useAuth(){return {getToken:async()=>"test"}};export function useUser(){return {isLoaded:true,user:{id:"alice",firstName:"CLIENT SPOOF"}}}',loader:"js"}));
+  b.onResolve({filter:/^next\/navigation$/},()=>({path:"navigation",namespace:"route-fixture"}));
+  b.onLoad({filter:/.*/,namespace:"route-fixture"},()=>({contents:'export function usePathname(){return "/wallet"}',loader:"js"}));
   b.onResolve({filter:/^socket.io-client$/},()=>({path:resolve("tests/fixtures/wallet-socket.ts")}));
   b.onResolve({filter:/chat-client$/},()=>({path:"chat",namespace:"mock"}));
   b.onLoad({filter:/chat/,namespace:"mock"},()=>({contents:`
