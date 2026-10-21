@@ -29,14 +29,16 @@ test("actual blackjack status renders the same late countdown for actor and spec
   assert.equal(render(100000,who),"Alice to act · 0s");
  }
 });
-test("poker and blackjack use one shared threshold and server clock rather than recomputed wall offsets",()=>{
+test("poker and blackjack use game-specific warning windows and a shared server clock rather than recomputed wall offsets",()=>{
  for(const path of ["app/room-client.tsx","app/blackjack-client.tsx"]){
   const source=readFileSync(new URL("../"+path,import.meta.url),"utf8");
-  assert.match(source,/import \{turnCountdown\} from "@\/lib\/turn-timer"/);
+  assert.match(source,/import \{turnCountdown[^}]*\} from "@\/lib\/turn-timer"/);
   assert.match(source,/useServerClock\(room\??\.serverNow/);
   assert.match(source,/===null\?"":" · "\+/);
   assert.doesNotMatch(source,/serverNow-Date\.now\(\)/);
  }
+ const poker=readFileSync(new URL("../app/room-client.tsx",import.meta.url),"utf8");
+ assert.match(poker,/turnCountdown\(room.deadline,clock,POKER_TURN_MS,POKER_WARNING_MS\)/);
  const hook=readFileSync(new URL("../app/use-server-clock.ts",import.meta.url),"utf8");
  assert.match(hook,/serverClock\(serverNow,received,performance\.now\(\)\)/);
  assert.match(hook,/clearInterval\(timer\)/);

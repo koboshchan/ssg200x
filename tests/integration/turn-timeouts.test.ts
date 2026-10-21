@@ -4,7 +4,7 @@ import {randomUUID} from "node:crypto";
 import {mutate,move,tickRoom} from "../../lib/store";
 import {blackjackMove} from "../../lib/blackjack-store";
 import {db,readRoom,closeDatabase} from "../../lib/db";
-import {register,applyAction,act,tick,forfeitSeat,assertRoom,startHand} from "../../lib/poker";
+import {register,applyAction,act,tick,forfeitSeat,assertRoom,startHand,TURN_MS} from "../../lib/poker";
 import {blackjackTablesAction} from "../../lib/blackjack";
 import {ensure} from "../../lib/errors";
 import type {Identity} from "../../lib/types";
@@ -22,13 +22,14 @@ async function poker(now:number,n=3){
 }
 test("Mongo CAS timeout/action race has one outcome and conserves the forfeited stack",async()=>{
  const base=Date.now(),r=await poker(base),deadline=r.deadline!,i=r.turn!,wallet=r.members[i].wallet;
+ assert.equal(deadline,base+60_000);
  const result=await Promise.allSettled([
   mutate(r=>{ensure(r.deadline===deadline,"Turn changed",409);act(r,user(i).id,{type:"call"},deadline-1);}),
   mutate(r=>tick(r,deadline))
  ]);
  const next=await readRoom();assertRoom(next);assert.equal(next.members[i].wallet,wallet);
- if(next.seats[i]){assert.equal(next.deadline,deadline-1+100000);assert.equal(next.seats[i]!.bet,500);}
- else{assert.equal(next.pokerBonus,r.seats[i]!.stack);assert.deepEqual(next.pokerDead,[r.seats[i]!.committed]);assert.equal(result[0].status,"rejected");}
+ if(!next.seats[i]!.folded){assert.equal(next.deadline,deadline-1+TURN_MS);assert.equal(next.seats[i]!.bet,500);}
+ else{assert.equal(next.seats[i]!.stack,r.seats[i]!.stack);assert.equal(result[0].status,"rejected");}
  assert.equal(next.handNumber,1);
 });
 test("forced CAS conflicts recheck deadline/action in both commit orders",async()=>{
@@ -51,26 +52,26 @@ test("forced CAS conflicts recheck deadline/action in both commit orders",async(
   release();
   assert.equal(await outcome,!timeoutFirst);
   const after=await readRoom();assertRoom(after);
-  if(timeoutFirst){assert.equal(after.seats[i],null);assert.equal(after.pokerBonus,before.seats[i]!.stack);}
-  else{assert.ok(after.seats[i]);assert.equal(after.deadline,deadline-1+100000);assert.equal(after.pokerBonus,0);}
+  if(timeoutFirst){assert.equal(after.seats[i]!.folded,true);assert.equal(after.seats[i]!.stack,before.seats[i]!.stack);}
+  else{assert.ok(after.seats[i]);assert.equal(after.deadline,deadline-1+TURN_MS);assert.equal(after.pokerBonus??0,0);}
  }
 });
-test("actual poker request just before expiry survives concurrent timer; boundary request cannot dodge kick",async()=>{
+test("actual poker request just before expiry survives concurrent timer; boundary request cannot dodge auto-fold",async()=>{
  const original=Date.now,base=original();
  try{
   let r=await poker(base),deadline=r.deadline!,i=r.turn!;
   Date.now=()=>deadline-1;
   await Promise.all([move(user(i),{type:"call"},randomUUID(),r.handNumber,deadline,Date.now()),tickRoom()]);
-  r=await readRoom();assert.ok(r.seats[i]);assert.equal(r.deadline,deadline-1+100000);assertRoom(r);
+  r=await readRoom();assert.ok(r.seats[i]);assert.equal(r.deadline,deadline-1+TURN_MS);assertRoom(r);
   const next=r.turn!,d=r.deadline!;Date.now=()=>d;
   const results=await Promise.allSettled([move(user(next),{type:"call"},randomUUID(),r.handNumber,d,Date.now()),...Array.from({length:4},()=>tickRoom())]);
-  assert.equal(results[0].status,"rejected");r=await readRoom();assert.equal(r.seats[next],null);assertRoom(r);
+  assert.equal(results[0].status,"rejected");r=await readRoom();assert.equal(r.seats[next]!.folded,true);assertRoom(r);
  }finally{Date.now=original;}
 });
 test("expired poker deadline is recovered from Mongo after connection/server restart",async()=>{
  const original=Date.now,base=original();const r=await poker(base),i=r.turn!,deadline=r.deadline!;
  await closeDatabase();
- try{Date.now=()=>deadline;await tickRoom();const next=await readRoom();assert.equal(next.seats[i],null);assert.equal(next.members[i].wallet,80000);assertRoom(next);}finally{Date.now=original;}
+ try{Date.now=()=>deadline;await tickRoom();const next=await readRoom();assert.equal(next.seats[i]!.folded,true);assert.equal(next.members[i].wallet,80000);assertRoom(next);}finally{Date.now=original;}
 });
 test("next-hand carry survives DB restart and parallel ticks cannot duplicate it",async()=>{
  const now=Date.now();
