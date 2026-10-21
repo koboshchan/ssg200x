@@ -1,3 +1,4 @@
+import {POKER_SEAT_COUNT,POKER_SEAT_ORDER} from "./poker-seats";
 import {casinoLimits} from "./casino-limits";
 import {isWholeCasinoAmount} from "./casino-amount";
 import {playerReference} from "../runtime/clerk-names.mjs";
@@ -14,7 +15,7 @@ export const TURN_MS = POKER_TURN_MS, BREAK_MS = 5_000, IDLE_MS = 90_000;
 export const READY_MS = 180_000;
 const MAX_MEMBERS = 100;
 export function freshRoom(): Room {
- return { _id: "main", version: 0, members: [], seats: Array(6).fill(null), button: -1, street: "waiting", handNumber: 0, board: [], deck: [], currentBet: 0, minRaise: BIG, pending: [], turn: null, deadline: null, nextDeal: null, readyDeadline: null, payouts: [], log: [], receipts: [] };
+ return { _id: "main", version: 0, members: [], seats: Array(POKER_SEAT_COUNT).fill(null), button: -1, street: "waiting", handNumber: 0, board: [], deck: [], currentBet: 0, minRaise: BIG, pending: [], turn: null, deadline: null, nextDeal: null, readyDeadline: null, payouts: [], log: [], receipts: [] };
 }
 export function addLog(r: Room, text: string) { r.log = [text, ...r.log].slice(0,60); }
 export function register(r: Room, who: Identity, now = Date.now()): Member {
@@ -30,7 +31,9 @@ export function seatOf(r: Room, id: string) { return r.seats.findIndex(s => s?.u
 export function active(r: Room) { return r.street !== "waiting" && r.street !== "showdown"; }
 function ordered(r: Room, after: number, test: (s: Seat) => boolean) {
  const out: number[] = [];
- for (let n = 1; n <= r.seats.length; n++) { const i = (after + n + r.seats.length) % r.seats.length; const s = r.seats[i]; if (s && test(s)) out.push(i); }
+ const order = POKER_SEAT_ORDER.filter(i => i < r.seats.length);
+ const start = order.indexOf(after as typeof order[number]);
+ for (let n = 1; n <= order.length; n++) { const i = order[(start + n) % order.length]; const s = r.seats[i]; if (s && test(s)) out.push(i); }
  return out;
 }
 function next(r: Room, after: number, test: (s: Seat) => boolean) { return ordered(r, after, test)[0]; }
@@ -204,7 +207,7 @@ export function applyAction(r: Room, who: Identity, action: Action, now: number)
  let i = seatOf(r,who.id);
  if (action.type === "join") {
   ensure(i < 0, "You already have a seat.", 409);
-  ensure(Number.isInteger(action.seat) && action.seat >= 0 && action.seat < 6 && !r.seats[action.seat], "That seat is taken.", 409);
+  ensure(Number.isInteger(action.seat) && action.seat >= 0 && action.seat < POKER_SEAT_COUNT && !r.seats[action.seat], "That seat is taken.", 409);
   ensure(isWholeCasinoAmount(action.buyIn) && action.buyIn >= 10_000 && action.buyIn <= casinoLimits(r).pokerMaxBuyIn && member.wallet >= action.buyIn, "Buy in with at least $100 from your wallet, within the current poker limit.");
   member.wallet -= action.buyIn;
   r.seats[action.seat] = { userId: who.id, stack: action.buyIn, hole: [], bet: 0, committed: 0, folded: true, inHand: false, actedAt: null, sitOut: false, leaveAfter: false, seen: now, ready: false };

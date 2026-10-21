@@ -14,6 +14,9 @@ export async function readRoom() {
  const c = await rooms();
  await c.updateOne({_id:"main"},{$setOnInsert:{...freshRoom(),marketSymbols:marketSymbols()}},{upsert:true}).catch(e=>{if(!(e instanceof MongoServerError && e.code===11000))throw e;});
  // Seed pre-existing installations once; conditional write cannot overwrite an admin edit.
+ // Append only. Existing seat IDs, active hands, pending turns and money stay intact.
+ // The size predicate plus version increment fences concurrent room CAS writes.
+ await c.updateOne({_id:"main",seats:{$size:6}},{$push:{seats:{$each:[null,null]}},$inc:{version:1}});
  const room=(await c.findOne({_id:"main"}))!;
  if(room.marketSymbols)return room;
  await c.updateOne({_id:"main",marketSymbols:{$exists:false}},{$set:{marketSymbols:marketSymbols()},$inc:{version:1}});

@@ -135,7 +135,7 @@ function Game({tab}:{tab:RoomTab}){
  const readyClock=Math.floor(readySeconds/60)+":"+String(readySeconds%60).padStart(2,"0");
  const canReady=room.street==="waiting"&&mySeat&&!mySeat.ready;
  const canCashOut=mySeat&&!(mySeat.inHand&&room.street!=="waiting"&&room.street!=="showdown");
- return <main className="game-main"><section className="game-top"><div><h1>{"Good to see you, "+me.name+"."}</h1>{pokerHeader?<p>No-limit hold’em · Six seats · $1 / $2 / $5</p>:null}</div><div className="wallet"><span>Wallet</span><strong>{money(me.wallet)}</strong>{pokerHeader?<small>+ {money(mySeat?.stack||0)} at the table</small>:null}</div></section>
+ return <main className="game-main"><section className="game-top"><div><h1>{"Good to see you, "+me.name+"."}</h1>{pokerHeader?<p>No-limit hold’em · Eight seats · $1 / $2 / $5</p>:null}</div><div className="wallet"><span>Wallet</span><strong>{money(me.wallet)}</strong>{pokerHeader?<small>+ {money(mySeat?.stack||0)} at the table</small>:null}</div></section>
  <div className="room-status"><span className="connection"><span className="status-dot"/> {connection==="connected"?"LIVE ROOM":connection==="connecting"?"CONNECTING":"OFFLINE"}</span></div>
  <ConnectionBadge/>
  {finance&&!finance.ready?<p role="status">{finance.pending?"Checking your previous order. New orders are paused.":"Refreshing the room before trading."}{finance.error?" "+finance.error:""} <button disabled={connection!=="connected"||finance.working} onClick={()=>void finance.sync()}>Check again</button></p>:null}

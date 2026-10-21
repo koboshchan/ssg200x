@@ -168,3 +168,32 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
 .dm-home{flex:1 1 auto}
 .dm-home>.chat-panel{overflow:visible;position:relative;z-index:2;flex-shrink:0}
 .dm-threads{position:relative;z-index:1}
+
+/* Extra centre seats keep the six original seat IDs and the action bar in place. */
+.seat-6{top:2px;left:50%;transform:translateX(-50%)}
+.seat-7{bottom:0;left:50%;transform:translateX(-50%)}
+.seat-7 .seat-bet{top:-26px;bottom:auto}
+@media(max-width:560px){
+ .felt-wrapper{height:800px}
+ .seat{width:calc((100% - 20px)/3);min-width:0;max-width:135px}
+ .seat-0{top:130px;left:0;right:auto;transform:none}
+ .seat-1{top:130px;right:0;left:auto;transform:none}
+ .seat-2{top:450px;right:0}
+ .seat-5{top:450px;left:0}
+ .seat-3{bottom:130px;right:0;left:auto;transform:none}
+ .seat-4{bottom:130px;left:0;right:auto;transform:none}
+ .seat-6{top:0}
+ .felt-mark{top:175px}
+ .board{top:235px}
+ .seat-top{gap:4px}
+ .seat-top>div{min-width:0}
+ .seat-top strong{max-width:100%}
+ .seat-top small{font-size:8px;white-space:normal}
+ .seat .hole{justify-content:center;padding-left:0}
+ .seat .hole>span:not(.card){letter-spacing:0;font-size:6px;margin-left:0}
+ .seat-bet{max-width:100%;font-size:8px}
+}
+@media(max-width:360px){
+ .game-top>div:first-child{min-width:0}
+ .wallet{flex-shrink:0}
+}
