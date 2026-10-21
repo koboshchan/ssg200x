@@ -1,4 +1,4 @@
-import {DEFAULT_PERP_FEE_PPM} from "../../../runtime/perp-fee-policy.mjs";
+import {roomFeeRates} from "../../../runtime/perp-fee-policy.mjs";
 import {sellAllSpot} from "@/lib/spot-sell-all";
 import {rouletteBetSchema as bet} from "@/lib/casino-schemas";
 import {randomUUID} from "node:crypto";
@@ -24,7 +24,7 @@ const schema=z.discriminatedUnion("type",[
  z.object({...base,type:z.literal("redeem-legacy"),symbol}).strict(),
  z.object({...base,type:z.literal("spin"),bets:z.array(bet).min(1).max(20)}).strict(),
  z.object({...base,type:z.literal("spot"),symbol,side:z.enum(["buy","sell"]),amount:money}).strict(),
- z.object({...base,type:z.literal("open"),symbol,side:z.enum(["long","short"]),margin:money,leverage:z.number().int().min(1).max(200),expectedFeePpm:z.number().int().min(0).max(1000).optional(),...openTriggers}).strict(),
+ z.object({...base,type:z.literal("open"),symbol,side:z.enum(["long","short"]),margin:money,leverage:z.number().int().min(1).max(200),expectedOpeningFeePpm:z.number().int().min(0).max(1000).optional(),expectedClosingFeePpm:z.number().int().min(0).max(1000).optional(),expectedFeePpm:z.number().int().min(0).max(1000).optional(),...openTriggers}).strict(),
  z.object({...base,type:z.literal("triggers"),positionId:z.string().uuid(),...editTriggers}).strict(),
  z.object({...base,type:z.literal("close"),positionId:z.string().uuid()}).strict(),
 ]);
@@ -42,7 +42,8 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
  else if(input.type==="sell-all-spot")sellAllSpot(r,who,input.symbol);
  else if(input.type==="spot")spot(r,who,input.symbol,input.side,input.amount);
  else if(input.type==="open"){
-  ensure((input.expectedFeePpm??0)===(r.perpFeePpm??DEFAULT_PERP_FEE_PPM),"Trading fee changed. Review the current fee and try again.",409);
+  const rates=roomFeeRates(r);
+  ensure((input.expectedOpeningFeePpm??input.expectedFeePpm??0)===rates.openingFeePpm&&(input.expectedClosingFeePpm??input.expectedFeePpm??0)===rates.closingFeePpm,"Trading fee changed. Review the current fee and try again.",409);
   const member=register(r,who),now=Date.now();
   const patch=resolveTriggerInput(member,{entry:requireQuote(r,input.symbol,now),margin:input.margin,leverage:input.leverage,side:input.side},input);
   openPosition(r,who,input.symbol,input.side,input.margin,input.leverage,id,now,{...(patch.takeProfit!=null?{takeProfit:patch.takeProfit}:{}),...(patch.stopLoss!=null?{stopLoss:patch.stopLoss}:{})});

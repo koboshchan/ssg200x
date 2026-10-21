@@ -1,4 +1,4 @@
-import {DEFAULT_PERP_FEE_PPM} from "../runtime/perp-fee-policy.mjs";
+import {roomFeeRates} from "../runtime/perp-fee-policy.mjs";
 import {validFeePercent} from "./perp-fees";
 import {playerReference} from "../runtime/clerk-names.mjs";
 import {audit} from "./audit";
@@ -51,6 +51,15 @@ export function setPerpFee(r:Room,who:Identity,percent:number){
  ensure(who.admin,"Administrator access required.",403);
  ensure(validFeePercent(percent),"Perpetual fee must be 0–0.1% per side, with at most four decimal places.");
  const ppm=Math.round(percent*10000);
- audit(r,who,"perpetual-trading-fee","global",r.perpFeePpm??DEFAULT_PERP_FEE_PPM,ppm);
- r.perpFeePpm=ppm;
+ audit(r,who,"perpetual-trading-fee","global",roomFeeRates(r),ppm);
+ r.perpFeePpm=ppm;r.perpOpeningFeePpm=ppm;r.perpClosingFeePpm=ppm;
+}
+
+/** Validate both legs before writing either; zero is a valid override. */
+export function setPerpFees(r:Room,who:Identity,openingPercent:number,closingPercent:number){
+ ensure(who.admin,"Administrator access required.",403);
+ ensure(validFeePercent(openingPercent)&&validFeePercent(closingPercent),"Opening and closing fees must each be 0–0.1%, with at most four decimal places.");
+ const next={openingFeePpm:Math.round(openingPercent*10000),closingFeePpm:Math.round(closingPercent*10000)};
+ audit(r,who,"perpetual-trading-fees","global",roomFeeRates(r),next);
+ r.perpOpeningFeePpm=next.openingFeePpm;r.perpClosingFeePpm=next.closingFeePpm;
 }

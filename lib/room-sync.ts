@@ -1,5 +1,5 @@
 import type {PublicRoom} from "./public";
-export type MarketSnapshot=Pick<PublicRoom,"version"|"serverNow"|"quotes"|"holdings"|"positions"|"closedPositions"|"activity"|"leaderboard">&{perpFeePpm?:number;stockExecution?:PublicRoom["stockExecution"];wallet:number;netWorth:number};
+export type MarketSnapshot=Pick<PublicRoom,"version"|"serverNow"|"quotes"|"holdings"|"positions"|"closedPositions"|"activity"|"leaderboard">&{perpFeePpm?:number;perpOpeningFeePpm?:number;perpClosingFeePpm?:number;stockExecution?:PublicRoom["stockExecution"];wallet:number;netWorth:number};
 let quoteCache:PublicRoom["quotes"]={} as PublicRoom["quotes"];
 export function mergeRoom(current:PublicRoom|null,next:PublicRoom){
  if(current&&next.version<current.version)return current;
@@ -8,7 +8,7 @@ export function mergeRoom(current:PublicRoom|null,next:PublicRoom){
 }
 export function mergeMarket(current:PublicRoom|null,next:MarketSnapshot):PublicRoom|null{
  if(!current||next.version<current.version)return current;
- return {...current,perpFeePpm:next.perpFeePpm??current.perpFeePpm,version:next.version,serverNow:next.serverNow,stockExecution:next.stockExecution??current.stockExecution,quotes:next.quotes,holdings:next.holdings,positions:next.positions,closedPositions:next.closedPositions,activity:next.activity,leaderboard:next.leaderboard,me:{...current.me,wallet:next.wallet}};
+ return {...current,perpFeePpm:next.perpFeePpm??current.perpFeePpm,perpOpeningFeePpm:next.perpOpeningFeePpm??current.perpOpeningFeePpm,perpClosingFeePpm:next.perpClosingFeePpm??current.perpClosingFeePpm,version:next.version,serverNow:next.serverNow,stockExecution:next.stockExecution??current.stockExecution,quotes:next.quotes,holdings:next.holdings,positions:next.positions,closedPositions:next.closedPositions,activity:next.activity,leaderboard:next.leaderboard,me:{...current.me,wallet:next.wallet}};
 }
 /** Entries announcing a newly settled position, keyed by the stable position id. */
 export function settledNotices(activity:string[]){return activity.flatMap(entry=>{const m=/^(Liquidated|Take-profit|Stop-loss)\b.*\bposition (\S+)/.exec(entry);return m?[{id:m[2],text:entry}]:[];});}

@@ -25,7 +25,7 @@ for(const side of ["long","short"] as const){
   else if(reason==="Liq")liquidate(r,2345);
   else settleTriggers(r,2345);
   const realized=reason==="Liq"?-1001:Math.floor(1001*3*(exit-100_000_000)/100_000_000*direction);
-  assert.deepEqual(m.closedPositions,[{id:"position",symbol:"BTC",side,leverage:3,entry:100_000_000,exit,margin:1001,realizedPnl:realized,reason,closedAt:2345}]);
+  assert.deepEqual(m.closedPositions,[{id:"position",symbol:"BTC",side,leverage:3,entry:100_000_000,exit,margin:1001,realizedPnl:realized,openingFeePpm:0,closingFeePpm:0,openingFee:0,closingFee:0,assessedClosingFee:0,waivedClosingFee:0,reason,closedAt:2345}]);
   assert.equal(m.wallet-before,1001+realized);
   assert.equal(m.positions!.length,0);assertRoom(r);
   const saved=JSON.stringify(r);settleTriggers(r,2345);liquidate(r,2345);
