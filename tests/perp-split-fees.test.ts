@@ -14,10 +14,10 @@ function setup(){const r=freshRoom();register(r,who);r.quotes={BTC:{micro:100000
 test('room migration preserves configured single rate including zero, default and independent overrides',()=>{
  for(const ppm of [undefined,0,300,777]){
   const r=setup();r.perpFeePpm=ppm;
-  assert.deepEqual(roomFeeRates(r),{openingFeePpm:ppm??300,closingFeePpm:ppm??300});
+  assert.deepEqual(roomFeeRates(r),{openingFeePpm:ppm??300,closingFeePpm:ppm??100});
   const full=publicRoom(r,who),wire=marketPayload(r,who.id,1000);
-  for(const view of [full,wire]){assert.equal(view.perpOpeningFeePpm,ppm??300);assert.equal(view.perpClosingFeePpm,ppm??300);}
-  r.perpOpeningFeePpm=0;assert.equal(roomFeeRates(r).closingFeePpm,ppm??300);
+  for(const view of [full,wire]){assert.equal(view.perpOpeningFeePpm,ppm??300);assert.equal(view.perpClosingFeePpm,ppm??100);}
+  r.perpOpeningFeePpm=0;assert.equal(roomFeeRates(r).closingFeePpm,ppm??100);
  }
 });
 test('pair updates validate and authorize before changing either leg and audit both rates',()=>{
@@ -66,4 +66,17 @@ test('old persisted single-rate history is not rewritten or assigned invented sp
  const r=setup();r.members[0].closedPositions=[{id:'old',symbol:'BTC',side:'long',leverage:5,entry:100000000,exit:100000000,margin:10000,realizedPnl:-50,openingFee:25,closingFee:25,assessedClosingFee:25,waivedClosingFee:0,reason:'Manual',closedAt:900}];
  assert.deepEqual(marketPayload(r,who.id,1000).closedPositions,publicRoom(r,who).closedPositions);
  assert.equal(marketPayload(r,who.id,1000).closedPositions[0].openingFeePpm,undefined);
+});
+
+test('unsaved asymmetric defaults do not rewrite explicit split settings or locked old positions',()=>{
+ const r=setup();assert.deepEqual(roomFeeRates(r),{openingFeePpm:300,closingFeePpm:100});
+ for(const ppm of [0,300,777]){r.perpOpeningFeePpm=ppm;r.perpClosingFeePpm=ppm;assert.deepEqual(roomFeeRates(r),{openingFeePpm:ppm,closingFeePpm:ppm});}
+ delete r.perpOpeningFeePpm;delete r.perpClosingFeePpm;
+ openPosition(r,who,'BTC','long',10000,5,'defaults',1000);
+ const p=r.members[0].positions![0];assert.deepEqual(positionFeeRates(p),{openingFeePpm:300,closingFeePpm:100});
+ setPerpFees(r,who,0.1,0.09);assert.deepEqual(positionFeeRates(p),{openingFeePpm:300,closingFeePpm:100});
+ assert.deepEqual(positionFeeRates({...p,openingFeePpm:undefined,closingFeePpm:undefined,feePpm:300}),{openingFeePpm:300,closingFeePpm:300});
+ assert.deepEqual(positionFeeRates({...p,openingFeePpm:undefined,closingFeePpm:undefined,feePpm:0}),{openingFeePpm:0,closingFeePpm:0});
+ assert.deepEqual(positionFeeRates({...p,openingFeePpm:undefined,closingFeePpm:undefined,feePpm:undefined}),{openingFeePpm:0,closingFeePpm:0});
+ closePosition(r,who,'defaults',1000);assert.equal(r.members[0].closedPositions![0].closingFee,5);assertRoom(r);
 });

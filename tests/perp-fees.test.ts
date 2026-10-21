@@ -69,12 +69,12 @@ test('socket updates retain private fee history and current setting, liquidation
  const other={...who,id:'other',admin:false};register(r,other);assert.deepEqual(marketPayload(r,other.id).closedPositions,[]);
 });
 
-test('approved initial 0.03% charges both full notionals and preserves explicit zero override',()=>{
+test('approved initial 0.03% open and 0.01% close charge executed notionals and preserves explicit zero override',()=>{
  const r=setup();assert.equal(marketPayload(r,who.id,1000).perpFeePpm,300);
  openPosition(r,who,'BTC','long',10000,200,'approved',1000);
  assert.equal(r.members[0].wallet,90000);assert.equal(r.members[0].positions![0].openingFee,566);
  setPerpFee(r,who,0);closePosition(r,who,'approved',1000);
- const c=r.members[0].closedPositions![0];assert.equal(c.closingFee,566);assert.equal(c.realizedPnl,-1132);
+ const c=r.members[0].closedPositions![0];assert.equal(c.closingFee,189);assert.equal(c.realizedPnl,-755);
  assert.equal(publicRoom(r,who).perpFeePpm,0);assert.equal(marketPayload(r,who.id,1000).perpFeePpm,0);
  openPosition(r,who,'BTC','long',10000,200,'free',1000);assert.equal(r.members[0].positions![0].openingFee,0);assertRoom(r);
 });

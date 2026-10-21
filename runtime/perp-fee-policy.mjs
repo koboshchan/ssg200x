@@ -1,9 +1,10 @@
-// Approved initial setting. Explicit saved zero remains a valid admin override.
-export const DEFAULT_PERP_FEE_PPM=300; // 0.03% of executed notional per side
+// Approved unsaved defaults. Explicit saved split or legacy single rates always win.
+export const DEFAULT_PERP_FEE_PPM=300; // 0.03% opening on executed notional
+export const DEFAULT_PERP_CLOSING_FEE_PPM=100; // 0.01% closing on executed notional
 
 /** Saved single-rate rooms inherit both legs, including an explicit zero. */
 export function roomFeeRates(room){
- return {openingFeePpm:room.perpOpeningFeePpm??room.perpFeePpm??DEFAULT_PERP_FEE_PPM,closingFeePpm:room.perpClosingFeePpm??room.perpFeePpm??DEFAULT_PERP_FEE_PPM};
+ return {openingFeePpm:room.perpOpeningFeePpm??room.perpFeePpm??DEFAULT_PERP_FEE_PPM,closingFeePpm:room.perpClosingFeePpm??room.perpFeePpm??DEFAULT_PERP_CLOSING_FEE_PPM};
 }
 /** Pre-fee positions remain free; single-rate snapshots keep their agreed rate. */
 export function positionFeeRates(position){
