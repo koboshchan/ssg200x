@@ -135,3 +135,6 @@
 .dd-stage button:disabled{color:#fff;opacity:1;background:#ffffff14;border-color:#ffffff40}.dd-stage .dd-hand-cards>button:disabled{opacity:1}
 @media(max-width:700px){.dd-stage,.dd-me,.dd-me-main,.dd-stage .dd-hand{box-sizing:border-box;min-width:0;max-width:100%}.dd-me{grid-template-columns:minmax(0,1fr);width:100%}.dd-me-main,.dd-stage .dd-hand{width:100%}.dd-stage .dd-hand-cards{box-sizing:border-box;width:100%;max-width:100%;min-width:0;padding-right:16px;padding-left:4px}.dd-stage .dd-hand-cards::after{content:"";flex:0 0 12px}}
 .dd-bean{width:1em;height:1em;vertical-align:-.14em;margin-left:.25em;display:inline-block}.dd-beanamt{white-space:nowrap}
+.dd-check{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;margin:14px 0 4px}.dd-check input{width:18px;height:18px;margin:0}
+.dd-recruit{margin:0 0 20px}.dd-recruit h3{font-size:15px;margin:0 0 8px}.dd-recruit ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}.dd-recruit li{display:flex;justify-content:space-between;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:10px 12px}.dd-recruit li strong{display:block;font-size:14px}.dd-recruit li small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.dd-stage .dd-vis .dd-check{margin:0}.dd-stage .dd-vis .dd-check span{color:#fff;font-size:13px}
