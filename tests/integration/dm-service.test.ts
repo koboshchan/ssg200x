@@ -152,3 +152,44 @@ test('Clerk committed slot supports DMs before chat registration and fences poin
  }
  assert.equal((await dm.handle('clerk_a','send',wire)).duplicate,true);
 });
+
+test('authoritative display names are presentation only, email-safe and membership scoped',async()=>{
+ const a=(await createIdentity('name_a',0)).identity,b=(await createIdentity('name_b',0)).identity;
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{members:[{id:'name_a',approved:true,name:'CLIENT FORGERY'},{id:'name_b',approved:true,name:'CLIENT FORGERY'}]}});
+ const accounts=new Map<string,any>();
+ for(const [user,d] of [['name_a',a],['name_b',b]] as const){
+  await db.collection('chat_identity_versions').insertOne({_id:user as never,status:'active',version:1,slot:'names',committedHash:'names'});
+  accounts.set(user,{firstName:user==='name_a'?'Alice':'Bob',lastName:'Example',username:'public-name',
+   emailAddresses:[{emailAddress:'PRIVATE_CANARY@example.com'}],primaryEmailAddress:{emailAddress:'PRIVATE_CANARY@example.com'},
+   publicMetadata:{tabletalk:{names:{v:1,keyVersion:1,deviceId:d.deviceId,dhPublic:d.dhPublic,signPublic:d.signPublic}}}});
+ }
+ const reads:string[]=[];
+ const make=()=>createDmService(db,{clerk:{users:{getUser:async(id:string)=>{reads.push(id);return structuredClone(accounts.get(id));}}}});
+ const dm=make();await dm.ready;
+ const pa=await dm.handle('name_a','profile',{v:1}),pb=await dm.handle('name_b','profile',{v:1});
+ assert.deepEqual(Object.keys(pa),['username']);
+ const lookup=await dm.handle('name_a','lookup',{v:1,username:pb.username});
+ assert.equal(lookup.peer.displayName,'Bob Example');assert.equal(lookup.peer.username,pb.username);
+ const wire=await sealDm(a,'name_a',lookup.peer,'presentation must not change encryption');
+ assert.equal('displayName' in wire,false);
+ const sent=await dm.handle('name_a','send',wire);
+ assert.deepEqual(await openDm(b,'name_b',sent.message),{ok:true,text:'presentation must not change encryption',mine:false});
+ assert.equal('displayName' in sent.message,false);
+ const threads=await dm.handle('name_b','threads',{v:1});
+ assert.equal(threads.threads[0].displayName,'Alice Example');assert.equal(threads.threads[0].username,pa.username);
+ for(const dto of [lookup,threads,sent])assert.doesNotMatch(JSON.stringify(dto),/PRIVATE_CANARY|emailAddress|CLIENT FORGERY/);
+ assert.ok(reads.every(id=>id==='name_a'||id==='name_b'));
+ // Email-shaped fields are rejected by the shared public name resolver; no private email fallback.
+ accounts.get('name_b').firstName='private@example.com';accounts.get('name_b').lastName='';accounts.get('name_b').username='private@example.com';
+ const safe=make();await safe.ready;
+ assert.equal((await safe.handle('name_a','lookup',{v:1,username:pb.username})).peer.displayName,pb.username);
+ accounts.get('name_b').firstName='';accounts.get('name_b').username='BobPublic';
+ const usernameFallback=make();await usernameFallback.ready;
+ assert.equal((await usernameFallback.handle('name_a','lookup',{v:1,username:pb.username})).peer.displayName,'BobPublic');
+ const before=reads.length;
+ assert.equal((await dm.handle('name_a','lookup',{v:1,username:'zoo zoo zoo zoo'})).peer,null);
+ await assert.rejects(dm.handle('outsider','threads',{v:1}),/forbidden/);
+ assert.equal(reads.length,before);
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{'members.1.accessRevoked':true}});
+ assert.deepEqual((await dm.handle('name_a','threads',{v:1})).threads,[]);
+});

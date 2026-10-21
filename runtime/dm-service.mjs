@@ -1,3 +1,5 @@
+import {clerkDisplayName} from './clerk-names.mjs';
+import {clerkReads} from './clerk-reads.mjs';
 import {randomInt,randomUUID} from 'node:crypto';
 import {wordlist} from '@scure/bip39/wordlists/english.js';
 import {shape,text,uuid,binary,fail,verify,canonical,digest,validateDevice} from './chat-protocol.mjs';
@@ -49,16 +51,23 @@ export function createDmService(db,{now=Date.now,generateUsername=generate,clerk
   // Compare the entire authenticated bundle, not only the device/version labels.
   if(['deviceId','keyVersion','dhPublic','signPublic'].some(k=>current[k]!==d[k]))fail('identity_conflict');
  }
+ // Presentation only: reuse bounded Clerk reads, never room/client labels or email fallbacks.
+ async function displayName(user,handle){
+  if(!clerk?.users?.getUser)return handle;
+  try{const name=clerkDisplayName(await clerkReads(clerk).user(clerk,user));return name==='Player'?handle:name;}catch{return handle;}
+ }
  const pair=(a,b)=>digest(canonical([a,b].sort()));
  async function perform(user,event,p){await ready;text(user);await rate(user,'all',120);const members=await membership(user);
   if(event==='profile'){shape(p,['v']);await backfill(members);await membership(user);return {username:await ensureName(user)};}
-  if(event==='lookup'){shape(p,['v','username']);username(p.username);await backfill(members);const n=await names.findOne({username:p.username});if(!n||n._id===user||!members.includes(n._id))return {peer:null};let d;try{d=await active(n._id);}catch(e){if(e.chatCode==='identity_required')return {peer:null};throw e;}await membership(user,n._id);return {peer:{userId:n._id,username:n.username,deviceId:d.deviceId,keyVersion:d.keyVersion,dhPublic:d.dhPublic,signPublic:d.signPublic}};}
+  if(event==='lookup'){shape(p,['v','username']);username(p.username);await backfill(members);const n=await names.findOne({username:p.username});if(!n||n._id===user||!members.includes(n._id))return {peer:null};let d;try{d=await active(n._id);}catch(e){if(e.chatCode==='identity_required')return {peer:null};throw e;}const name=await displayName(n._id,n.username);await membership(user,n._id);return {peer:{userId:n._id,username:n.username,displayName:name,deviceId:d.deviceId,keyVersion:d.keyVersion,dhPublic:d.dhPublic,signPublic:d.signPublic}};}
   if(event==='threads'){
    shape(p,['v']);await backfill(members);
    // Unique peer aggregation bounds response by room membership, never loads ciphertext.
    const rows=await messages.aggregate([{$match:{$or:[{senderUserId:user},{toUserId:user}]}},{$project:{peer:{$cond:[{$eq:['$senderUserId',user]},'$toUserId','$senderUserId']},serverTs:1}},{$group:{_id:'$peer',updatedAt:{$max:'$serverTs'}}},{$sort:{updatedAt:-1}},{$limit:4096}]).toArray();
    const ownBlocks=await blocks.find({owner:user}).limit(4096).toArray();for(const b of ownBlocks)if(!rows.some(r=>r._id===b.peer))rows.push({_id:b.peer,updatedAt:0});
-   const threads=[];for(const r of rows){if(r._id!==user&&members.includes(r._id))threads.push({userId:r._id,username:await ensureName(r._id),blocked:await blocked(user,r._id),updatedAt:r.updatedAt});}await membership(user);return {threads};
+   const threads=[];for(const r of rows){if(r._id!==user&&members.includes(r._id))threads.push({userId:r._id,username:await ensureName(r._id),blocked:await blocked(user,r._id),updatedAt:r.updatedAt});}
+   await Promise.all(threads.map(async t=>{t.displayName=await displayName(t.userId,t.username);}));
+   const currentMembers=await membership(user);return {threads:threads.filter(t=>currentMembers.includes(t.userId))};
   }
   if(event==='history'){
    shape(p,['v','userId'],['before','limit']);text(p.userId);await membership(user,p.userId);const limit=p.limit??50;if(!Number.isSafeInteger(limit)||limit<1||limit>50)fail();if(p.before!==undefined&&(typeof p.before!=='string'||!/^\d{16}-[0-9a-f-]{36}$/.test(p.before)))fail();

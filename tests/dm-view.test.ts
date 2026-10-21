@@ -61,3 +61,13 @@ test("admin-reset setup and recovery invalidate cached DM identity and unsent wo
  for(const fragment of ["epoch.current.next()","pending.current.clear()","setIdState({owner:me,id:null})","setConv(null)","setRows([])","setCursor(null)","setText('')"])
   assert.ok(reset.includes(fragment),fragment);
 });
+
+test("display names render as escaped presentation labels without changing handle lookup",()=>{
+ const source=readFileSync(new URL("../app/dm-panel.tsx",import.meta.url),"utf8");
+ assert.ok(source.includes("{conv.peer.displayName||conv.peer.username}"));
+ assert.ok(source.includes("{t.displayName||t.username}"));
+ assert.ok(source.includes("open(t.username)"));
+ assert.ok(source.includes('username:clean'));
+ assert.ok(source.includes('Your username{username?'));
+ assert.ok(!source.includes("dangerouslySetInnerHTML"));
+});

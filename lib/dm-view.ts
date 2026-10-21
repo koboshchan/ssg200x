@@ -1,7 +1,7 @@
 // Pure DM view logic: which keys belong to the peer, pin checks before decrypt, and message merging.
 import {pinState,type DmHistoryMessage,type DmPin,type PinState} from "./dm-crypto";
 
-export type DmLookupPeer={userId:string;username:string;deviceId:string;keyVersion:number;dhPublic:string;signPublic:string};
+export type DmLookupPeer={userId:string;username:string;displayName?:string;deviceId:string;keyVersion:number;dhPublic:string;signPublic:string};
 export type DmRow={id:string;mine:boolean;ts:number;cursor?:string;status:"ok"|"pending"|"failed"|"changed"|"unreadable"|"invalid";text?:string};
 
 /** Keys the other party used on this message, taken from the snapshot the server attached. */

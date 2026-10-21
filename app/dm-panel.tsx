@@ -8,7 +8,7 @@ import {sealDm,openDm,pinOf,pinState,dmFingerprint,type DmWire,type DmHistoryMes
 import {suggest,applySuggestion} from "@/lib/dm-handle-words";
 import {inConversation,historyPinState,mergeRows,rowKey,dmError,scope,pendingKey,pendingPrefix,type DmRow,type DmLookupPeer} from "@/lib/dm-view";
 
-type Thread={userId:string;username:string;blocked:boolean;updatedAt:number};
+type Thread={userId:string;username:string;displayName?:string;blocked:boolean;updatedAt:number};
 type Conv={peer:DmLookupPeer;pin:DmPin|undefined;changed:boolean;fp:string;oldFp:string;blocked:boolean};
 const time=(ts:number)=>new Date(ts).toLocaleString([],{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
 const code=(e:unknown)=>e instanceof Error?e.message:"unavailable";
@@ -190,8 +190,8 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
  if(identity===undefined)return <p className="chat-note" role="status">Loading…</p>;
  if(identity===null)return <div className="chat-panel"><h2>Set up secure chat first</h2><p>Direct messages use the same keys as TableTalk. Create them, or unlock with your six recovery words, in the TableTalk tab.</p><button className="primary" onClick={goSetup}>Go to TableTalk</button></div>;
  if(conv)return <>
-  <div className="dm-bar"><button onClick={()=>{resetConv();setConv(null);setErr(null);void loadThreads();}} aria-label="Back to messages">Back</button><strong>{conv.peer.username}</strong><button onClick={()=>block(!conv.blocked)}>{conv.blocked?"Unblock":"Block"}</button></div>
-  {conv.changed&&<div className="chat-warn" role="alert"><p><strong>{conv.peer.username}'s security key changed.</strong> Messages are hidden and sending is off until you trust the new key. Compare it with them in person or another app first.</p><p>Pinned <code>{conv.oldFp}</code></p><p>New <code>{conv.fp}</code></p><button onClick={trust}>Trust new key</button></div>}
+  <div className="dm-bar"><button onClick={()=>{resetConv();setConv(null);setErr(null);void loadThreads();}} aria-label="Back to messages">Back</button><strong>{conv.peer.displayName||conv.peer.username}</strong><button onClick={()=>block(!conv.blocked)}>{conv.blocked?"Unblock":"Block"}</button></div>
+  {conv.changed&&<div className="chat-warn" role="alert"><p><strong>{conv.peer.displayName||conv.peer.username}'s security key changed.</strong> Messages are hidden and sending is off until you trust the new key. Compare it with them in person or another app first.</p><p>Pinned <code>{conv.oldFp}</code></p><p>New <code>{conv.fp}</code></p><button onClick={trust}>Trust new key</button></div>}
   {conv.blocked&&<p className="chat-note" role="status">Blocked. You won't get messages from them and can't send.</p>}
   {err&&<p className="chat-note chat-error" role="alert">{err}</p>}
   <div className="chat-list" ref={list}>
@@ -205,7 +205,7 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
    </div>)}
   </div>
   <form className="chat-compose" onSubmit={e=>{e.preventDefault();void send();}}>
-   <label className="sr-only" htmlFor="dm-input">Message {conv.peer.username}</label>
+   <label className="sr-only" htmlFor="dm-input">Message {conv.peer.displayName||conv.peer.username}</label>
    <textarea id="dm-input" rows={1} value={text} disabled={conv.changed||conv.blocked} placeholder="Message" onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();void send();}}}/>
    <button className="primary" disabled={conv.changed||conv.blocked||!text.trim()||new TextEncoder().encode(text).length>MAX_TEXT_BYTES}>Send</button>
   </form>
@@ -235,7 +235,7 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
   </div>
   <ul className="dm-threads">
    {threads.length===0&&<li className="chat-note">No conversations yet.</li>}
-   {threads.map(t=><li key={t.userId}><button onClick={()=>void open(t.username)}><span>{t.username}</span>{t.blocked&&<small> Blocked</small>}<time dateTime={new Date(t.updatedAt).toISOString()}>{time(t.updatedAt)}</time></button></li>)}
+   {threads.map(t=><li key={t.userId}><button onClick={()=>void open(t.username)}><span>{t.displayName||t.username}</span>{t.blocked&&<small> Blocked</small>}<time dateTime={new Date(t.updatedAt).toISOString()}>{time(t.updatedAt)}</time></button></li>)}
   </ul>
  </div>;
 }
