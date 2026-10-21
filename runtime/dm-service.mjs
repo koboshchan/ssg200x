@@ -1,6 +1,6 @@
 import {randomInt,randomUUID} from 'node:crypto';
 import {wordlist} from '@scure/bip39/wordlists/english.js';
-import {shape,text,uuid,binary,fail,verify,canonical,digest} from './chat-protocol.mjs';
+import {shape,text,uuid,binary,fail,verify,canonical,digest,validateDevice} from './chat-protocol.mjs';
 
 export const dmSignedData=(user,p)=>canonical(['ssg-dm',1,user,p.toUserId,p.id,p.senderDeviceId,p.recipientDeviceId,p.senderKeyVersion,p.recipientKeyVersion,p.salt,p.iv,p.ciphertext]);
 const wireFields=['v','id','toUserId','senderDeviceId','recipientDeviceId','senderKeyVersion','recipientKeyVersion','salt','iv','ciphertext','signature'];
@@ -10,7 +10,7 @@ const generate=()=>Array.from({length:4},()=>wordlist[randomInt(wordlist.length)
 const words=new Set(wordlist);
 function username(s){if(typeof s!=='string'||s.length>100||!/^\w+ \w+ \w+ \w+$/.test(s)||s.split(' ').some(w=>!words.has(w)))fail();return s;}
 // One bounded queue serializes all DM writes in the supported single server process.
-export function createDmService(db,{now=Date.now,generateUsername=generate}={}){
+export function createDmService(db,{now=Date.now,generateUsername=generate,clerk,allowTestDevices=false}={}){
  const rooms=db.collection('rooms'),names=db.collection('dm_usernames'),messages=db.collection('dm_messages'),blocks=db.collection('dm_blocks'),rates=db.collection('dm_rates'),devices=db.collection('chat_devices'),versions=db.collection('chat_identity_versions');
  const ready=Promise.all([names.createIndex({username:1},{unique:true}),messages.createIndex({senderUserId:1,id:1},{unique:true}),messages.createIndex({pair:1,cursor:-1}),blocks.createIndex({owner:1,peer:1},{unique:true}),rates.createIndex({expiresAt:1},{expireAfterSeconds:0})]);
  let queue=Promise.resolve(),pending=0;
@@ -19,7 +19,30 @@ export function createDmService(db,{now=Date.now,generateUsername=generate}={}){
  async function membership(user,peer){const r=await rooms.findOne({_id:'main'});const members=(r?.members||[]).filter(m=>m.approved===true&&!m.accessRevoked).map(m=>m.id);if(!members.includes(user))fail('forbidden');if(peer!==undefined&&(peer===user||!members.includes(peer)))fail('unavailable');return members;}
  async function ensureName(user){let row=await names.findOne({_id:user});if(row)return row.username;for(let i=0;i<32;i++){const candidate=username(generateUsername());try{await names.insertOne({_id:user,username:candidate});return candidate;}catch(e){if(e.code!==11000)throw e;row=await names.findOne({_id:user});if(row)return row.username;}}fail('busy');}
  async function backfill(members){for(const user of members)await ensureName(user);}
- async function active(user,id,version){const pointer=await versions.findOne({_id:user,status:'active'});if(!pointer||!Number.isSafeInteger(pointer.version)||pointer.version<1)fail('identity_required');const d=await devices.findOne({userId:user,keyVersion:pointer.version,...(id?{deviceId:id}:{})});if(!d||(version!==undefined&&version!==d.keyVersion))fail('identity_required');return d;}
+ async function active(user,id,version){
+  const pointer=await versions.findOne({_id:user,status:'active'});
+  if(!pointer||!Number.isSafeInteger(pointer.version)||pointer.version<1)fail('identity_required');
+  let d;
+  if(clerk?.users?.getUser){
+   if(typeof pointer.slot!=='string'||!pointer.slot)fail('identity_required');
+   try{
+    const account=await clerk.users.getUser(user);
+    const pub=account.publicMetadata?.tabletalk?.[pointer.slot];
+    if(!pub||pub.v!==1||pub.keyVersion!==pointer.version)fail('identity_required');
+    uuid(pub.deviceId);await validateDevice(pub);
+    d={deviceId:pub.deviceId,keyVersion:pub.keyVersion,dhPublic:pub.dhPublic,signPublic:pub.signPublic};
+   }catch{fail('identity_required');}
+  }else if(allowTestDevices===true){
+   d=await devices.findOne({userId:user,keyVersion:pointer.version,...(id?{deviceId:id}:{})});
+   if(d){try{uuid(d.deviceId);await validateDevice(d);}catch{fail('identity_required');}}
+  }else fail('identity_required');
+  if(!d||(id!==undefined&&d.deviceId!==id)||(version!==undefined&&version!==d.keyVersion))fail('identity_required');
+  // Clerk reads and key validation await external work. Fence against pointer
+  // revocation, slot swaps or a changed enrollment commit during those awaits.
+  const current=await versions.findOne({_id:user});
+  if(!current||current.status!=='active'||current.version!==pointer.version||current.slot!==pointer.slot||current.committedHash!==pointer.committedHash)fail('identity_required');
+  return d;
+ }
  async function blocked(a,b){return !!await blocks.findOne({$or:[{owner:a,peer:b},{owner:b,peer:a}]});}
  async function unchanged(user,d){
   const current=await active(user,d.deviceId,d.keyVersion);

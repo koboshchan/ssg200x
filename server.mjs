@@ -68,7 +68,7 @@ io.use(async(socket,next)=>{
 const client=new MongoClient(process.env.MONGODB_URI,{serverSelectionTimeoutMS:5000});await client.connect();
 const collection=client.db(process.env.MONGODB_DB||"pokerroom").collection("rooms");
 const chat=createChatService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
-const dm=createDmService(client.db(process.env.MONGODB_DB||"pokerroom"));
+const dm=createDmService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
 await Promise.all([chat.ready,dm.ready]);
 const announceAirdrop=createAirdropBroadcaster(io,client.db(process.env.MONGODB_DB||"pokerroom").collection("airdrop_receipts"));
 const checkChatSession=sessionGuard(clerk,{reads:clerkReads(clerk)});

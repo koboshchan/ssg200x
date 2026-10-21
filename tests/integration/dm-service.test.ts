@@ -10,13 +10,13 @@ const client=new MongoClient(process.env.MONGODB_URI!),db=client.db(process.env.
 after(async()=>{await db.dropDatabase();await client.close();});
 test('immutable collision-safe usernames, real encrypted delivery, isolation, blocks, identity and replay',async()=>{
  let clock=Date.now();let count=0;
- const dm=createDmService(db,{now:()=>clock,generateUsername:()=>++count<=2?'abandon ability able about':count===3?'above absent absorb abstract':'absurd abuse access accident'});await dm.ready;
+ const dm=createDmService(db,{allowTestDevices:true,now:()=>clock,generateUsername:()=>++count<=2?'abandon ability able about':count===3?'above absent absorb abstract':'absurd abuse access accident'});await dm.ready;
  const a=(await createIdentity('user_a',0)).identity,b=(await createIdentity('user_b',0)).identity,c=(await createIdentity('user_c',0)).identity;
  const members=['user_a','user_b','user_c'].map(id=>({id,approved:true}));
  await db.collection('rooms').insertOne({_id:'main' as never,version:1,members});
  for(const [user,d] of [['user_a',a],['user_b',b],['user_c',c]] as const){await db.collection('chat_identity_versions').insertOne({_id:user as never,status:'active',version:1});await db.collection('chat_devices').insertOne({userId:user,deviceId:d.deviceId,keyVersion:1,dhPublic:d.dhPublic,signPublic:d.signPublic});}
  const pa=await dm.handle('user_a','profile',{v:1}),pb=await dm.handle('user_b','profile',{v:1});assert.notEqual(pa.username,pb.username);assert.equal(pa.username.split(' ').length,4);assert.equal(await db.collection('dm_usernames').countDocuments(),3);
- const restarted=createDmService(db);await restarted.ready;assert.deepEqual(await restarted.handle('user_a','profile',{v:1}),pa);
+ const restarted=createDmService(db,{allowTestDevices:true});await restarted.ready;assert.deepEqual(await restarted.handle('user_a','profile',{v:1}),pa);
  const lookup=await dm.handle('user_a','lookup',{v:1,username:pb.username});assert.equal(lookup.peer.userId,'user_b');assert.equal(JSON.stringify(lookup).includes('email'),false);
  assert.equal((await dm.handle('user_a','lookup',{v:1,username:pa.username})).peer,null);
  const p=await sealDm(a,'user_a',lookup.peer,'DM_PLAINTEXT_CANARY');
@@ -44,7 +44,7 @@ test('immutable collision-safe usernames, real encrypted delivery, isolation, bl
  await db.collection('rooms').updateOne({_id:'main' as never},{$set:{'members.0.accessRevoked':true}});await assert.rejects(dm.handle('user_a','history',{v:1,userId:'user_b'}),/forbidden/);await assert.rejects(dm.handle('user_b','history',{v:1,userId:'user_a'}),/unavailable/);
 });
 test('strict canonical base64, per-user rate limits and bounded queue',async()=>{
- let clock=Date.now()+900000;const dm=createDmService(db,{now:()=>clock});await dm.ready;
+ let clock=Date.now()+900000;const dm=createDmService(db,{allowTestDevices:true,now:()=>clock});await dm.ready;
  await db.collection('rooms').updateOne({_id:'main' as never},{$set:{members:[{id:'rate_user',approved:true}]}});
  for(let i=0;i<120;i++)await dm.handle('rate_user','profile',{v:1});await assert.rejects(dm.handle('rate_user','profile',{v:1}),/rate_limited/);
  clock+=60000;const results=await Promise.allSettled(Array.from({length:140},()=>dm.handle('rate_user','profile',{v:1})));assert.ok(results.some(r=>r.status==='rejected'&&r.reason.message==='busy'));
@@ -53,7 +53,7 @@ test('strict canonical base64, per-user rate limits and bounded queue',async()=>
 test('lookup triggers collision backfill and Mongo enforces unique handles, replay and block indexes',async()=>{
  await db.collection('dm_usernames').deleteMany({});
  await db.collection('rooms').updateOne({_id:'main' as never},{$set:{members:[{id:'lookup_a',approved:true},{id:'lookup_b',approved:true}]}});
- let calls=0;const dm=createDmService(db,{generateUsername:()=>++calls<=2?'abandon ability able about':'above absent absorb abstract'});await dm.ready;
+ let calls=0;const dm=createDmService(db,{allowTestDevices:true,generateUsername:()=>++calls<=2?'abandon ability able about':'above absent absorb abstract'});await dm.ready;
  assert.deepEqual(await dm.handle('lookup_a','lookup',{v:1,username:'above absent absorb abstract'}),{peer:null});
  assert.equal(calls,3);assert.equal(await db.collection('dm_usernames').countDocuments(),2);
  await assert.rejects(db.collection('dm_usernames').insertOne({_id:'collision' as never,username:'abandon ability able about'}),{code:11000});
@@ -78,7 +78,7 @@ test('send rechecks full active bundles, pointer revocation and membership after
    const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
   }});
  }};
- const dm=createDmService(wrapped);await dm.ready;
+ const dm=createDmService(wrapped,{allowTestDevices:true});await dm.ready;
  for(const [user,key] of [['race_a','dhPublic'],['race_a','signPublic'],['race_b','dhPublic'],['race_b','signPublic']] as const){
   const original=user==='race_a'?a:b;
   mutate=()=>db.collection('chat_devices').updateOne({userId:user},{$set:{[key]:changed[key]}});
@@ -105,4 +105,50 @@ test('send rechecks full active bundles, pointer revocation and membership after
  mutate=()=>db.collection('chat_devices').updateOne({userId:'race_b'},{$set:{dhPublic:changed.dhPublic}});
  await assert.rejects(dm.handle('race_a','send',wire),/identity_conflict/);
  assert.equal(await db.collection('dm_messages').countDocuments({senderUserId:'race_a'}),1);
+});
+
+test('Clerk committed slot supports DMs before chat registration and fences pointer changes',async()=>{
+ const a=(await createIdentity('clerk_a',0)).identity,b=(await createIdentity('clerk_b',0)).identity;
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{members:[{id:'clerk_a',approved:true},{id:'clerk_b',approved:true}]}});
+ const accounts=new Map<string,any>();
+ for(const [user,d] of [['clerk_a',a],['clerk_b',b]] as const){
+  await db.collection('chat_identity_versions').insertOne({_id:user as never,status:'active',version:1,slot:'committed',committedHash:'original'});
+  accounts.set(user,{publicMetadata:{tabletalk:{committed:{v:1,keyVersion:1,deviceId:d.deviceId,dhPublic:d.dhPublic,signPublic:d.signPublic}}}});
+ }
+ assert.equal(await db.collection('chat_devices').countDocuments({userId:{$in:['clerk_a','clerk_b']}}),0);
+ let mutate:undefined|(()=>Promise<unknown>);
+ const clerk={users:{getUser:async(user:string)=>{
+  const result=structuredClone(accounts.get(user));
+  if(mutate){const fn=mutate;mutate=undefined;await fn();}
+  return result;
+ }}};
+ const dm=createDmService(db,{clerk});await dm.ready;
+ const profile=await dm.handle('clerk_b','profile',{v:1});
+ const lookup=await dm.handle('clerk_a','lookup',{v:1,username:profile.username});
+ assert.equal(lookup.peer.deviceId,b.deviceId);
+ const wire=await sealDm(a,'clerk_a',lookup.peer,'no chat registration needed');
+ const sent=await dm.handle('clerk_a','send',wire);
+ assert.deepEqual(await openDm(b,'clerk_b',sent.message),{ok:true,text:'no chat registration needed',mine:false});
+ // A cached chat registration must not override the committed Clerk slot.
+ await db.collection('chat_devices').insertOne({userId:'clerk_b',deviceId:a.deviceId,keyVersion:1,dhPublic:a.dhPublic,signPublic:a.signPublic});
+ assert.equal((await dm.handle('clerk_a','lookup',{v:1,username:profile.username})).peer.deviceId,b.deviceId);
+ const noClerk=createDmService(db);await noClerk.ready;
+ assert.equal((await noClerk.handle('clerk_a','lookup',{v:1,username:profile.username})).peer,null);
+ await assert.rejects(noClerk.handle('clerk_a','send',wire),/identity_required/);
+ const failing=createDmService(db,{clerk:{users:{getUser:async()=>{throw Error('offline');}}},allowTestDevices:true});await failing.ready;
+ assert.equal((await failing.handle('clerk_a','lookup',{v:1,username:profile.username})).peer,null);
+ const pub=accounts.get('clerk_b').publicMetadata.tabletalk.committed;
+ for(const change of [{keyVersion:2},{deviceId:'bad'},{dhPublic:'bad'},{signPublic:pub.dhPublic}]){
+  accounts.get('clerk_b').publicMetadata.tabletalk.committed={...pub,...change};
+  assert.equal((await dm.handle('clerk_a','lookup',{v:1,username:profile.username})).peer,null);
+ }
+ accounts.get('clerk_b').publicMetadata.tabletalk={wrong:pub};
+ assert.equal((await dm.handle('clerk_a','lookup',{v:1,username:profile.username})).peer,null);
+ accounts.get('clerk_b').publicMetadata.tabletalk={committed:pub};
+ for(const change of [{status:'revoked'},{slot:'wrong'},{version:2},{committedHash:'changed'}]){
+  mutate=()=>db.collection('chat_identity_versions').updateOne({_id:'clerk_b' as never},{$set:change});
+  assert.equal((await dm.handle('clerk_a','lookup',{v:1,username:profile.username})).peer,null);
+  await db.collection('chat_identity_versions').updateOne({_id:'clerk_b' as never},{$set:{status:'active',slot:'committed',version:1,committedHash:'original'}});
+ }
+ assert.equal((await dm.handle('clerk_a','send',wire)).duplicate,true);
 });
