@@ -157,3 +157,8 @@
 @keyframes ddpuff{0%{opacity:0;transform:translateY(0) scale(.4)}20%{opacity:.85}100%{opacity:0;transform:translateY(90px) scale(2.4)}}
 @media(max-width:600px){.fx-plane .pl-fly{width:92px;height:40px}.fx-plane .contrail{width:150px}.fx-rocket .rk-fly{width:30px}}
 @media(prefers-reduced-motion:reduce){.fx-plane .pl-fly,.fx-rocket .rk-fly,.fx-plane .contrail,.fx-rocket .puff,.fx-rocket .flame{animation:none!important}}
+.dd-stage .dd-role{background:#08201a;color:#f1f8f4}.dd-stage .dd-landlord .dd-role{background:linear-gradient(#ffe08a,#d9a63a);color:#3d2700}
+.dd-stage .dd-formula,.dd-stage .dd-nominal,.dd-stage .dd-score small,.dd-settle .dd-nominal,.dd-settle small{color:#f1f8f4}
+.dd-stage .dd-seat .dd-reserve span,.dd-stage .dd-seat small,.dd-stage .dd-seat.dd-self .dd-reserve span{color:#e4f0e8}
+.dd-settle li small{color:#f1f8f4}
+@media(max-width:600px){.fx-rocket .rk-fly{left:auto;right:4px;margin-left:0;width:26px}.fx-rocket .rk-fly{z-index:0}}
