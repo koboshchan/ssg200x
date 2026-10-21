@@ -394,7 +394,7 @@ test("createIdentity rejects when a server or local identity exists; dock has no
  const c=new ChatClient("a",async()=>({identity:null}),store,Date.now,openMessage,store.budget);
  try{await c.createIdentity();assert.equal(c.getSnapshot().error,"identity_exists");assert.notEqual(c.getSnapshot().phase,"words");}finally{c.close();}
  const src=readFileSync(new URL("../app/chat-dock.tsx",import.meta.url),"utf8");
- assert.doesNotMatch(src,/reset|regenerat|lost my recovery/i);
+ assert.doesNotMatch(src,/resetIdentity|Reset my chat keys|lost my recovery/i);
 });
 
 // Local removal must not become a second send route, even with stale UI/reconnect snapshots.
@@ -500,4 +500,36 @@ test("removal during pending-row decryption cannot restore or retry the captured
   assert.equal(await client.retry(m),false);
   assert.equal(events.filter(e=>e==="send").length,before);
  }finally{client.close();}
+});
+
+test('admin reset clears cached identity and old outbox, requires fresh words and correct version',async()=>{
+ const {a,store}=await seeded();let reset=false,puts=0;
+ const originalClear=store.clearIdentity;store.clearIdentity=async u=>{await originalClear(u);store.pending.clear();store.setups.delete(u);};
+ const transport=async(e:string,p:any)=>{
+  if(e==='keys:get')return reset?{identity:null,expectedVersion:2,resetRequired:true}:{identity:server(a)};
+  if(e==='register')return {};
+  if(e==='state')return {...view(a.identity,crypto.randomUUID()),status:'active'};
+  if(e==='keys:put'){puts++;throw Error('unexpected old publication');}
+  return {messages:[],nextCursor:null};
+ };
+ const c=new ChatClient('a',transport,store,Date.now,openMessage,store.budget);
+ try{
+  await c.start();await store.putPending('a',{id:'old-envelope'} as any);reset=true;await c.start();
+  assert.equal(c.getSnapshot().phase,'setup');assert.equal(c.getSnapshot().error,'admin_reset');
+  assert.equal(await store.getIdentity('a'),undefined);assert.equal((await store.getPending('a')).length,0);assert.deepEqual(c.getSnapshot().messages,[]);
+  await c.createIdentity();assert.equal(c.getSnapshot().phase,'words');
+  const next=(await store.getSetup('a'))!;assert.equal(next.body.expectedVersion,2);assert.equal(next.body.keyVersion,3);assert.notEqual(next.identity.deviceId,a.identity.deviceId);assert.equal(puts,0);
+ }finally{c.close();}
+});
+
+test('admin reset while words are displayed discards stale setup rather than publishing it',async()=>{
+ const store=new MemoryStore();let version=0,puts=0;
+ const c=new ChatClient('a',async e=>{if(e==='keys:get')return {identity:null,expectedVersion:version,resetRequired:version>0};if(e==='keys:put')puts++;return {};},store,Date.now,openMessage,store.budget);
+ try{
+  await c.start();await c.createIdentity();const first=(await store.getSetup('a'))!;
+  assert.equal(c.getSnapshot().phase,'words');version=2;await c.start();
+  assert.equal(c.getSnapshot().phase,'setup');assert.equal(c.getSnapshot().words,null);assert.equal(await store.getSetup('a'),undefined);assert.equal(puts,0);
+  await c.createIdentity();await c.start();assert.equal(c.getSnapshot().phase,'words','a staged setup for the current reset generation must survive sync');
+  assert.notEqual((await store.getSetup('a'))!.identity.deviceId,first.identity.deviceId);
+ }finally{c.close();}
 });

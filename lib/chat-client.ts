@@ -32,6 +32,7 @@ export class ChatClient{
  private snap:Snapshot={phase:"loading",error:null,words:null,messages:[],members:[],hasMore:false,busy:false,historyIncomplete:false};
  private listeners=new Set<()=>void>();
  private identity:Identity|undefined;private serverIdentity:ServerIdentity|undefined;
+ private expectedVersion=0;
  private registered=false;private chain:Promise<unknown>=Promise.resolve();private timer:ReturnType<typeof setTimeout>|undefined;private hintTimer:ReturnType<typeof setTimeout>|undefined;
  private keys=new Map<string,CryptoKey>();private attempted=new Set<string>();private cursors=new Map<string,number|null>();
  private raw=new Map<string,WireMessage>();private local=new Map<string,ChatMessage>();private shown=new Map<string,ChatMessage>();
@@ -81,22 +82,37 @@ export class ChatClient{
   this.keys.clear();this.attempted.clear();this.cursors.clear();this.raw.clear();this.local.clear();this.sealed.clear();this.ambiguous.clear();this.opened.clear();this.inflight.clear();this.windowStart=0;this.extra=0;
   this.lastView=undefined;this.set({messages:[],hasMore:false,historyIncomplete:false});
  }
- private async sync(){
-  if(this.closed||this.snap.phase==="words")return;
+ private async sync():Promise<void>{
+  if(this.closed)return;
   const b=this.budget.status(this.user);
   if(b.stopped){this.set({phase:"waiting",error:"sync_incomplete"});return;}
   if(b.until>this.now()){this.later(b.until-this.now());return;}
   try{
-   const setup=await this.store.getSetup(this.user);
+   // Check the server generation BEFORE publishing any staged setup or showing
+   // cached words. An admin reset must never replay a pre-reset reservation.
+   const result=await this.request("keys:get",{v:1}) as {identity:ServerIdentity|null;expectedVersion?:number;resetRequired?:boolean};
+   const server=result.identity;
+   this.expectedVersion=result.expectedVersion??0;
+   let setup=await this.store.getSetup(this.user);
+   const cached=await this.store.getIdentity(this.user);
+   const obsolete=setup&&(server?setup.identity.deviceId!==server.deviceId:setup.body.expectedVersion!==this.expectedVersion);
+   const reset=result.resetRequired&&((cached&&cached.keyVersion<=this.expectedVersion)||obsolete);
+   if(obsolete||reset){
+    await this.store.clearIdentity(this.user);await this.store.clearSetup(this.user);
+    this.registered=false;this.identity=undefined;this.serverIdentity=undefined;
+    this.clearSession();setup=undefined;
+   }
    if(setup){
+    if(this.snap.phase==="words")return;
     if(!setup.confirmed){this.set({phase:"recover",error:"setup_words_lost"});return;}
     await this.publish(setup);
+    // Re-read the committed generation, rather than continuing with null identity.
+    return this.sync();
    }
-   const {identity:server}=await this.request("keys:get",{v:1}) as {identity:ServerIdentity|null};
    let local=await this.store.getIdentity(this.user);
    if(!server){
     if(local){await this.store.clearIdentity(this.user);this.registered=false;}
-    this.clearSession();this.identity=undefined;this.serverIdentity=undefined;this.set({phase:"setup",error:null});return;
+    this.clearSession();this.identity=undefined;this.serverIdentity=undefined;this.set({phase:"setup",words:null,error:result.resetRequired?"admin_reset":null});return;
    }
    if(!local||local.deviceId!==server.deviceId||local.keyVersion!==server.keyVersion||local.signPublic!==server.signPublic||local.dhPublic!==server.dhPublic){
     if(local){await this.store.clearIdentity(this.user);this.registered=false;}
@@ -447,7 +463,7 @@ export class ChatClient{
     const existing=await this.store.getSetup(this.user);
     if(existing)throw new Error("setup_words_lost");
     if(this.identity||this.serverIdentity||await this.store.getIdentity(this.user))throw new Error("identity_exists");
-    const made=await createIdentity(this.user,0);
+    const made=await createIdentity(this.user,this.expectedVersion);
     await this.store.putSetup(this.user,{identity:made.identity,body:made.body,confirmed:false});
     this.set({phase:"words",words:made.words});
    }catch(e){this.set({error:codeOf(e)});}finally{this.set({busy:false});}

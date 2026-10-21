@@ -30,7 +30,7 @@ const app=next({dev,hostname,port,conf:config,webpack:true});
 await app.prepare();
 const nextHandler=app.getRequestHandler();
 const server=createServer(async(request,response)=>{
- if(!["/internal-airdrop","/internal-tab-check"].includes(request.url)){nextHandler(request,response);return;}
+ if(!["/internal-airdrop","/internal-tab-check","/internal-chat-reset"].includes(request.url)){nextHandler(request,response);return;}
  response.setHeader("Cache-Control","no-store");
  const supplied=request.headers["x-internal-live-secret"],secret=process.env.INTERNAL_LIVE_SECRET;
  const a=Buffer.from(typeof supplied==="string"?supplied:""),b=Buffer.from(secret);
@@ -38,6 +38,12 @@ const server=createServer(async(request,response)=>{
  let body="";
  try{
   for await(const chunk of request){body+=chunk;if(Buffer.byteLength(body)>1024){response.writeHead(413).end();return;}}
+  if(request.url==="/internal-chat-reset"){
+   const {actor,payload}=JSON.parse(body);
+   try{const result=await chat.adminReset(actor,payload);hintChatChanged();response.writeHead(200,{"Content-Type":"application/json"}).end(JSON.stringify(result));}
+   catch(e){response.writeHead(e.chatCode==='forbidden'?403:e.chatCode==='rate_limited'?429:409,{"Content-Type":"application/json"}).end(JSON.stringify({error:e.chatCode||'unavailable'}));}
+   return;
+  }
   if(request.url==="/internal-tab-check"){
    const {userId,tabId,tabProof,game}=JSON.parse(body);
    const error=typeof userId!=="string"?"Invalid user":tabLeases.check(userId,tabId,tabProof,game);

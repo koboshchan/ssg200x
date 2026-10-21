@@ -28,14 +28,14 @@ export function createIdentityStore(db,clerk){
   if(!matches(account,a)){
    // Never repair a partial/different backup by overwriting either side. Legacy
    // pending rotations are also read-only, even if their new slot is empty.
-   if(occupied(account)||await hasStoredKeys(user)||a.version!==0||a.pendingVersion!==1||!a.pendingPublic||!a.pendingBackup)fail('identity_exists');
+   if(occupied(account)||!a.resetAt&&await hasStoredKeys(user)||(!a.resetAt&&(a.version!==0||a.pendingVersion!==1))||!a.pendingPublic||!a.pendingBackup)fail('identity_exists');
    const lock=await active.updateOne({_id:user,status:'pending',slot:a.slot,pendingHash:a.pendingHash},{$set:{status:'publishing'}});
    // Do not steal an empty publishing reservation after a crash: Clerk has no
    // fencing token, so an old in-flight write could still complete. Fail closed.
    if(!lock.matchedCount)fail('identity_unavailable');
    try{
     account=await clerk.users.getUser(user);
-    if(occupied(account)||await hasStoredKeys(user))fail('identity_exists');
+    if(occupied(account)||!a.resetAt&&await hasStoredKeys(user))fail('identity_exists');
     await clerk.users.updateUserMetadata(user,{publicMetadata:{tabletalk:{[a.slot]:a.pendingPublic}},privateMetadata:{tabletalk:{[a.slot]:a.pendingBackup}}});
    }catch(e){
     // A failed or ambiguous request may retry the same reservation, never a new
@@ -47,10 +47,13 @@ export function createIdentityStore(db,clerk){
    account=await clerk.users.getUser(user);
    if(!matches(account,a))fail('identity_unavailable');
   }
-  await active.updateOne({_id:user,status:{$in:['pending','publishing']},slot:a.slot,pendingHash:a.pendingHash},{$set:{version:a.pendingVersion,status:'active',committedHash:a.pendingHash},$unset:{pendingVersion:'',pendingHash:'',pendingPublic:'',pendingBackup:''}});
+  const committed=await active.updateOne({_id:user,status:{$in:['pending','publishing']},slot:a.slot,pendingHash:a.pendingHash},{$set:{version:a.pendingVersion,status:'active',committedHash:a.pendingHash},$unset:{pendingVersion:'',pendingHash:'',pendingPublic:'',pendingBackup:''}});
+  if(!committed.matchedCount)fail('identity_conflict');
  }
  async function get(user){
   let a=await active.findOne({_id:user});
+  if(a?.status==='resetting')fail('identity_unavailable');
+  if(a?.status==='setup_required')return {identity:null,expectedVersion:a.version,resetRequired:true};
   if(!a||a.status==='active'&&a.version===0){
    if(occupied(await clerk.users.getUser(user))||await hasStoredKeys(user))fail('identity_exists');
    return {identity:null};
@@ -73,13 +76,48 @@ export function createIdentityStore(db,clerk){
    if(before.pendingHash!==requestHash)fail('identity_exists');
    return get(user);
   }
-  if(before?.version>0||p.expectedVersion!==0||p.keyVersion!==1)fail('identity_exists');
-  if(occupied(await clerk.users.getUser(user))||await hasStoredKeys(user))fail('identity_exists');
+  const reset=before?.status==='setup_required';
+  if(reset?p.expectedVersion!==before.version:before?.version>0||p.expectedVersion!==0||p.keyVersion!==1)fail('identity_exists');
+  if(occupied(await clerk.users.getUser(user))||!reset&&await hasStoredKeys(user))fail('identity_exists');
+  if(reset&&await db.collection('chat_public_keys').findOne({userId:user,$or:[{deviceId:p.deviceId},{dhPublic:p.dhPublic},{signPublic:p.signPublic}]}))fail('identity_conflict');
   await active.updateOne({_id:user},{$setOnInsert:{version:0,status:'active'}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
-  const slot='k1_'+randomUUID().replaceAll('-','');
-  const lock=await active.updateOne({_id:user,version:0,status:'active'},{$set:{status:'pending',slot,pendingVersion:1,pendingHash:requestHash,pendingPublic:{v:1,keyVersion:1,deviceId:p.deviceId,dhPublic:p.dhPublic,signPublic:p.signPublic},pendingBackup:backup}});
+  const slot='k'+p.keyVersion+'_' +randomUUID().replaceAll('-','');
+  const lock=await active.updateOne({_id:user,version:p.expectedVersion,status:reset?'setup_required':'active'},{$set:{status:'pending',slot,pendingVersion:p.keyVersion,pendingHash:requestHash,pendingPublic:{v:1,keyVersion:p.keyVersion,deviceId:p.deviceId,dhPublic:p.dhPublic,signPublic:p.signPublic},pendingBackup:backup}});
   if(!lock.matchedCount)fail('identity_exists');
   return get(user);
  }
- return {get,put,signed};
+ // Called only inside the chat service's serialized, freshly admin-authorized operation.
+ // The pointer is fenced BEFORE Clerk I/O. Retry resumes a durable cleanup, never
+ // resurrecting a pending publisher or reusing an old version/device ID.
+ async function reset(user,requestId,actor){
+  let a=await active.findOne({_id:user});
+  if(a?.resetRequest!==requestId){
+   if(a?.status==='resetting')fail('reset_in_progress');
+   const version=Math.max(a?.version||0,a?.pendingVersion||0)+1;
+   const record={version,status:'resetting',resetAt:Date.now(),resetRequest:requestId,resetActor:actor};
+   if(a){
+    const lock=await active.updateOne({_id:user,version:a.version,status:a.status},{$set:record,$unset:{slot:'',pendingVersion:'',pendingHash:'',pendingPublic:'',pendingBackup:'',committedHash:''}});
+    if(!lock.matchedCount)fail('identity_conflict');
+   }else{try{await active.insertOne({_id:user,...record});}catch{fail('identity_conflict');}}
+   a=await active.findOne({_id:user});
+  }
+  if(a.status!=='resetting')return {reset:true};
+  // Keep archived public verification material for old signed history, but remove
+  // all active directory trust and old grants. No room-key rotation on reset.
+  await db.collection('chat_devices').deleteMany({userId:user});
+  await db.collection('chat_wraps').deleteMany({toUserId:user});
+  const account=await clerk.users.getUser(user);
+  for(const pub of Object.values(account.publicMetadata?.tabletalk||{})){
+   if(pub?.deviceId&&pub.dhPublic&&pub.signPublic)await db.collection('chat_public_keys').updateOne({_id:digest(JSON.stringify([user,pub.deviceId]))},{$setOnInsert:{userId:user,deviceId:pub.deviceId,dhPublic:pub.dhPublic,signPublic:pub.signPublic}},{upsert:true});
+  }
+  const deleted={};
+  for(const field of ['publicMetadata','privateMetadata']){
+   const slots=account[field]?.tabletalk;
+   deleted[field]={tabletalk:slots&&typeof slots==='object'?Object.fromEntries(Object.keys(slots).map(k=>[k,null])):null};
+  }
+  await clerk.users.updateUserMetadata(user,deleted);
+  await active.updateOne({_id:user,status:'resetting',resetRequest:requestId},{$set:{status:'setup_required'}});
+  return {reset:true};
+ }
+ return {get,put,reset,signed};
 }

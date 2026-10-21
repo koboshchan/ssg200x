@@ -38,7 +38,7 @@ test("renders compact player rows with escaped names, details, search and sort, 
  assert.ok(html.includes("&lt;script&gt;bad&lt;/script&gt;"));assert.ok(!html.includes("<script>bad"));
  assert.ok(html.includes('type="search"'));assert.ok(html.includes("Net worth"));assert.ok(html.includes("Holdings &amp; position details"));
  assert.ok(html.includes("No spot holdings."));assert.ok(html.includes("No open positions."));
- assert.ok(!html.includes('aria-haspopup="dialog"'));assert.ok(html.includes("Reports not loaded")===false);assert.ok(html.includes("Updating reports"));
+ assert.ok(html.includes('aria-haspopup="dialog"'));assert.ok(html.includes('Reset chat words'));assert.ok(!html.includes('Possible alts'));assert.ok(html.includes("Reports not loaded")===false);assert.ok(html.includes("Updating reports"));
 });
 test("report requests are existing authenticated admin reads; refresh includes balances and cleanup aborts",()=>{
  const source=readFileSync(new URL("../app/players-list.tsx",import.meta.url),"utf8");

@@ -133,5 +133,32 @@ export function createChatService(db,{now=Date.now,clerk}={}){
   }
   fail('unknown_event');
  }
- return {handle:(user,event,p)=>serial(()=>perform(user,event,p)),authorized:user=>serial(async()=>{await ready;await snapshot(user);return true;}),ready};
+ async function adminReset(actor,p){
+  await ready;shape(p,['v','publicId','requestId','requestAt','confirm']);uuid(p.requestId);
+  if(!clerk||(await clerk.users.getUser(actor)).privateMetadata?.admin!==true)fail('forbidden');
+  if(p.confirm!==true||typeof p.publicId!=='string'||!/^[a-f0-9]{16}$/.test(p.publicId)||!Number.isSafeInteger(p.requestAt)||now()-p.requestAt>120000||p.requestAt-now()>10000)fail('invalid_request');
+  const room=await rooms.findOne({_id:'main'}),target=room?.members?.find(m=>m.publicId===p.publicId);
+  if(!target)fail('not_found');
+  const requests=db.collection('chat_reset_requests');
+  let receipt=await requests.findOne({_id:p.requestId});
+  if(receipt&&(receipt.actor!==actor||receipt.target!==target.id))fail('conflict');
+  if(receipt?.status==='complete')return {reset:true};
+  if(!receipt){
+   const minute=Math.floor(now()/60000);
+   for(const [key,max]of [['admin:'+actor,5],['target:'+target.id,1]]){
+    const id='reset:'+key+':'+minute;
+    await rates.updateOne({_id:id},{$setOnInsert:{count:0,expiresAt:new Date(now()+180000)}},{upsert:true});
+    if(!(await rates.updateOne({_id:id,count:{$lt:max}},{$inc:{count:1}})).matchedCount)fail('rate_limited');
+   }
+   receipt={_id:p.requestId,actor,target:target.id,status:'pending',at:now()};
+   await requests.insertOne(receipt);
+  }
+  // A durable intent is recorded before revocation; no words, keys or backup are
+  // ever copied into an admin response/audit. Retrying completes the same intent.
+  await db.collection('audit').updateOne({_id:p.requestId},{$setOnInsert:{who:actor,what:'chat-words-reset',target:target.id,old:'revoked',new:'setup-required',at:receipt.at}},{upsert:true});
+  await identity.reset(target.id,p.requestId,actor);
+  await requests.updateOne({_id:p.requestId},{$set:{status:'complete',completedAt:now()}});
+  return {reset:true};
+ }
+ return {adminReset:(actor,p)=>serial(()=>adminReset(actor,p)),handle:(user,event,p)=>serial(()=>perform(user,event,p)),authorized:user=>serial(async()=>{await ready;await snapshot(user);return true;}),ready};
 }
