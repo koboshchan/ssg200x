@@ -10,6 +10,5 @@ export function BlackjackBetChips({amount,chips}:{amount:number;chips?:number[]}
    <div className={styles.pile} aria-hidden="true">{Array.from({length:s.count},(_,j)=><span key={j} className={styles.chip} style={{bottom:j*3}}>{j===s.count-1?"$"+s.value:null}</span>)}</div>
    <span className={styles.count}>{s.count} × ${s.value}</span>
   </div>)}</div>
-  <small className={styles.total}>${(amount/100).toLocaleString("en-US")} total</small>
  </div>;
 }

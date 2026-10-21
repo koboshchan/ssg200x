@@ -142,3 +142,5 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
 .seat>button:hover:not(:disabled){background:var(--surface-2)}
 .seat>button:disabled{opacity:1;color:var(--muted)}
 .bj-chips{display:grid;gap:4px;min-width:0;max-width:100%}.bj-chip-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center}.bj-placed{color:var(--muted);font-size:12px;overflow-wrap:anywhere;max-width:100%}.bj-chips>div:first-child{flex-wrap:wrap;padding-bottom:10px}
+
+.bj-seat-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}.bj-seat-heading strong{min-width:0;overflow-wrap:anywhere;font-size:13px}.bj-seat-total{flex-shrink:0;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);padding:4px 6px;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}

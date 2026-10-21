@@ -28,14 +28,15 @@ test("real blackjack seats render homogeneous physical stacks on desktop/mobile,
  await page.goto("https://bj.test");await page.addStyleTag({content:fs.readFileSync("app/globals.css","utf8")});await page.addStyleTag({content:css});await page.addScriptTag({content:js});
  await page.locator("[data-count]").first().waitFor();
  assert.deepEqual(await page.locator(".bj-seat.you [data-count]").evaluateAll((els:HTMLElement[])=>els.map(e=>[e.dataset.denomination,e.dataset.count])),[["1","13"],["5","7"]]);
+ assert.equal(await page.locator(".bj-seat.you .bj-seat-total").textContent(),"$48");
  assert.equal(await page.locator(".bj-seat").nth(1).locator('[data-denomination="20"][data-count="3"]').count(),1);
  for(const el of await page.locator("[data-count]").all()){
  const n=Number(await el.getAttribute("data-count"));assert.ok(n<=20);assert.equal(await el.locator('[aria-hidden="true"] > span').count(),n);
  }
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  await page.screenshot({path:"/home/kit/out/bj-chip-stacks/"+viewport.width+"-"+theme+"-betting.png",fullPage:true});
- await page.evaluate(()=>(window as any).play());await page.locator(".bj-hand [data-count]").first().waitFor();
- assert.equal(await page.locator(".bj-hand [data-count]").count(),3);
+ await page.evaluate(()=>(window as any).play());await page.locator(".bj-hand").first().waitFor();
+ assert.equal(await page.locator(".bj-seat [data-count]").count(),3);
  await page.screenshot({path:"/home/kit/out/bj-chip-stacks/"+viewport.width+"-"+theme+"-playing.png",fullPage:true});
  assert.deepEqual(errors,[]);await page.close();
  }} }finally{await browser.close();}

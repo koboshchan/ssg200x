@@ -1,13 +1,15 @@
-.bet{min-width:0;margin:8px 0 4px}
-.stacks{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;max-width:100%}
+.bet{min-width:0;margin:12px 0 8px;flex:1;display:flex;align-items:center;justify-content:center}.bet>.stacks{width:100%}
+.stacks{display:flex;align-items:flex-end;justify-content:space-around;gap:10px;flex-wrap:wrap;max-width:100%}
 .stack{display:flex;flex-direction:column;align-items:center;gap:4px;flex:0 0 44px}
-.pile{position:relative;width:38px;height:calc(22px + (var(--count) - 1)*3px)}
-.chip{position:absolute;left:0;width:38px;height:22px;box-sizing:border-box;border-radius:50%;border:2px dashed #fff9;background:var(--chip-color);box-shadow:0 2px 0 color-mix(in srgb,var(--chip-color) 55%,#000),0 3px 3px #0005;color:white;text-shadow:0 1px 2px #000;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center}
+.pile{position:relative;width:38px;height:calc(36px + (var(--count) - 1)*3px)}
+.chip{position:absolute;left:0;width:38px;height:36px;box-sizing:border-box;border-radius:50%;border:2px dashed #fff9;background:var(--chip-color);box-shadow:0 2px 0 color-mix(in srgb,var(--chip-color) 55%,#000),0 3px 3px #0005;color:white;text-shadow:0 1px 2px #000;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center}
 .count{font-size:10px;color:var(--ink);white-space:nowrap;font-variant-numeric:tabular-nums}
 .bet .total{color:var(--muted);font-size:11px;margin:5px 0 0}
 @media(max-width:560px){
  .stacks{gap:6px}
  .stack{flex-basis:34px}
  .pile,.chip{width:32px}
+ .chip{height:30px}
+ .pile{height:calc(30px + (var(--count) - 1)*3px)}
  .count{font-size:9px}
 }
