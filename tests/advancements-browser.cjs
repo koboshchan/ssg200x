@@ -6,6 +6,7 @@ const assert=require("node:assert/strict");
  const errors=[];page.on("pageerror",e=>errors.push(e.message));
  const response=await page.goto(process.env.ADVANCEMENTS_DEMO_URL || "http://127.0.0.1:42683");
  assert.equal(response.status(),200);await page.getByRole("heading",{name:"A streak to remember."}).waitFor();
+ await page.getByRole("button",{name:"Dismiss daily check-in"}).click();
  assert.equal(await page.locator("main.adv-main").first().locator("article[data-unlocked=false]").count(),8);
  await page.screenshot({path:"/tmp/advancements-locked.png",fullPage:true});
  await page.getByRole("button",{name:"Lose a round",exact:true}).click();
