@@ -11,7 +11,7 @@ const {build}=require("esbuild");
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||"/opt/hako/lib/node_modules/playwright");
 const user=(i:number):Identity=>({id:"browser"+i,name:"Player "+i,email:i+"@test",admin:false});
 test("mounted poker Ready, Unready, ready cashout, active lock and fresh next-hand consent",async()=>{
- const bundle=await build({entryPoints:["tests/fixtures/poker-black78-ui.tsx"],bundle:true,write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"empty"},plugins:[{name:"poker-ui-boundaries",setup(b:any){
+ const bundle=await build({entryPoints:["tests/fixtures/poker-black78-ui.tsx"],bundle:true,write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"empty",".css":"empty"},plugins:[{name:"poker-ui-boundaries",setup(b:any){
   b.onResolve({filter:/^(next\/(dynamic|link|navigation)|@clerk\/nextjs|\.\/(live-provider|chat-dock|maintenance-gate))$/},(args:any)=>({path:args.path,namespace:"fixture"}));
   b.onLoad({filter:/.*/,namespace:"fixture"},(args:any)=>{
    if(args.path==="next/navigation")return {contents:"export const useRouter=()=>({replace(){}});export const usePathname=()=>'/poker';"};
