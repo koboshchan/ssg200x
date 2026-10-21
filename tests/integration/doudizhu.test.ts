@@ -30,8 +30,8 @@ test("fresh Mongo CAS makes duplicate debit and concurrent last seat safe; persi
  const view=await doudizhuRead(active[0]);const card=view.room!.players[0].hand![0],version=view.room!.version;
  const moves=await Promise.allSettled([doudizhuMove(active[0],request({type:"play",cards:[card],version})),doudizhuMove(active[0],request({type:"play",cards:[card],version}))]);
  assert.equal(moves.filter(x=>x.status==="fulfilled").length,1);
- for(const u of active)await doudizhuMove(u,request({type:"leave"}));
- for(let i=0;i<300;i++){const {room}=await mutate(r=>tickDoudizhu(r,Date.now()+100000));assertRoom(room);if(room.doudizhu![0].settled)break;}
+ for(const u of active)await assert.rejects(()=>doudizhuMove(u,request({type:"leave"})),/between hands/);
+ for(let i=0;i<300;i++){const {room}=await mutate(r=>tickDoudizhu(r,Date.now()+100000+i*60000));assertRoom(room);if(room.doudizhu![0].settled)break;}
  r=await readRoom();assert(r.doudizhu![0].settled);assert(r.doudizhu![0].result!.beanDeltas);assert.equal(r.doudizhu![0].result!.beanDeltas!.reduce((n,v)=>n+v,0),0);assertRoom(r);const balances=r.members.map(m=>m.wallet),assets=totalChips(r);
  await Promise.all([mutate(r=>tickDoudizhu(r,Date.now()+999999)),mutate(r=>tickDoudizhu(r,Date.now()+999999))]);
  await closeDatabase();r=await readRoom();assert.deepEqual(r.members.map(m=>m.wallet),balances);assert.equal(totalChips(r),assets);

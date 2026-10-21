@@ -64,15 +64,17 @@ function action(r:Room,g:DoudizhuRoom,seat:number,type:"bid"|"play"|"pass",input
  }
  g.deadline=now+DOUDIZHU_TURN_MS;
 }
-export function doudizhuNeedsTick(r:Room,now:number){return (r.doudizhu??[]).some(g=>(g.phase==="bidding"||g.phase==="playing")&&g.deadline!==null&&(now>=g.deadline||g.players[g.turn].auto));}
+export function doudizhuNeedsTick(r:Room,now:number){return (r.doudizhu??[]).some(g=>(g.phase==="bidding"||g.phase==="playing")&&g.deadline!==null&&now>=g.deadline);}
 export function tickDoudizhu(r:Room,now:number){let changed=false;for(const g of r.doudizhu??[]){
- if((g.phase==="bidding"||g.phase==="playing")&&g.deadline!==null&&(now>=g.deadline||g.players[g.turn].auto)){
+ if((g.phase==="bidding"||g.phase==="playing")&&g.deadline!==null&&now>=g.deadline){
  const p=g.players[g.turn];if(g.phase==="bidding")action(r,g,g.turn,"bid",{bid:0},now);
  else if(g.trick)action(r,g,g.turn,"pass",{},now);
  else action(r,g,g.turn,"play",{cards:[[...p.hand].sort((a,b)=>rank(a)-rank(b)||a.localeCompare(b))[0]]},now);
  g.version++;changed=true;
  }}return changed;}
 export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.now()){
+ ensure(input&&["create","join","ready","bid","play","pass","leave","visibility"].includes(input.type),"Unsupported game action.");
+ ensure(!("auto" in input)&&!("bot" in input)&&!("simulate" in input),"Autoplay is not supported.");
  ensure(input&&typeof input.requestId==="string"&&/^[a-zA-Z0-9_-]{8,128}$/.test(input.requestId),"Invalid request ID.");
  ensure(Number.isSafeInteger(input.requestAt)&&now-input.requestAt>=-10_000&&now-input.requestAt<=120_000,"Request expired.",409);
  const receipt=(r.doudizhuReceipts??[]).find(x=>x.id===input.requestId);
@@ -100,8 +102,8 @@ export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.n
     ensure(typeof input.isPublic==="boolean","Visibility must be boolean.");
     g.ownerId=who.id;g.isPublic=input.isPublic;
    }else if(input.type==="leave"){
-    if(g.phase==="bidding"||g.phase==="playing")g.players[seat].auto=true;
-    else{const departingOwner=ownerOf(g)===who.id;m.wallet+=g.players[seat].escrow;g.players.splice(seat,1);if(departingOwner&&g.players.length)g.ownerId=g.players[0].userId;if(!g.players.length)r.doudizhu=games.filter(x=>x!==g);}
+    ensure(g.phase==="waiting"||g.phase==="finished","You can leave only between hands.",409);
+    {const departingOwner=ownerOf(g)===who.id;m.wallet+=g.players[seat].escrow;g.players.splice(seat,1);if(departingOwner&&g.players.length)g.ownerId=g.players[0].userId;if(!g.players.length)r.doudizhu=games.filter(x=>x!==g);}
    }else{
     ensure(Number.isSafeInteger(input.version)&&input.version===g.version,"The turn changed. Refresh first.",409);
     if(input.type==="ready"){
@@ -110,7 +112,6 @@ export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.n
      const p=g.players[seat];ensure(!p.ready,"Already ready.",409);if(!p.escrow)escrow(r,g,p);p.ready=true;
      if(g.players.length===3&&g.players.every(p=>p.ready))deal(g,now);
     }else{
-     ensure(!g.players[seat].auto,"Automatic play enabled.",409);
      ensure(g.deadline!==null&&now<g.deadline,"Turn expired.",409);
      ensure(["bid","play","pass"].includes(input.type),"Invalid move.");
      action(r,g,seat,input.type as "bid"|"play"|"pass",input,now);
@@ -128,6 +129,6 @@ export function publicDoudizhu(r:Room,who:Identity,code?:string){
  const g=own&&(!code||own.code===code.trim().toLowerCase().replace(/[\s-]+/g," "))?own:undefined;
  const preview=code?(r.doudizhu??[]).find(x=>x.code===code.trim().toLowerCase().replace(/[\s-]+/g," ")):undefined;
  const recruitingRooms=(r.doudizhu??[]).filter(x=>x.isPublic===true&&x.phase==="waiting"&&x.players.length>0&&x.players.length<3).map(x=>({code:x.code,count:x.players.length,scoringMode:x.scoringMode??"legacy-rate",beansPerDollar:x.beansPerDollar,baseBeans:x.baseBeans,rate:x.rate,maxLoss:x.maxLoss}));
- return {recruitingRooms,preview:preview?{code:preview.code,scoringMode:preview.scoringMode??"legacy-rate",beansPerDollar:preview.beansPerDollar,baseBeans:preview.baseBeans,rate:preview.rate,maxLoss:preview.maxLoss,count:preview.players.length,phase:preview.phase}:null,houseRules:DOUDIZHU_RULES,maxBeansPerDollar:doudizhuMaxBeansPerDollar(r),maxRate:doudizhuMaxRate(r),wallet:r.members.find(m=>m.id===who.id)?.wallet??0,room:g?{code:g.code,isPublic:g.isPublic===true,isOwner:ownerOf(g)===who.id,ownerSeat:g.players.findIndex(p=>p.userId===ownerOf(g)),scoringMode:g.scoringMode??"legacy-rate",beansPerDollar:g.beansPerDollar,baseBeans:g.baseBeans,base:g.base,rate:g.rate,maxLoss:g.maxLoss,version:g.version,phase:g.phase,handId:g.handId,players:g.players.map((p,seat)=>({seat,name:member(r,p.userId).name,self:p.userId===who.id,ready:p.ready,auto:p.auto,count:p.hand.length,...(p.userId===who.id?{hand:[...p.hand]}:{}),escrow:p.escrow})),kitty:g.landlord!==null?[...g.kitty]:[],turn:g.turn,deadline:g.deadline,landlord:g.landlord,bid:g.bid,multiplier:g.multiplier,trick:g.trick?structuredClone(g.trick):null,settled:g.settled,result:g.result?structuredClone(g.result):null}:null};
+ return {recruitingRooms,preview:preview?{code:preview.code,scoringMode:preview.scoringMode??"legacy-rate",beansPerDollar:preview.beansPerDollar,baseBeans:preview.baseBeans,rate:preview.rate,maxLoss:preview.maxLoss,count:preview.players.length,phase:preview.phase}:null,houseRules:DOUDIZHU_RULES,maxBeansPerDollar:doudizhuMaxBeansPerDollar(r),maxRate:doudizhuMaxRate(r),wallet:r.members.find(m=>m.id===who.id)?.wallet??0,room:g?{code:g.code,isPublic:g.isPublic===true,isOwner:ownerOf(g)===who.id,ownerSeat:g.players.findIndex(p=>p.userId===ownerOf(g)),scoringMode:g.scoringMode??"legacy-rate",beansPerDollar:g.beansPerDollar,baseBeans:g.baseBeans,base:g.base,rate:g.rate,maxLoss:g.maxLoss,version:g.version,phase:g.phase,handId:g.handId,players:g.players.map((p,seat)=>({seat,name:member(r,p.userId).name,self:p.userId===who.id,ready:p.ready,auto:false,count:p.hand.length,...(p.userId===who.id?{hand:[...p.hand]}:{}),escrow:p.escrow})),kitty:g.landlord!==null?[...g.kitty]:[],turn:g.turn,deadline:g.deadline,landlord:g.landlord,bid:g.bid,multiplier:g.multiplier,trick:g.trick?structuredClone(g.trick):null,settled:g.settled,result:g.result?structuredClone(g.result):null}:null};
 }
 export type PublicDoudizhu=ReturnType<typeof publicDoudizhu>;

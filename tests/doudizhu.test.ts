@@ -38,12 +38,12 @@ test("two passes reset trick; timeout leads lowest single, pass on response",()=
  assert(tickDoudizhu(r,121000));assert.equal(g.turn,2);
  assert(tickDoudizhu(r,181000));assert.equal(g.turn,0);assert.equal(g.trick,null);assertRoom(r);
 });
-test("active leave retains full reserve, bots complete and settlement exactly once at cap",()=>{
+test("active leave is rejected, deadline moves finish and settlement remains exactly once",()=>{
  const r=started(),g=r.doudizhu![0];move(r,0,{type:"bid",bid:3});
- for(let i=0;i<3;i++)move(r,i,{type:"leave"});
+ for(let i=0;i<3;i++)assert.throws(()=>move(r,i,{type:"leave"}),/between hands/);
  assert.equal(doudizhuAssets(r),38400);
  g.multiplier=1_000_000;
- for(let n=0;n<300&&g.phase!=="finished";n++){tickDoudizhu(r,2000+n);assertRoom(r);}
+ for(let n=0;n<300&&g.phase!=="finished";n++){tickDoudizhu(r,61000+n*60000);assertRoom(r);}
  assert.equal(g.phase,"finished");assert(g.settled);assert.equal(g.result!.unit,300000000);assert(g.result!.deltas.every(d=>d>=-12800));
  assert.equal(g.result!.deltas.reduce((a,b)=>a+b,0),0);assert.equal(doudizhuAssets(r),0);assert(r.members.every(m=>m.wallet>=0));
  const snapshot=structuredClone(r);for(let i=0;i<5;i++)tickDoudizhu(r,999999);assert.deepEqual(r,snapshot);
@@ -134,4 +134,14 @@ test("only owner can publish, version fence and idempotency hold, legacy owner t
  move(r,0,{type:"leave"});assert.equal(g.ownerId,users[1].id);assert(publicDoudizhu(r,users[1]).room!.isOwner);
  move(r,1,{type:"visibility",isPublic:false});assert.equal(publicDoudizhu(r,users[3]).recruitingRooms.length,0);
  assertRoom(r);
+});
+test("production rejects autoplay payloads and active leave without changing wallets or game",()=>{
+ const r=started(),g=r.doudizhu![0];move(r,0,{type:"bid",bid:3});
+ const before=structuredClone(r);
+ for(const type of ["auto","bot","simulate","autoplay"])assert.throws(()=>move(r,0,{type} as never),/Unsupported/);
+ for(const field of ["auto","bot","simulate"])assert.throws(()=>move(r,0,{type:"play",cards:[g.players[0].hand[0]],[field]:true} as never),/Autoplay/);
+ assert.throws(()=>move(r,0,{type:"leave"}),/between hands/);assert.deepEqual(r,before);
+ g.players[0].auto=true;assert.equal(tickDoudizhu(r,2000),false);
+ assert.equal(publicDoudizhu(r,users[0]).room!.players[0].auto,false);
+ move(r,0,{type:"play",cards:[g.players[0].hand[0]]});assertRoom(r);
 });
