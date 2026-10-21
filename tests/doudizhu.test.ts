@@ -6,9 +6,9 @@ import {applyDoudizhu,publicDoudizhu,tickDoudizhu,doudizhuAssets,type DoudizhuIn
 const users=Array.from({length:4},(_,i)=>({id:"person-"+i,name:"Player "+i,email:"secret"+i+"@test.invalid",admin:false}));
 function setup(){const r=freshRoom();users.forEach(u=>register(r,u,0));return r;}
 function move(r:ReturnType<typeof freshRoom>,i:number,parts:Partial<DoudizhuInput>,now=1000){const g=r.doudizhu?.find(g=>g.players.some(p=>p.userId===users[i].id));const input={type:"ready",requestId:randomUUID(),requestAt:now,version:g?.version,...parts} as DoudizhuInput;applyDoudizhu(r,users[i],input,now);assertRoom(r);return input;}
-function started(){const r=setup();move(r,0,{type:"create",base:100});const code=r.doudizhu![0].code;move(r,1,{type:"join",code});move(r,2,{type:"join",code});for(let i=0;i<3;i++)move(r,i,{type:"ready"});return r;}
+function started(){const r=setup();move(r,0,{type:"create",rate:1,maxLoss:12800});const code=r.doudizhu![0].code;move(r,1,{type:"join",code});move(r,2,{type:"join",code});for(let i=0;i<3;i++)move(r,i,{type:"ready"});return r;}
 test("crypto three BIP39 words, reserve conservation, private views, refund waiting leave",()=>{
- const r=setup();move(r,0,{type:"create",base:100});const g=r.doudizhu![0];
+ const r=setup();move(r,0,{type:"create",rate:1,maxLoss:12800});const g=r.doudizhu![0];
  assert.equal(g.code.split(" ").length,3);assert.equal(users.length*100000,totalChips(r));assert.equal(doudizhuAssets(r),12800);
  assert.equal(publicDoudizhu(r,users[3],g.code).room,null);
  const view=JSON.stringify(publicDoudizhu(r,users[0]));assert(!view.includes("secret"));assert(!view.includes("person-"));
@@ -44,12 +44,28 @@ test("active leave retains full reserve, bots complete and settlement exactly on
  assert.equal(doudizhuAssets(r),38400);
  g.multiplier=1_000_000;
  for(let n=0;n<300&&g.phase!=="finished";n++){tickDoudizhu(r,2000+n);assertRoom(r);}
- assert.equal(g.phase,"finished");assert(g.settled);assert.equal(g.result!.unit,6400);
+ assert.equal(g.phase,"finished");assert(g.settled);assert.equal(g.result!.unit,300000000);assert(g.result!.deltas.every(d=>d>=-12800));
  assert.equal(g.result!.deltas.reduce((a,b)=>a+b,0),0);assert.equal(doudizhuAssets(r),0);assert(r.members.every(m=>m.wallet>=0));
  const snapshot=structuredClone(r);for(let i=0;i<5;i++)tickDoudizhu(r,999999);assert.deepEqual(r,snapshot);
  assert.equal(r.auditPending!.filter(a=>a.what==="doudizhu.settlement").length,1);
 });
 test("invalid stakes fail before debiting and one room per person",()=>{
- for(const base of [-1,0,NaN,Infinity,0.5,100001,Number.MAX_SAFE_INTEGER]){const r=setup();assert.throws(()=>move(r,0,{type:"create",base}));assert.equal(r.members[0].wallet,100000);}
- const r=setup();move(r,0,{type:"create",base:100});assert.throws(()=>move(r,0,{type:"create",base:100}),/existing room/);
+ for(const base of [-1,0,NaN,Infinity,0.5,1001,Number.MAX_SAFE_INTEGER]){const r=setup();assert.throws(()=>move(r,0,{type:"create",rate:base}));assert.equal(r.members[0].wallet,100000);}
+ const r=setup();move(r,0,{type:"create",rate:1,maxLoss:12800});assert.throws(()=>move(r,0,{type:"create",rate:1,maxLoss:12800}),/existing room/);
+});
+test("rate defaults to dollars per point and current admin max fences new rooms",()=>{
+ const r=setup();r.doudizhuMaxRate=5;
+ assert.throws(()=>move(r,0,{type:"create",rate:6}),/maximum/);
+ move(r,0,{type:"create"});const g=r.doudizhu![0];assert.equal(g.rate,1);assert.equal(g.maxLoss,10000);assert.equal(r.members[0].wallet,90000);
+ const view=publicDoudizhu(r,users[0]);assert.equal(view.maxRate,5);assert.equal(view.room!.rate,1);assert.equal(view.room!.maxLoss,10000);
+});
+test("losing landlord cap splits odd cent deterministically; winning landlord collects each farmer cap",()=>{
+ for(const winner of [0,1]){
+  const r=started(),g=r.doudizhu![0];move(r,0,{type:"bid",bid:3});
+  // Make each locked reserve odd without changing conserved assets.
+  for(const p of g.players){p.escrow=101;r.members.find(m=>m.id===p.userId)!.wallet+=12699;}
+  g.maxLoss=101;g.multiplier=1000000;g.turn=winner;g.trick=null;g.players[winner].hand=["3s"];
+  move(r,winner,{type:"play",cards:["3s"]});
+  assert.deepEqual(g.result!.deltas,winner===0?[202,-101,-101]:[-101,51,50]);assertRoom(r);
+ }
 });

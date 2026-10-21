@@ -4,15 +4,16 @@ import {classify,beats,rank,shuffled,type Combo} from "./doudizhu-rules";
 import {ensure} from "./errors";
 import {audit} from "./audit";
 import type {Room,Identity} from "./types";
-export type DoudizhuInput={type:"create"|"join"|"ready"|"bid"|"play"|"pass"|"leave";code?:string;base?:number;cards?:string[];bid?:number;requestId:string;requestAt:number;version?:number};
+export type DoudizhuInput={type:"create"|"join"|"ready"|"bid"|"play"|"pass"|"leave";code?:string;rate?:number;maxLoss?:number;cards?:string[];bid?:number;requestId:string;requestAt:number;version?:number};
 export type DoudizhuPlayer={userId:string;ready:boolean;auto:boolean;hand:string[];escrow:number;plays:number};
-export type DoudizhuRoom={code:string;base:number;version:number;phase:"waiting"|"bidding"|"playing"|"finished";handId:string;players:DoudizhuPlayer[];kitty:string[];turn:number;deadline:number|null;landlord:number|null;bid:number;bidder:number|null;bids:number;multiplier:number;trick:{cards:string[];combo:Combo;seat:number}|null;passes:number;settled:boolean;result:null|{winner:number;spring:boolean;unit:number;deltas:number[];settlementId:string}};
+export type DoudizhuRoom={code:string;base:number;rate:number;maxLoss:number;version:number;phase:"waiting"|"bidding"|"playing"|"finished";handId:string;players:DoudizhuPlayer[];kitty:string[];turn:number;deadline:number|null;landlord:number|null;bid:number;bidder:number|null;bids:number;multiplier:number;trick:{cards:string[];combo:Combo;seat:number}|null;passes:number;settled:boolean;result:null|{winner:number;spring:boolean;unit:number;deltas:number[];settlementId:string}};
 export const DOUDIZHU_TURN_MS=60_000;
-export const DOUDIZHU_RULES={depositMultiplier:128,payoutCapMultiplier:64,turnMs:DOUDIZHU_TURN_MS,description:"House rules: each player reserves 128× the base. Each farmer's win or loss is capped at 64× base; landlord maximum loss is 128× base. Bombs, rocket and spring double the multiplier, subject to this cap."};
+export const DOUDIZHU_RULES={turnMs:DOUDIZHU_TURN_MS,description:"House rules: rate is dollars per point. Each player reserves the room maximum loss. Bids, bombs, rocket and spring multiply points. Loss cannot exceed reserved chips; a losing landlord pays at most their reserve, split equally between farmers with an odd cent to the lower seat."};
+export function doudizhuMaxRate(r:Room){return Number.isSafeInteger(r.doudizhuMaxRate)&&r.doudizhuMaxRate!>=1&&r.doudizhuMaxRate!<=1000000?r.doudizhuMaxRate!:1000;}
 export function doudizhuAssets(r:Room){return (r.doudizhu??[]).reduce((n,g)=>n+g.players.reduce((s,p)=>s+p.escrow,0),0);}
 const system:Identity={id:"doudizhu-system",name:"Game timer",email:"",admin:false};
 function member(r:Room,id:string){const m=r.members.find(m=>m.id===id);ensure(m,"Account not found.",404);return m;}
-function escrow(r:Room,g:DoudizhuRoom,p:DoudizhuPlayer){const m=member(r,p.userId),amount=g.base*128;ensure(Number.isSafeInteger(amount)&&m.wallet>=amount,"Insufficient wallet for maximum-loss reserve.");m.wallet-=amount;p.escrow=amount;}
+function escrow(r:Room,g:DoudizhuRoom,p:DoudizhuPlayer){const m=member(r,p.userId),amount=g.maxLoss;ensure(Number.isSafeInteger(amount)&&m.wallet>=amount,"Insufficient wallet for maximum-loss reserve.");m.wallet-=amount;p.escrow=amount;}
 function deal(g:DoudizhuRoom,now:number){const deck=shuffled();ensure(deck.length===54&&new Set(deck).size===54,"Invalid deck.",500);g.handId=randomUUID();g.players.forEach((p,i)=>{p.hand=deck.slice(i*17,i*17+17);p.plays=0;});g.kitty=deck.slice(51);g.phase="bidding";g.turn=0;g.deadline=now+DOUDIZHU_TURN_MS;g.bid=0;g.bidder=null;g.bids=0;g.multiplier=1;g.trick=null;g.passes=0;g.landlord=null;g.settled=false;g.result=null;}
 function settle(r:Room,g:DoudizhuRoom,winner:number,now:number){
  if(g.settled)return;
@@ -20,7 +21,10 @@ function settle(r:Room,g:DoudizhuRoom,winner:number,now:number){
  const landlord=g.landlord,landlordWon=winner===landlord;
  const spring=landlordWon?g.players.every((p,i)=>i===landlord||p.plays===0):g.players[landlord].plays<=1;
  if(spring)g.multiplier=Math.min(1_000_000,g.multiplier*2);
- const unit=g.base*Math.min(64,g.bid*g.multiplier),deltas=g.players.map((_,i)=>i===landlord?(landlordWon?2*unit:-2*unit):(landlordWon?-unit:unit));
+ const unit=g.rate*100*g.bid*g.multiplier,deltas=[0,0,0];
+ const farmers=[0,1,2].filter(i=>i!==landlord);
+ if(landlordWon){for(const i of farmers){const loss=Math.min(unit,g.players[i].escrow);deltas[i]=-loss;deltas[landlord]+=loss;}}
+ else{const total=Math.min(unit*2,g.players[landlord].escrow),share=Math.floor(total/2);deltas[landlord]=-total;farmers.forEach((i,n)=>deltas[i]=share+(n===0?total%2:0));}
  const settlementId=g.handId+":settlement";
  g.players.forEach((p,i)=>{ensure(Number.isSafeInteger(p.escrow+deltas[i])&&p.escrow+deltas[i]>=0,"Invalid settlement.",500);member(r,p.userId).wallet+=p.escrow+deltas[i];p.escrow=0;p.ready=false;});
  g.settled=true;g.phase="finished";g.deadline=null;g.result={winner,spring,unit,deltas,settlementId};
@@ -69,10 +73,10 @@ export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.n
  const code=typeof input.code==="string"?input.code.trim().toLowerCase().replace(/[\s-]+/g," "):"";
  let g: DoudizhuRoom|undefined=code?games.find(g=>g.code===code):own;
  if(input.type==="create"){
-  ensure(!own,"Leave your existing room first.",409);const base=input.base;ensure(Number.isSafeInteger(base)&&base!>=1&&base!<=100_000,"Base must be 1 to 100000 cents.");
+  ensure(!own,"Leave your existing room first.",409);const rate=input.rate??1,maxLoss=input.maxLoss??10000;ensure(Number.isSafeInteger(rate)&&rate>=1&&rate<=doudizhuMaxRate(r),"Rate exceeds the current admin maximum.");ensure(Number.isSafeInteger(maxLoss)&&maxLoss>=100&&maxLoss<=100000000,"Maximum loss must be 100 to 100000000 cents.");
   let newCode:string;do{newCode=Array.from({length:3},()=>wordlist[randomInt(wordlist.length)]).join(" ");}while(games.some(g=>g.code===newCode));
   ensure(games.length<200,"Too many rooms.",409);
-  g={code:newCode,base:base!,version:0,phase:"waiting",handId:randomUUID(),players:[],kitty:[],turn:0,deadline:null,landlord:null,bid:0,bidder:null,bids:0,multiplier:1,trick:null,passes:0,settled:false,result:null};games.push(g);
+  g={code:newCode,base:rate*100,rate,maxLoss,version:0,phase:"waiting",handId:randomUUID(),players:[],kitty:[],turn:0,deadline:null,landlord:null,bid:0,bidder:null,bids:0,multiplier:1,trick:null,passes:0,settled:false,result:null};games.push(g);
   const p:DoudizhuPlayer={userId:who.id,ready:false,auto:false,hand:[],escrow:0,plays:0};escrow(r,g,p);g.players.push(p);
  }else{
   ensure(g,"Room not found.",404);const seat=g.players.findIndex(p=>p.userId===who.id);
@@ -106,6 +110,6 @@ export function publicDoudizhu(r:Room,who:Identity,code?:string){
  const own=(r.doudizhu??[]).find(g=>g.players.some(p=>p.userId===who.id));
  // Possession of a code never exposes hands, membership or room state before joining.
  const g=own&&(!code||own.code===code.trim().toLowerCase().replace(/[\s-]+/g," "))?own:undefined;
- return {houseRules:DOUDIZHU_RULES,wallet:r.members.find(m=>m.id===who.id)?.wallet??0,room:g?{code:g.code,base:g.base,version:g.version,phase:g.phase,handId:g.handId,players:g.players.map((p,seat)=>({seat,name:member(r,p.userId).name,self:p.userId===who.id,ready:p.ready,auto:p.auto,count:p.hand.length,...(p.userId===who.id?{hand:[...p.hand]}:{}),escrow:p.escrow})),kitty:g.landlord!==null?[...g.kitty]:[],turn:g.turn,deadline:g.deadline,landlord:g.landlord,bid:g.bid,multiplier:g.multiplier,trick:g.trick?structuredClone(g.trick):null,settled:g.settled,result:g.result?structuredClone(g.result):null}:null};
+ return {houseRules:DOUDIZHU_RULES,maxRate:doudizhuMaxRate(r),wallet:r.members.find(m=>m.id===who.id)?.wallet??0,room:g?{code:g.code,base:g.base,rate:g.rate,maxLoss:g.maxLoss,version:g.version,phase:g.phase,handId:g.handId,players:g.players.map((p,seat)=>({seat,name:member(r,p.userId).name,self:p.userId===who.id,ready:p.ready,auto:p.auto,count:p.hand.length,...(p.userId===who.id?{hand:[...p.hand]}:{}),escrow:p.escrow})),kitty:g.landlord!==null?[...g.kitty]:[],turn:g.turn,deadline:g.deadline,landlord:g.landlord,bid:g.bid,multiplier:g.multiplier,trick:g.trick?structuredClone(g.trick):null,settled:g.settled,result:g.result?structuredClone(g.result):null}:null};
 }
 export type PublicDoudizhu=ReturnType<typeof publicDoudizhu>;

@@ -12,7 +12,7 @@ after(async()=>{await(await db()).dropDatabase();await closeDatabase();});
 const users=Array.from({length:4},(_,i)=>({id:"ddz-user-"+i,name:"Player "+i,email:"private-"+i+"@test.invalid",admin:false}));
 const request=(data:Partial<DoudizhuInput>)=>({type:"ready",requestId:randomUUID(),requestAt:Date.now(),...data} as DoudizhuInput);
 test("fresh Mongo CAS makes duplicate debit and concurrent last seat safe; persistence and settlement replay conserve wallet",async()=>{
- const create=request({type:"create",base:100});
+ const create=request({type:"create",rate:1,maxLoss:12800});
  await Promise.all([doudizhuMove(users[0],create),doudizhuMove(users[0],create)]);
  let r=await readRoom();assert.equal(r.members[0].wallet,87200);assert.equal(r.doudizhu!.length,1);const code=r.doudizhu![0].code;
  await doudizhuMove(users[1],request({type:"join",code}));
