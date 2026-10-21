@@ -18,6 +18,9 @@ export const scenarios={
  airplane:["3s","3h","3d","4s","4h","4d","5s","6s"],
  spring:["As"],
  settlement:["As"],
+ loss:["As"],
+ reveal:[],
+ deal:[],
 } as const;
 export function requireFixtureDatabase(){
  const name=process.env.MONGODB_DB??"",uri=process.env.MONGODB_URI??"";
@@ -37,7 +40,8 @@ export async function seedVideoFixture(scenario:keyof typeof scenarios){
   const act=(i:number,data:Partial<DoudizhuInput>)=>applyDoudizhu(r,users[i],{type:"ready",requestId:randomUUID(),requestAt:now,version:r.doudizhu?.[0]?.version,...data} as DoudizhuInput,now);
   act(0,{type:"create",beansPerDollar:3000,maxLoss:10000});
   const g=r.doudizhu![0];act(1,{type:"join",code:g.code});act(2,{type:"join",code:g.code});
-  for(let i=0;i<3;i++)act(i,{type:"ready"});
+  for(let i=0;i<(scenario==="deal"?2:3);i++)act(i,{type:"ready"});
+  if(scenario==="deal"||scenario==="reveal"){audit(r,users[0],"doudizhu.test-fixture",g.handId,null,{scenario});return;}
   act(0,{type:"bid",bid:3});
   const cards=[...scenarios[scenario]];
   // Sort the remaining deck for reproducible opponent cards. Exclude all played combinations.
@@ -47,11 +51,13 @@ export async function seedVideoFixture(scenario:keyof typeof scenarios){
   g.kitty=[];g.trick=null;g.turn=0;g.deadline=now+60000;
   g.players.forEach(p=>{p.auto=false;p.plays=0;});
   if(scenario==="settlement")g.players[1].plays=1; // same final play without spring
+  if(scenario==="loss"){g.players[1].hand=["As"];g.players[0].hand=g.players[0].hand.filter(c=>c!=="As");g.players[2].hand=g.players[2].hand.filter(c=>c!=="As");g.turn=1;g.players[0].plays=2;}
   g.version++;
   audit(r,users[0],"doudizhu.test-fixture",g.handId,null,{scenario,isolatedDatabase:process.env.MONGODB_DB});
  });
- return {scenario,play:[...scenarios[scenario]],view:publicDoudizhu(room,users[0])};
+ return {scenario,seat:scenario==="loss"?1:0,nextAction:scenario==="deal"?{type:"ready",seat:2}:scenario==="reveal"?{type:"bid",bid:3,seat:0}:{type:"play",cards:[...scenarios[scenario]],seat:scenario==="loss"?1:0},play:[...scenarios[scenario]],view:publicDoudizhu(room,users[0])};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
+ if(process.env.MONGODB_DB!=="fakebucks_demo_doudizhu")throw Error("Video CLI requires exactly fakebucks_demo_doudizhu");
  seedVideoFixture(process.argv[2] as keyof typeof scenarios).then(result=>console.log(JSON.stringify(result))).finally(()=>closeDatabase()).catch(e=>{console.error(e);process.exitCode=1;});
 }
