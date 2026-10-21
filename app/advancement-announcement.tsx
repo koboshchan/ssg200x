@@ -7,6 +7,7 @@ export default function AdvancementAnnouncement({subscribe}:{subscribe:(event:st
  const seen=useRef<Map<number,number>|null>(null),version=useRef(-1);
  const [tiers,setTiers]=useState<number[]>([]);
  useEffect(()=>subscribe("room:state",room=>{
+  if(!room.advancements)return;
   if(room.version<version.current)return;version.current=room.version;
   const counts=new Map(ADVANCEMENTS.map(a=>[a.tier,advancementCount(room.advancements,a.tier)]));
   if(!seen.current){seen.current=counts;return;}
