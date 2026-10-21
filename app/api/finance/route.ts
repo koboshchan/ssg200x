@@ -1,3 +1,4 @@
+import {DEFAULT_PERP_FEE_PPM} from "../../../runtime/perp-fee-policy.mjs";
 import {sellAllSpot} from "@/lib/spot-sell-all";
 import {rouletteBetSchema as bet} from "@/lib/casino-schemas";
 import {randomUUID} from "node:crypto";
@@ -41,7 +42,7 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
  else if(input.type==="sell-all-spot")sellAllSpot(r,who,input.symbol);
  else if(input.type==="spot")spot(r,who,input.symbol,input.side,input.amount);
  else if(input.type==="open"){
-  ensure((input.expectedFeePpm??0)===(r.perpFeePpm||0),"Trading fee changed. Review the current fee and try again.",409);
+  ensure((input.expectedFeePpm??0)===(r.perpFeePpm??DEFAULT_PERP_FEE_PPM),"Trading fee changed. Review the current fee and try again.",409);
   const member=register(r,who),now=Date.now();
   const patch=resolveTriggerInput(member,{entry:requireQuote(r,input.symbol,now),margin:input.margin,leverage:input.leverage,side:input.side},input);
   openPosition(r,who,input.symbol,input.side,input.margin,input.leverage,id,now,{...(patch.takeProfit!=null?{takeProfit:patch.takeProfit}:{}),...(patch.stopLoss!=null?{stopLoss:patch.stopLoss}:{})});

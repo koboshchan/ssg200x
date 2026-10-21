@@ -23,5 +23,5 @@ test('hydrated real market previews opening charge before confirmation, submits 
  await page.screenshot({path:`/home/kit/fee-history-${width}.png`,fullPage:true});await page.close();
  }
  }finally{await browser.close();}
- const source=readFileSync('app/finance-client.tsx','utf8'),route=readFileSync('app/api/finance/route.ts','utf8');assert.ok(source.includes('expectedFeePpm:room.perpFeePpm'));assert.ok(route.includes('(input.expectedFeePpm??0)===(r.perpFeePpm||0)'));
+ const source=readFileSync('app/finance-client.tsx','utf8'),route=readFileSync('app/api/finance/route.ts','utf8');assert.ok(source.includes('expectedFeePpm:room.perpFeePpm'));assert.ok(route.includes('(input.expectedFeePpm??0)===(r.perpFeePpm??DEFAULT_PERP_FEE_PPM)'));
 });

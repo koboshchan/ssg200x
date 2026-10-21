@@ -1,3 +1,4 @@
+export {DEFAULT_PERP_FEE_PPM} from "../runtime/perp-fee-policy.mjs";
 /** Rates are integer millionths of notional. 500 ppm = 0.05% per side.
  * Existing positions without a snapshot are grandfathered at zero on both legs.
  */

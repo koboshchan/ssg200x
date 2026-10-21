@@ -1,3 +1,4 @@
+import {DEFAULT_PERP_FEE_PPM} from "../runtime/perp-fee-policy.mjs";
 import {feeCents} from "./perp-fees";
 import {casinoLimits,CASINO_LIMIT_MAX_CENTS} from "./casino-limits";
 import {marketSymbols,activeSymbol,delistedSymbol,stockSymbol} from "./symbol-registry";
@@ -100,7 +101,7 @@ export function openPosition(r:Room,who:Identity,symbol:Symbol,side:"long"|"shor
  const entry=requireQuote(r,symbol,now);ensure(Number.isSafeInteger(margin)&&margin>=100&&margin<=100_000_000&&m.wallet>=margin,"Not enough cash or invalid margin.");
  ensure(margin<=(r.limits?.maxTrade??1000000)*100&&margin*leverage<=(r.limits?.maxTrade??1000000)*100,"Position margin or notional exceeds the host’s trade limit.");
  ensure(Number.isInteger(leverage)&&leverage>=1&&leverage<=(r.limits?.maxLeverage??200),"Leverage must be 1–200x.");ensure((r.maintenance||0)<1/leverage,"Chosen leverage requires more initial margin than maintenance margin.");ensure(m.positions!.length<20,"Close a position first.");
- const feePpm=r.perpFeePpm||0;
+ const feePpm=r.perpFeePpm??DEFAULT_PERP_FEE_PPM;
  ensure((r.maintenance||0)+feePpm/1e6<1/leverage,"Chosen leverage leaves insufficient margin after the closing fee reserve.");
  const openingFee=feeCents(margin,leverage,entry,entry,feePpm);
  ensure(m.wallet>=margin+openingFee,"Not enough cash for margin and opening fee.");

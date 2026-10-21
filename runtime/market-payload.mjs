@@ -1,3 +1,4 @@
+import {DEFAULT_PERP_FEE_PPM} from "./perp-fee-policy.mjs";
 // Socket identities are supplied only by verified Clerk claims, never client messages.
 export function marketPayload(room,userId,now=Date.now()) {
  const member=room.members.find(m=>m.id===userId);if(!member)return null;
@@ -25,5 +26,5 @@ export function marketPayload(room,userId,now=Date.now()) {
   return [symbol,{executable,reason:executable?"fresh_regular_session":!session||!clock?.isOpen?"closed_or_calendar_unverified":"stale_or_invalid_tick",checkedAt:now,validUntil}];
  }));
 
- return {perpFeePpm:room.perpFeePpm||0,stockExecution,netWorth:netWorthFor(member),leaderboard,version:room.version,serverNow:now,quotes,holdings,positions,closedPositions:(member.closedPositions||[]).map(p=>({id:p.id,symbol:p.symbol,side:p.side,leverage:p.leverage,entry:p.entry,exit:p.exit,realizedPnl:p.realizedPnl,...(p.openingFee!==undefined?{openingFee:p.openingFee,closingFee:p.closingFee,assessedClosingFee:p.assessedClosingFee,waivedClosingFee:p.waivedClosingFee}:{}),reason:p.reason,closedAt:p.closedAt})),wallet:member.wallet,activity:(member.activity||[]).slice(0,40)};
+ return {perpFeePpm:room.perpFeePpm??DEFAULT_PERP_FEE_PPM,stockExecution,netWorth:netWorthFor(member),leaderboard,version:room.version,serverNow:now,quotes,holdings,positions,closedPositions:(member.closedPositions||[]).map(p=>({id:p.id,symbol:p.symbol,side:p.side,leverage:p.leverage,entry:p.entry,exit:p.exit,realizedPnl:p.realizedPnl,...(p.openingFee!==undefined?{openingFee:p.openingFee,closingFee:p.closingFee,assessedClosingFee:p.assessedClosingFee,waivedClosingFee:p.waivedClosingFee}:{}),reason:p.reason,closedAt:p.closedAt})),wallet:member.wallet,activity:(member.activity||[]).slice(0,40)};
 }

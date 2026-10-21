@@ -1,3 +1,4 @@
+// These legacy accounting/trigger fixtures explicitly exercise the admin zero-fee mode.
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {freshRoom,register,assertRoom} from "../lib/poker";
@@ -9,7 +10,7 @@ import {mergeMarket} from "../lib/room-sync";
 import {marketPayload} from "../runtime/market-payload.mjs";
 const who={id:"owner",name:"Owner",email:"private@test",admin:true};
 function setup(side:"long"|"short"="long"){
- const r=freshRoom();register(r,who);r.quotes={BTC:{micro:100_000_000,at:1000}};
+ const r=Object.assign(freshRoom(),{perpFeePpm:0});register(r,who);r.quotes={BTC:{micro:100_000_000,at:1000}};
  openPosition(r,who,"BTC",side,1001,3,"position",1000,{takeProfit:side==="long"?110_000_000:90_000_000,stopLoss:side==="long"?95_000_000:105_000_000});
  return r;
 }
@@ -48,7 +49,7 @@ test("closed history is private in full and market snapshots and survives market
  const restarted=JSON.parse(JSON.stringify(r));assert.deepEqual(publicRoom(restarted,who).closedPositions,own.closedPositions);
 });
 test("legacy notices are preserved without inventing structured records",()=>{
- const r=freshRoom();register(r,who);r.members[0].activity=["Closed long BTC · 10.00 returned · position old"];
+ const r=Object.assign(freshRoom(),{perpFeePpm:0});register(r,who);r.members[0].activity=["Closed long BTC · 10.00 returned · position old"];
  const view=publicRoom(r,who);assert.deepEqual(view.closedPositions,[]);assert.deepEqual(view.activity,r.members[0].activity);
  assert.deepEqual(marketPayload(r,who.id).closedPositions,[]);
 });
@@ -57,7 +58,7 @@ test("newest closed positions come first without overwriting older fills",()=>{
  assert.deepEqual(r.members[0].closedPositions!.map(p=>[p.id,p.closedAt]),[["second",1001],["position",1000]]);
 });
 for(const side of ["long","short"] as const)test(`unchanged-entry manual ${side} returns full margin with plain Closed notice, not trigger or liquidation`,()=>{
- const r=freshRoom();register(r,who);r.quotes={BTC:{micro:100_000_000_000,at:1000}};
+ const r=Object.assign(freshRoom(),{perpFeePpm:0});register(r,who);r.quotes={BTC:{micro:100_000_000_000,at:1000}};
  openPosition(r,who,"BTC",side,2000,200,"manual-entry",1000,{takeProfit:undefined,stopLoss:undefined});
  settleTriggers(r,1000);assert.equal(r.members[0].positions!.length,1);assert.deepEqual(r.members[0].activity,undefined);
  closePosition(r,who,"manual-entry",1000);

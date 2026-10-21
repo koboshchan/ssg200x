@@ -1,3 +1,4 @@
+// These legacy accounting/trigger fixtures explicitly exercise the admin zero-fee mode.
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {freshRoom,register,assertRoom} from "../lib/poker";
@@ -5,7 +6,7 @@ import {openPosition,liqPrice,type Position} from "../lib/finance";
 import {editPositionTriggers,settleTriggers,validateTriggers,type PositionTriggers} from "../lib/position-triggers";
 const who={id:"tp-owner",name:"Owner",email:"tp@example.test",admin:false};
 function setup(side:"long"|"short"="long"){
- const r=freshRoom();register(r,who);r.quotes={BTC:{micro:100_000_000,at:1000}};
+ const r=Object.assign(freshRoom(),{perpFeePpm:0});register(r,who);r.quotes={BTC:{micro:100_000_000,at:1000}};
  openPosition(r,who,"BTC",side,10000,10,"position",1000);
  return {r,p:r.members[0].positions![0] as Position & PositionTriggers};
 }

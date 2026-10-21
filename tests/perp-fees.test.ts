@@ -11,8 +11,8 @@ import {mergeMarket} from '../lib/room-sync';
 import {marketPayload} from '../runtime/market-payload.mjs';
 const who={id:'fee-user',name:'Fee',email:'fee@test',admin:true};
 function setup(){const r=freshRoom();register(r,who);r.quotes={BTC:{micro:100000000,at:1000}};return r;}
-test('fee setting defaults zero, validates precision and bounds, private admin gates and audits exact change',()=>{
- const r=setup();assert.equal(publicRoom(r,who).perpFeePpm,0);
+test('fee setting defaults to approved 0.03%, validates precision and bounds, private admin gates and audits exact change',()=>{
+ const r=setup();assert.equal(publicRoom(r,who).perpFeePpm,300);
  for(const v of [NaN,Infinity,-0.01,0.1001,0.00001]){assert.equal(validFeePercent(v),false);assert.throws(()=>setPerpFee(r,who,v));}
  assert.throws(()=>setPerpFee(r,{...who,admin:false},0.05));assert.equal(r.perpFeePpm,undefined);
  for(const v of [0,0.0001,0.05,0.1]){setPerpFee(r,who,v);assert.equal(r.perpFeePpm,Math.round(v*10000));}
@@ -45,7 +45,7 @@ test('insufficient cash including fee fails without any financial mutation, comb
  r.maintenance=0.0045;assert.throws(()=>openPosition(r,who,'BTC','long',1000,200,'p',1000));
 });
 test('grandfathered and zero-rate positions stay fee-free at close, no spot fees',()=>{
- const r=setup();openPosition(r,who,'BTC','long',10000,5,'old',1000);
+ const r=setup();r.perpFeePpm=0;openPosition(r,who,'BTC','long',10000,5,'old',1000);
  delete r.members[0].positions![0].feePpm;delete r.members[0].positions![0].openingFee;
  setPerpFee(r,who,0.05);closePosition(r,who,'old',1000);assert.equal(r.members[0].wallet,100000);
  setPerpFee(r,who,0);openPosition(r,who,'BTC','long',10000,5,'zero',1000);setPerpFee(r,who,0.05);closePosition(r,who,'zero',1000);assert.equal(r.members[0].wallet,100000);
@@ -64,4 +64,14 @@ test('socket updates retain private fee history and current setting, liquidation
  closePosition(r,who,'p',1000);const next=marketPayload(r,who.id,1000);assert.deepEqual(next.closedPositions,publicRoom(r,who).closedPositions);
  assert.equal(mergeMarket(full,next)!.perpFeePpm,500);
  const other={...who,id:'other',admin:false};register(r,other);assert.deepEqual(marketPayload(r,other.id).closedPositions,[]);
+});
+
+test('approved initial 0.03% charges both full notionals and preserves explicit zero override',()=>{
+ const r=setup();assert.equal(marketPayload(r,who.id,1000).perpFeePpm,300);
+ openPosition(r,who,'BTC','long',10000,200,'approved',1000);
+ assert.equal(r.members[0].wallet,89400);assert.equal(r.members[0].positions![0].openingFee,600);
+ setPerpFee(r,who,0);closePosition(r,who,'approved',1000);
+ const c=r.members[0].closedPositions![0];assert.equal(c.closingFee,600);assert.equal(c.realizedPnl,-1200);
+ assert.equal(publicRoom(r,who).perpFeePpm,0);assert.equal(marketPayload(r,who.id,1000).perpFeePpm,0);
+ openPosition(r,who,'BTC','long',10000,200,'free',1000);assert.equal(r.members[0].positions![0].openingFee,0);assertRoom(r);
 });

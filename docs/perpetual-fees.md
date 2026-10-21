@@ -1,6 +1,6 @@
 # Perpetual trading fees
 
-The persistent admin setting defaults to zero. No rate is enabled by this change. Spot orders are unchanged. Only identities verified from Clerk privateMetadata.admin can change the rate; changes use the existing audited, receipt-deduplicated room CAS transaction.
+The initial admin setting is 0.03% per side (300 ppm), explicitly approved by Lucas. Rooms without a saved setting use that initial rate for new positions once this code is deployed. An explicitly saved setting, including zero, is preserved. This is a push-only change, not a production deployment or setting write. Spot orders are unchanged. Only identities verified from Clerk privateMetadata.admin can change the rate; changes use the existing audited, receipt-deduplicated room CAS transaction.
 
 Rates range from 0 to 0.1 percent per side in increments of 0.0001 percent. New positions lock the displayed rate for both legs. Existing positions without a rate, or opened at zero, remain fee-free on close, even after an admin changes the setting. A stale order cannot open at an undisclosed rate.
 

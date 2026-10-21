@@ -1,3 +1,4 @@
+// These legacy accounting/trigger fixtures explicitly exercise the admin zero-fee mode.
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {BSON,MongoClient} from "mongodb";
@@ -17,7 +18,7 @@ test("actual Mongo driver BSON defaults convert explicit undefined optional pric
 });
 for(const side of ["long","short"] as const)for(const leverage of [2,200])for(const maintenance of [0,.001])for(const withTriggers of [false,true]){
  test(`${side} ${leverage}x maintenance ${maintenance} triggers ${withTriggers} survives BSON restart and same/in-range ticks, closes only crossing`,()=>{
-  let r=freshRoom();register(r,who);r.maintenance=maintenance;
+  let r=Object.assign(freshRoom(),{perpFeePpm:0} as Partial<ReturnType<typeof freshRoom>>);register(r,who);r.maintenance=maintenance;
   const entry=100_000_000_000,direction=side==="long"?1:-1;
   r.quotes={BTC:{micro:entry,at:1000}};
   openPosition(r,who,"BTC",side,1000,leverage,"persisted",1000,withTriggers?{takeProfit:entry+direction*200_000_000,stopLoss:entry-direction*200_000_000}:{takeProfit:undefined,stopLoss:undefined});
@@ -42,7 +43,7 @@ for(const side of ["long","short"] as const)for(const leverage of [2,200])for(co
  });
 }
 for(const side of ["long","short"] as const)test(`legacy BSON null triggers and liquidation override do not close unchanged ${side}`,()=>{
- let r=freshRoom();register(r,who);const entry=100_000_000_000;r.quotes={BTC:{micro:entry,at:1000}};
+ let r=Object.assign(freshRoom(),{perpFeePpm:0} as Partial<ReturnType<typeof freshRoom>>);register(r,who);const entry=100_000_000_000;r.quotes={BTC:{micro:entry,at:1000}};
  openPosition(r,who,"BTC",side,1000,200,"legacy",1000);
  const p=r.members[0].positions![0];
  Object.assign(p,{takeProfit:undefined,stopLoss:undefined,liquidationOverride:undefined});
@@ -52,7 +53,7 @@ for(const side of ["long","short"] as const)test(`legacy BSON null triggers and 
  applyMarketTick(r,{BTC:{micro:mark,at:1400}},1400);assert.equal(r.members[0].positions!.length,0);assert.equal(r.members[0].closedPositions![0].reason,"Liq");
 });
 test("explicit zero and empty-string trigger prices reject atomically rather than becoming unset",()=>{
- const r=freshRoom();portfolio(register(r,who));r.quotes={BTC:{micro:100_000_000_000,at:1000}};
+ const r=Object.assign(freshRoom(),{perpFeePpm:0} as Partial<ReturnType<typeof freshRoom>>);portfolio(register(r,who));r.quotes={BTC:{micro:100_000_000_000,at:1000}};
  for(const side of ["long","short"] as const)for(const key of ["takeProfit","stopLoss"] as const)for(const bad of [0,""]){
   const before=JSON.stringify(r);
   assert.throws(()=>openPosition(r,who,"BTC",side,1000,200,"bad",1000,{[key]:bad} as unknown as {takeProfit?:number;stopLoss?:number}));
