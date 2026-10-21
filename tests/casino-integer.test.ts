@@ -34,7 +34,7 @@ test("roulette and poker request schemas reject fractional dollars and preserve 
  for(const to of invalid)assert.equal(actionSchema.safeParse({...base,type:"raise",to}).success,false);
  for(const buyIn of [10001,10050,"10000",9999,100000100])assert.equal(actionSchema.safeParse({...base,type:"join",seat:0,buyIn}).success,false);
  for(const buyIn of [10000,100000])assert.equal(actionSchema.safeParse({...base,type:"join",seat:0,buyIn}).success,true);
- for(const f of ["app/api/roulette/route.ts","app/api/finance/route.ts"]){
+ for(const f of ["app/api/roulette/route.ts","lib/finance-input.ts"]){
   assert.match(readFileSync(f,"utf8"),/casino-schemas/);
  }
 });

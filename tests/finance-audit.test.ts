@@ -10,7 +10,7 @@ test("finance audit snapshot explicitly includes request, execution basis and tr
 });
 test("finance receipt replay exits before every audited mutation and uses existing durable audit queue",()=>{
  const source=readFileSync(new URL("../app/api/finance/route.ts",import.meta.url),"utf8");
- const replay=source.indexOf('if(receipt){ensure(receipt.userId===who.id,"Invalid request.",409);return;}');
+ const replay=source.indexOf('if(checkFinanceRequest(r,who.id,input))return;');
  assert.ok(replay>0);
  for(const kind of ["finance-open","finance-triggers","finance-close"])assert.ok(source.indexOf('"'+kind+'"')>replay);
  assert.ok(source.includes('import {audit} from "@/lib/audit"'));
