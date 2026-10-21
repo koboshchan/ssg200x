@@ -119,3 +119,4 @@
  .dd-stage .dd-hand-cards{--w:36px;min-height:80px}.dd-stage .dd-hand-cards .card{height:54px}.dd-stage .dd-roomline{padding:6px 8px;gap:6px 14px}.dd-stage .dd-roomline .dd-code{font-size:14px}
  .dd-settle-wrap{inset:110px 6px auto}.dd-backs{width:40px;height:50px}.dd-backs i{width:30px;height:42px}}
 @media(prefers-reduced-motion:reduce){.dd-seat{transition:none}}
+.dd-sil{width:80%;height:80%;display:block}.dd-avatar{overflow:visible}
