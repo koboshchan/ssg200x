@@ -133,7 +133,7 @@ const HANDOFF_QUIET_MS=12;
 const ZS=20,LAUNCH_WINDOW_MS=4000;
 const SPIN_TUP=900,SPIN_TAU=2000,SPIN_VP=400*Math.PI/180/1000,SPIN_WB=0.0115;
 function simActual(Wl,slot0,dvk,dwb,record,rel0,r0,vi0){const vi=vi0===undefined?idleRate():vi0;const wp=makeWheel(Wl,vi,SPIN_VP*dvk,SPIN_TUP,SPIN_TAU);wp.r0=r0||0.6;const B0=Wl+(rel0===undefined||rel0===null?slot0*STEP:rel0);return{wp,wb:SPIN_WB*dwb,B0,f:simulate(wp,B0,SPIN_WB*dwb,record!==false)};}
-export const PHYS_VERSION='846cd7b8022768f2';
+export const PHYS_VERSION='03738eae33f129a0';
 
 export {POCKETS,STEP,TAU,PHY,DEFL,ZS,mod,clamp,idleRate,idleV,idleW,makeWheel,wheelOf,wheelVelOf,simulate,pocketAtRest,rng32,simActual,SPIN_TUP,SPIN_TAU,SPIN_VP,SPIN_WB,LAUNCH_WINDOW_MS};
 
@@ -165,6 +165,13 @@ export function poseAt(sp,t,reduced=false){
  if(e<0){a=W+an.rel;r=an.r;}
  else if(e>=ev.tRest){a=W+ev.phiRest;r=ev.rRest;}
  else {const i=Math.min(f.end-1,Math.floor(e)),frac=e-i;a=f.A[i]+(f.A[i+1]-f.A[i])*frac;r=f.R[i]+(f.R[i+1]-f.R[i])*frac;z=(f.Z[i]+(f.Z[i+1]-f.Z[i])*frac)*ZS;}
- if(reduced){if(e<ev.tRest){a=W+an.rel;r=an.r;z=0;vis=e<0?1:1-clamp(e/300);}else vis=clamp((e-ev.tRest)/400);}
+ // Accessibility changes only presentation. Keep the true wheel/trajectory
+ // internal until capture, then dissolve from the uninterrupted idle display.
+ if(reduced){
+  const Wd=idleW(an,t),idle={W:Wd,a:Wd+an.rel,r:an.r,z:0,phi:an.rel,e:Math.max(0,e),vis:0,phase:'idle'};
+  if(e<ev.tRest)return {...idle,vis:e<0?1:1-clamp(e/300)};
+  const k=clamp((e-ev.tRest)/400);
+  return {W,a,r,z,phi:a-W,e:Math.max(0,e),vis:k,phase:e>=duration?'landed':'riding',fade:k,...(k<1?{fadeFrom:idle}:{})};
+ }
  return {W,a,r,z,phi:a-W,e:Math.max(0,e),vis,phase:e<0?'idle':e>=duration?'landed':e>=ev.tRest?'riding':ev.tLip!==null&&e>=ev.tLip?'drop':'track'};
 }

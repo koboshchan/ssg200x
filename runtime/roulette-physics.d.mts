@@ -1,7 +1,7 @@
 export type IdleAnchor={atMs:number;phase:number;vel:number;slot:number;rel:number;r:number};
 export type LaunchParams={d:number;dvk:number;dwb:number};
 export type PhysicsRound={roundId:string;target:number;physicsVersion:string;lockDeadline:number;resultGeneratedAt:number;broadcastAt:number;spinStartAt:number;serverNow:number;idleAnchor:IdleAnchor;launchParams:LaunchParams};
-export type Pose={W:number;a:number;r:number;z:number;phi:number;e:number;vis:number;phase:string};
+export type Pose={W:number;a:number;r:number;z:number;phi:number;e:number;vis:number;phase:string;fade?:number;fadeFrom?:Pose};
 export type Trajectory={wp:Record<string,number>;f:{A:Float64Array;R:Float64Array;Z:Float64Array;ev:{tRest:number;phiRest:number;rRest:number;tLip:number|null};end:number};t0:number;duration:number;endAnchor:IdleAnchor;round:PhysicsRound};
 export const PHYS_VERSION:string, STEP:number,TAU:number;
 export const POCKETS:number[];

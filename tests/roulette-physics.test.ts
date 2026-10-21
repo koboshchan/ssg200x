@@ -114,3 +114,59 @@ test('prepared physics settlement preserves escrow and continuous anchor across 
  assert.equal(b.round,2);assert.equal(b.spin,undefined);assert.equal(b.pending,undefined);
  assert.deepEqual(roulettePublic(r,who,resultAt+5000)!.idleAnchor,solved.endAnchor);assertRoom(r);
 });
+
+test('reduced motion keeps idle display speed, dissolves at capture and carries into the next round without a jump',async()=>{
+ let anchor=initialAnchor(0),at=60000;
+ for(const target of [7,17]){
+  const solved=await solveRoulette({target,anchor,spinStartAt:at,seed:23+target});
+  const sp=createTrajectory({...base(target,at,anchor),launchParams:solved.launchParams});
+  const capture=sp.t0+sp.f.ev.tRest;
+  const prior=poseAt(sp,sp.t0-.001,true),launch=poseAt(sp,sp.t0,true);
+  assert.ok(Math.abs(prior.W-launch.W)<1e-6);
+  assert.equal(launch.vis,1);
+  assert.equal(poseAt(sp,sp.t0+300,true).vis,0);
+  let hiddenFastPhysics=false;
+  for(const fraction of [.1,.3,.6,.9]){
+   const t=sp.t0+sp.f.ev.tRest*fraction,p=poseAt(sp,t,true),dt=.1;
+   assert.equal(p.W,idleW(anchor,t));
+   assert.equal(p.phi,anchor.rel);assert.equal(p.r,anchor.r);assert.equal(p.z,0);
+   const displaySpeed=(poseAt(sp,t+dt,true).W-p.W)/dt;
+   assert.ok(Math.abs(displaySpeed-idleV(anchor,t))<1e-8,'display speed stays at the carried idle drift');
+   if(Math.abs(p.W-poseAt(sp,t).W)>.1)hiddenFastPhysics=true;
+  }
+  assert.ok(hiddenFastPhysics,'true fast wheel is internal, not the reduced display');
+  for(const ms of [0,100,200,399,400]){
+   const t=capture+ms,p=poseAt(sp,t,true),real=poseAt(sp,t);
+   assert.equal(p.W,real.W);assert.equal(p.a,real.a);assert.equal(p.r,real.r);
+   assert.equal(p.vis,ms/400);assert.equal(p.fade,ms/400);
+   if(ms<400){
+    assert.equal(p.fadeFrom!.W,idleW(anchor,t));assert.equal(p.fadeFrom!.vis,0);
+   }else assert.equal(p.fadeFrom,undefined);
+  }
+  const end=sp.endAnchor.atMs,nextAt=end+60000;
+  const nextSolved=await solveRoulette({target:1,anchor:sp.endAnchor,spinStartAt:nextAt,seed:42});
+  const next=createTrajectory({...base(1,nextAt,sp.endAnchor),launchParams:nextSolved.launchParams});
+  // The next payload may replace this spin at any time during the idle gap.
+  for(const t of [end,end+5000,nextAt,next.t0]){
+   const prev=poseAt(sp,t,true),fresh=poseAt(next,t,true);
+   assert.equal(prev.W,fresh.W);assert.ok(Math.abs(prev.a-fresh.a)<1e-10);
+   assert.equal(prev.r,fresh.r);assert.equal(fresh.vis,1);
+  }
+  const before=poseAt(next,next.t0-.001,true),after=poseAt(next,next.t0,true);
+  assert.ok(Math.abs(before.W-after.W)<1e-6);
+  assert.ok(Math.abs(before.a-after.a)<1e-6);
+  anchor=sp.endAnchor;at=nextAt;
+ }
+});
+
+test('reduced-motion renderer honors media changes and composites the old wheel offscreen',()=>{
+ const client=readFileSync('app/roulette-wheel.tsx','utf8');
+ assert.match(client,/prefers-reduced-motion: reduce/);
+ assert.match(client,/q\.addEventListener\('change',update\)/);
+ assert.match(client,/q\.removeEventListener\('change',update\)/);
+ assert.match(client,/poseAt\(trajectory\.value,t,reduced\)/);
+ assert.match(client,/document\.createElement\('canvas'\)/);
+ assert.match(client,/drawWood\(old,size\.width,size\.height,pose\.fadeFrom\)/);
+ assert.match(client,/ctx\.globalAlpha=1-\(pose\.fade\?\?1\)/);
+ assert.match(client,/ctx\.drawImage\(offscreen,0,0\)/);
+});

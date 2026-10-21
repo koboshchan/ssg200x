@@ -1,6 +1,6 @@
 "use client";
 import {useEffect,useMemo,useRef,useState} from 'react';
-import {createTrajectory,idleW,type IdleAnchor,type Trajectory} from '@/lib/roulette-physics';
+import {createTrajectory,idleW,type IdleAnchor,type Trajectory,type Pose} from '@/lib/roulette-physics';
 import {drawWood} from '../runtime/roulette-render.mjs';
 import type {RouletteSpin} from '@/lib/roulette-clock';
 import styles from './roulette.module.css';
@@ -22,14 +22,30 @@ export default function RouletteWheel({spin,now,idleAnchor}:{spin:RouletteSpin|n
  useEffect(()=>{
   const cv=canvas.current,ctx=cv?.getContext('2d');if(!cv||!ctx||trajectory.error)return;
   let frame=0;
+  let offscreen:HTMLCanvasElement|undefined;
   const draw=()=>{
    const t=clock.current.server+performance.now()-clock.current.local;
    const size=cv.getBoundingClientRect(),dpr=Math.min(2,devicePixelRatio||1),w=Math.round(size.width*dpr),h=Math.round(size.height*dpr);
    if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}
    ctx.setTransform(dpr,0,0,dpr,0,0);
    const W=idleW(idleAnchor,t);
-   const pose=trajectory.value?poseAt(trajectory.value,t,reduced):{W,a:W+idleAnchor.rel,r:idleAnchor.r,z:0,phi:idleAnchor.rel,e:0,vis:1,phase:'idle'};
-   drawWood(ctx,size.width,size.height,pose);
+   const pose:Pose=trajectory.value?poseAt(trajectory.value,t,reduced):{W,a:W+idleAnchor.rel,r:idleAnchor.r,z:0,phi:idleAnchor.rel,e:0,vis:1,phase:'idle'};
+   ctx.clearRect(0,0,size.width,size.height);
+   if(pose.fadeFrom){
+    offscreen??=document.createElement('canvas');
+    if(offscreen.width!==w||offscreen.height!==h){offscreen.width=w;offscreen.height=h;}
+    const old=offscreen.getContext('2d');
+    if(old){
+     old.setTransform(dpr,0,0,dpr,0,0);
+     old.clearRect(0,0,size.width,size.height);
+     drawWood(old,size.width,size.height,pose.fadeFrom);
+    }
+    drawWood(ctx,size.width,size.height,pose);
+    if(old){
+     ctx.save();ctx.setTransform(1,0,0,1,0,0);
+     ctx.globalAlpha=1-(pose.fade??1);ctx.drawImage(offscreen,0,0);ctx.restore();
+    }
+   }else drawWood(ctx,size.width,size.height,pose);
    frame=requestAnimationFrame(draw);
   };
   draw();return()=>cancelAnimationFrame(frame);

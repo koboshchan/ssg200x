@@ -29,6 +29,19 @@ test('mounted wood canvas receives locked physics and late seek; missing params 
    assert.equal(await page.getByRole('alert').count(),0);
   }
   await page.getByRole('img',{name:'Winning number 7',exact:true}).waitFor();
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.evaluate(()=>{
+   const original=CanvasRenderingContext2D.prototype.drawImage;
+   (window as any).wheelComposites=0;
+   CanvasRenderingContext2D.prototype.drawImage=function(this:CanvasRenderingContext2D,...args:any[]){
+    (window as any).wheelComposites++;
+    return (original as any).apply(this,args);
+   } as typeof original;
+  });
+  await page.evaluate((p:any)=>(window as any).drawWheel(p),{spin,now:trajectory.t0+trajectory.f.ev.tRest+100,idleAnchor:anchor});
+  await page.waitForFunction(()=>(window as any).wheelComposites>0);
+  assert.equal(await page.getByRole('alert').count(),0);
+  await page.emulateMedia({reducedMotion:'no-preference'});
   await page.evaluate((p:any)=>(window as any).drawWheel(p),{spin:{...spin,round:2,physics:{...physics,roundId:'bad',launchParams:undefined}},now:resultAt,idleAnchor:anchor});
   await page.getByRole('alert').waitFor();
   assert.match(await page.getByRole('alert').innerText(),/Refresh/);
