@@ -14,7 +14,7 @@ test('hydrated real market previews opening charge before confirmation, submits 
  b.onResolve({filter:/^\.\/live-provider$/},()=>({path:"live",namespace:"live-stub"}));
  b.onLoad({filter:/.*/,namespace:"live-stub"},()=>({contents:'export function useLive(){return {connection:"connected",emit(){}}}',loader:"js"}));
  b.onResolve({filter:/cached-chart$/},()=>({path:'chart',namespace:'fixture'}));b.onLoad({filter:/.*/,namespace:'fixture'},()=>({contents:'export default function Chart(){return null}',loader:'js'}));b.onLoad({filter:/\.css$/},()=>({contents:'export default {}',loader:'js'}));}}]});
- const browser=await chromium.launch({headless:true,args:['--no-sandbox']});try{
+ const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--no-sandbox']});try{
  for(const width of [1280,390]){
  const page=await browser.newPage({viewport:{width,height:900}});await page.route('https://fees.test/**',async(route:any)=>route.fulfill({contentType:'text/html',body:'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><div id="root"></div>'}));
  await page.goto('https://fees.test');await page.addStyleTag({content:readFileSync('app/globals.css','utf8')});await page.addScriptTag({content:out.outputFiles[0].text});

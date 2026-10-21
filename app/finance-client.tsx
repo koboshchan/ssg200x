@@ -55,7 +55,7 @@ export function Markets({room,busy,post}:Props){
  const fullSell=selling&&percent===100&&!!holding;
  const displayAmount=selling&&sellSelection?.symbol===symbol?((Math.floor((holding?.value||0)*percent/100))/100).toFixed(2):amount;
  const choosePercent=(percent:number)=>{setSellSelection({symbol,percent});setAmount((Math.floor((holding?.value||0)*percent/100)/100).toFixed(2));};
- const send=(body:object)=>post("/api/finance",{...body,requestId:crypto.randomUUID()});
+ const send=(body:object)=>post("/api/finance",body);
  const sellReason=(h:PublicRoom["holdings"][number])=>{
   if(h.symbol!==symbol)return h.value<1?"Worth less than $0.01 · units retained":h.value>Math.min(room.limits.maxTrade*100,100_000_000)?"Above trade limit · use order ticket":"";
   const quote=(room.quotes as Record<string,{micro:number;at:number}|undefined>)[h.symbol];
