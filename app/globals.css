@@ -85,7 +85,7 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
 .side-positions{border-left:1px solid var(--line);padding-left:25px;min-width:0}
 .side-positions h3{font-size:15px;font-weight:500;margin:0 0 14px}.side-positions h3:not(:first-child){margin-top:26px}
 @media(min-width:1000px){.market-grid{grid-template-columns:minmax(0,1fr) 380px}}
-@media(min-width:561px){.side-positions .table-scroll{overflow:visible}.side-positions table{min-width:0;margin:0;display:block}.side-positions thead{display:none}.side-positions tbody{display:grid;gap:10px}.side-positions tr{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;padding:12px;background:var(--surface);border-radius:12px;border:1px solid var(--line)}.side-positions tr>*{padding:0;border:0;font-size:13px;min-width:0}.side-positions tr>th{grid-column:1/-1;font-weight:600}.side-positions td[data-label]:before{content:attr(data-label);display:block;font-size:11px;color:var(--muted)}.side-positions tr>td:not([data-label]){grid-column:1/-1}.side-positions tr>td:last-child{text-align:right}}
+.side-positions .table-scroll{overflow:visible}.side-positions table{min-width:0;margin:0;display:block}.side-positions thead{display:none}.side-positions tbody{display:grid;gap:10px}.side-positions tr{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;padding:12px;background:var(--surface);border-radius:12px;border:1px solid var(--line)}.side-positions tr>*{padding:0;border:0;font-size:13px;min-width:0}.side-positions tr>th{grid-column:1/-1;font-weight:600}.side-positions td[data-label]:before{content:attr(data-label);display:block;font-size:11px;color:var(--muted)}.side-positions tr>td:not([data-label]){grid-column:1/-1}.side-positions tr>td:last-child{text-align:right}
 
 /* Open perpetuals sit under the chart, full chart-column width */
 .open-perps{min-width:0}.open-perps h3{font-size:15px;font-weight:500;margin:0 0 14px}.open-perps .table-scroll{overflow-x:auto}.open-perps .table-scroll table{min-width:640px}
@@ -148,3 +148,6 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
 @media(max-width:560px){.admin-add .primary{padding:10px 18px}}
 
 .admin-block .primary:not(:disabled){background:color-mix(in srgb,var(--blue) 75%,#000);border-color:transparent;color:#fff}.admin-remove{color:color-mix(in srgb,var(--red) 70%,var(--ink))}
+
+/* Keep liquidation alongside the asset, not in a separate card row. */
+.side-positions .spot-holding-header{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}.side-positions .spot-holding-header button{flex:none}

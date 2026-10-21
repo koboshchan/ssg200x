@@ -27,7 +27,13 @@ test("portfolio Sell all works in desktop/mobile light/dark using exact-unit set
  return route.fulfill({contentType:"text/html",body:'<meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>'});
  });
  await page.goto("https://spot.test");await page.addStyleTag({path:"app/globals.css"});await page.addScriptTag({content:bundle.outputFiles[0].text});
- const button=page.getByRole("button",{name:"Sell all BTC",exact:true});await button.waitFor();await button.scrollIntoViewIfNeeded();assert.ok(await button.isEnabled());await button.click();await page.getByText("No spot holdings yet.",{exact:true}).waitFor();assert.equal(r.members[0].wallet,100002);assert.equal(r.members[0].holdings!.length,0);
+ const button=page.getByRole("button",{name:"Sell all BTC",exact:true});await button.waitFor();await button.scrollIntoViewIfNeeded();assert.ok(await button.isEnabled());const header=page.locator(".spot-holding-header"),asset=header.locator("span");
+ const bb=await button.boundingBox(),hb=await header.boundingBox(),ab=await asset.boundingBox();
+ assert.ok(Math.abs((bb!.y+bb!.height/2)-(ab!.y+ab!.height/2))<3,"asset and sell share the header row");
+ assert.ok(Math.abs(bb!.x+bb!.width-hb!.x-hb!.width)<2,"sell aligns to header right");
+ assert.ok(bb!.x+bb!.width<=width,"sell stays inside viewport");
+ assert.equal(await page.locator('[data-label="Action"]').count(),0);
+ await button.click();await page.getByText("No spot holdings yet.",{exact:true}).waitFor();assert.equal(r.members[0].wallet,100002);assert.equal(r.members[0].holdings!.length,0);
  await page.close();
  }}finally{await browser.close();}
 });
