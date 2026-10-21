@@ -1,4 +1,5 @@
 "use client";
+import {AdvancementBanner} from "./advancement-banner";
 import {ADVANCEMENT_REWARDS_CENTS,advancementCount,ADVANCEMENTS,type AdvancementState} from "../lib/advancements-shared";
 const styles={"award": "adv-award", "badge": "adv-badge", "copy": "adv-copy", "heading": "adv-heading", "icon": "adv-icon", "list": "adv-list", "main": "adv-main", "progress": "adv-progress", "rules": "adv-rules", "tier": "adv-tier", "toast": "adv-toast", "total": "adv-total", "track": "adv-track"};
 const drawings:Record<string,React.ReactNode>={
@@ -12,9 +13,9 @@ const drawings:Record<string,React.ReactNode>={
  crown:<><path d="m3 7 4 4 5-7 5 7 4-4-2 12H5L3 7ZM6 22h12M9 15h6"/><circle cx="12" cy="3" r="1"/></>,
 };
 export function AdvancementIcon({icon}:{icon:string}){return <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{drawings[icon]}</svg>;}
-export function AdvancementToast({tiers,onDismiss}:{tiers:number[];onDismiss:()=>void}){
- const awards=ADVANCEMENTS.filter(a=>tiers.includes(a.tier));if(!awards.length)return null;
- return <aside className={styles.toast} role="status" aria-live="polite"><AdvancementIcon icon={awards.at(-1)!.icon}/><div><small>Advancement unlocked</small>{awards.map(a=><strong key={a.tier}>{a.name}</strong>)}</div><button onClick={onDismiss} aria-label="Dismiss advancement notification">×</button></aside>;
+export function AdvancementToast({tiers,onDismiss,reward=0}:{tiers:number[];onDismiss:()=>void;reward?:number}){
+ const award=ADVANCEMENTS.find(a=>a.tier===tiers[0]);if(!award)return null;
+ return <AdvancementBanner key={award.tier} icon={<AdvancementIcon icon={award.icon}/>} name={award.name} reward={reward} onDismiss={onDismiss}/>;
 }
 export default function AdvancementsView({state}:{state:AdvancementState}){
  const count=ADVANCEMENTS.filter(a=>state.unlocked[a.tier]!==undefined).length;
