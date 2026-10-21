@@ -2,9 +2,14 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {createRequire} from "node:module";
 import {readFileSync} from "node:fs";
+import {getTabHeaders} from "../lib/tab-identity";
 const require=createRequire(import.meta.url);
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||"/home/kit/out/cal-browser-evidence/node_modules/playwright");
 const {build}=require("esbuild");
+
+test("header generation is safe during SSR without creating a shared identity",()=>{
+ assert.deepEqual(getTabHeaders(),{});
+});
 
 test("every client HTTP mutation carries the document identity",()=>{
  for(const file of ["app/room-client.tsx","app/settings-client.tsx","app/maintenance-gate.tsx","app/(room)/wallet/page.tsx"]){
@@ -94,6 +99,19 @@ test("mounted provider reports routes without reconnect, blocks accessibly, and 
   await dialog.waitFor({state:"detached"});assert.equal(await page.locator("#game").isEnabled(),true);
   assert.deepEqual(await page.evaluate(()=>(window as any).harness.identity()),identity);
 
+  const isolated=await context.newPage();
+  await isolated.route("https://identity.test/**",(route:any)=>route.fulfill({contentType:"text/html",body:"<!doctype html><meta charset=utf-8>"}));
+  await isolated.goto("https://identity.test");
+  const identityBundle=await build({entryPoints:["lib/tab-identity.ts"],bundle:true,write:false,format:"iife",globalName:"tabIdentity",platform:"browser"});
+  await isolated.addScriptTag({content:identityBundle.outputFiles[0].text});
+  await isolated.evaluate(()=>{Object.defineProperty(window,"crypto",{value:undefined,configurable:true});});
+  assert.deepEqual(await isolated.evaluate(()=>(window as any).tabIdentity.getTabHeaders()),{});
+  await isolated.reload();await isolated.addScriptTag({content:identityBundle.outputFiles[0].text});
+  await isolated.evaluate(()=>{Object.defineProperty(crypto,"randomUUID",{value:undefined,configurable:true});});
+  const fallback=await isolated.evaluate(()=>(window as any).tabIdentity.getTabHeaders());
+  assert.match(fallback["X-Tab-Id"],/^[0-9a-f-]{14}4[0-9a-f-]{21}$/);
+  assert.notEqual(fallback["X-Tab-Id"],fallback["X-Tab-Proof"]);
+  await isolated.close();
   const other=await open();
   const otherIdentity=await other.evaluate(()=>(window as any).harness.identity());
   assert.notEqual(otherIdentity.tabId,identity.tabId);assert.notEqual(otherIdentity.tabProof,identity.tabProof);

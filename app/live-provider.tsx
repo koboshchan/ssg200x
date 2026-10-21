@@ -47,7 +47,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
   window.addEventListener("pageshow",report);
   import("socket.io-client").then(({io})=>{
    if(closed)return;
-   socket=io({path:"/socket.io",transports:["websocket"],reconnection:true,reconnectionDelayMax:10000,auth:cb=>{tokenRef.current({skipCache:true}).then(token=>cb({token,...getTabIdentity(),route:routeRef.current}),()=>cb({}));}});
+   socket=io({path:"/socket.io",transports:["websocket"],reconnection:true,reconnectionDelayMax:10000,auth:cb=>{tokenRef.current({skipCache:true}).then(token=>cb({token,...getTabIdentity(),route:routeRef.current})).catch(()=>cb({}));}});
    socketRef.current=socket;
    socket.on("connect",()=>{receiver.clear();latest.current.clear();attempts=0;setConnection("connected");report();});
    socket.on("disconnect",()=>{receiver.clear();latest.current.clear();setConnection("disconnected");later();});
