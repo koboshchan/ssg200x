@@ -29,12 +29,27 @@
 .dice{text-align:center}.rollNum{font-size:72px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.03em;line-height:1.1}
 .bar{position:relative;height:12px;border-radius:6px;background:var(--seg);max-width:420px;margin:12px auto}.zone{position:absolute;top:0;bottom:0;border-radius:6px;background:color-mix(in srgb,var(--blue) 55%,transparent)}
 .marker{position:absolute;top:-4px;width:4px;height:20px;margin-left:-2px;border-radius:2px;background:var(--ink);transition:left .3s var(--ease)}
-.road{padding:6px 0}.lanes{position:relative;display:flex;gap:4px;height:84px;align-items:center}
-.lane{flex:1;height:100%;display:grid;place-items:end center;padding-bottom:6px;font-size:11px;color:var(--muted);background:var(--seg);border-radius:6px}.passed{background:color-mix(in srgb,var(--ok) 22%,var(--surface))}.crash{background:color-mix(in srgb,var(--red) 30%,var(--surface))}
-.chick{position:absolute;top:18px;font-size:30px;color:var(--ink);line-height:1;transition:left .35s var(--ease)}.dead{color:var(--red);font-weight:700}.hop{animation:hop .35s var(--ease)}
-@keyframes hop{50%{transform:translateY(-14px)}}
-@media(max-width:560px){.head h1{font-size:26px}.stage{padding:12px;min-height:240px}.plinko{height:250px}.go{width:100%;margin:0}.rollNum{font-size:56px}.lane{font-size:9px}.chick{font-size:22px}.panel>.stat{flex:1}}
+@media(max-width:560px){.head h1{font-size:26px}.stage{padding:12px;min-height:240px}.plinko{height:250px}.go{width:100%;margin:0}.rollNum{font-size:56px}.panel>.stat{flex:1}}
 @media(prefers-reduced-motion:reduce){.stage,.fresh,.safe,.boom,.hop{animation:none}.chick,.marker{transition:none}}
 .rule{text-align:center;color:var(--muted);font-size:13px;margin:10px 0 0}
 @media(max-width:560px){.slots{gap:1px}.slots b{font-size:9.5px;padding:6px 0;letter-spacing:-.03em}.quick{flex-wrap:wrap}}
 @media(max-width:560px){.go{width:calc(100% - 64px);margin-right:auto}}
+
+.hintMuted{color:var(--muted)}
+.drops,.trail{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
+.drops li{display:flex;gap:8px;align-items:center;background:var(--surface-2);border-radius:8px;padding:4px 10px;font-size:12px;color:var(--muted)}.drops li.warn{color:var(--red)}.drops button{padding:2px 8px;font-size:12px}
+.trail li{display:flex;flex-direction:column;align-items:center;min-width:64px;background:var(--seg);border-radius:8px;padding:4px 8px;font-size:12px;font-variant-numeric:tabular-nums;animation:pop .25s var(--ease)}.trail b{font-weight:600}
+.road{padding:6px 0}
+.roadStats{display:flex;gap:8px;justify-content:space-between;margin:12px 0}.roadStats div{flex:1;text-align:center;background:var(--seg);border-radius:10px;padding:6px 4px}.roadStats span{display:block;font-size:11px;color:var(--muted)}.roadStats strong{font-size:16px;font-variant-numeric:tabular-nums}
+.lanes{position:relative;display:flex;gap:2px;height:104px;align-items:stretch}
+.curb{flex:0 0 auto;width:calc(100%/11 - 2px);display:grid;place-items:end center;padding-bottom:6px;font-size:10px;color:var(--muted);background:color-mix(in srgb,var(--ok) 18%,var(--surface));border-radius:8px 4px 4px 8px}
+.lane{position:relative;flex:1;min-width:0;display:grid;place-items:end center;padding-bottom:6px;font-size:10px;color:var(--muted);background:var(--seg);border-radius:4px;overflow:hidden;transition:background .3s}
+.lane small{font-size:inherit;font-variant-numeric:tabular-nums;position:relative}
+.dash{position:absolute;left:50%;top:8px;bottom:26px;width:0;border-left:2px dashed color-mix(in srgb,var(--muted) 45%,transparent)}
+.cur{outline:2px solid var(--blue);outline-offset:-2px;color:var(--ink)}
+.passed{background:color-mix(in srgb,var(--ok) 22%,var(--surface));color:var(--ok)}
+.crash{background:color-mix(in srgb,var(--red) 30%,var(--surface));color:var(--red)}
+.car{position:absolute;left:50%;top:18px;width:80%;max-width:30px;transform:translateX(-50%);animation:pop .25s var(--ease)}
+.chick{position:absolute;top:26px;font-size:30px;color:var(--ink);line-height:1;transition:left .35s var(--ease);pointer-events:none}.dead{color:var(--red);font-weight:700;opacity:.85}.safeEnd{filter:drop-shadow(0 0 4px var(--ok))}.hop{animation:hop .35s var(--ease)}
+@keyframes hop{50%{transform:translateY(-14px)}}
+@media(max-width:560px){.lanes{height:92px}.lane{font-size:8.5px}.curb{font-size:8.5px}.chick{font-size:22px;top:24px}.roadStats strong{font-size:14px}.choices{flex-wrap:wrap}.choices button{flex:1}.drops li,.trail li{font-size:11px}.trail li{min-width:54px}}
