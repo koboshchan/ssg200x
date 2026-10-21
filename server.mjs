@@ -9,6 +9,7 @@ import {timingSafeEqual} from "node:crypto";
 import {createAirdropBroadcaster} from "./runtime/airdrop-events.mjs";
 import {emitState,STATE_STREAMS} from "./runtime/state-stream.mjs";
 import {sessionGuard} from "./runtime/chat-session.mjs";
+import {createDmService} from "./runtime/dm-service.mjs";
 import {createChatService} from "./runtime/chat-service.mjs";
 import {CHAT_MAX_PAYLOAD} from "./runtime/chat-protocol.mjs";
 import {createServer} from "node:http";
@@ -73,7 +74,8 @@ io.use(async(socket,next)=>{
 const client=new MongoClient(process.env.MONGODB_URI,{serverSelectionTimeoutMS:5000});await client.connect();
 const collection=client.db(process.env.MONGODB_DB||"pokerroom").collection("rooms");
 const chat=createChatService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
-await chat.ready;
+const dm=createDmService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
+await Promise.all([chat.ready,dm.ready]);
 const announceAirdrop=createAirdropBroadcaster(io,client.db(process.env.MONGODB_DB||"pokerroom").collection("airdrop_receipts"));
 const checkChatSession=sessionGuard(clerk,{reads:clerkReads(clerk)});
 let hintTimer;
@@ -139,6 +141,32 @@ io.on("connection",socket=>{
      hintChatChanged();
     }
    }catch(error){ack({ok:false,error:error.chatCode||"unavailable"});if(error.chatCode==="forbidden"||error.message==="session")socket.disconnect(true);}finally{socket.data.chatPending--;}
+  });
+ }
+ // DM hints are emitted only to participant sockets, never to the global namespace.
+ for(const event of ["profile","lookup","threads","history","send","block"]){
+  socket.on("dm:"+event,async(payload,ack)=>{
+   if(typeof ack!=="function")return;
+   if((socket.data.dmPending||0)>=4){ack({ok:false,error:"busy"});return;}
+   socket.data.dmPending=(socket.data.dmPending||0)+1;
+   try{
+    await checkChatSession(socket);
+    if(!socket.connected||socket.data.expires<=Date.now()){socket.disconnect(true);return;}
+    const user=socket.data.identity.id;
+    const result=await dm.handle(user,event,payload);
+    await checkChatSession(socket);
+    if(!socket.connected||socket.data.expires<=Date.now())return;
+    ack({ok:true,...result});
+    if(event==="block"||(event==="send"&&!result.duplicate)){
+     const peer=event==="send"?result.message.toUserId:payload.userId;
+     for(const target of io.sockets.sockets.values()){
+      if(target.connected&&target.data.expires>Date.now()&&[user,peer].includes(target.data.identity.id))target.emit("dm:changed");
+     }
+    }
+   }catch(error){
+    ack({ok:false,error:error.chatCode||"unavailable"});
+    if(error.chatCode==="forbidden"||error.message==="session")socket.disconnect(true);
+   }finally{socket.data.dmPending--;}
   });
  }
  attachSocketAuth(socket,{verify:token=>verifyToken(token,{secretKey:clerkSecretKey,authorizedParties:[process.env.APP_ORIGIN]}),checkSession:checkChatSession});
