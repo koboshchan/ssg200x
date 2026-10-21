@@ -51,10 +51,11 @@ test("parallel duplicate leave credits bankroll once and readiness-leave race is
  assert.equal((await readRoom()).seats[0]!.ready,true);
  assert.equal((await readRoom()).seats.filter(Boolean).length,2);
  Date.now=()=>now+READY_MS;await tickRoom();
- r=await readRoom();assert.equal(r.seats[0]!.ready,true);assert.equal(r.readyDeadline,null);
- assert.equal(r.seats.filter(Boolean).length,1);assert.equal(r.members.find(m=>m.id===otherId)!.wallet,100000);
- assert.equal(r.members.find(m=>m.id===who.id)!.wallet,80000);assertRoom(r);
+ r=await readRoom();assert.equal(r.seats[0],null);assert.equal(r.readyDeadline,null);
+ assert.equal(r.seats.filter(Boolean).length,0);assert.equal(r.members.find(m=>m.id===otherId)!.wallet,100000);
+ assert.equal(r.members.find(m=>m.id===who.id)!.wallet,100000);assertRoom(r);
  }finally{Date.now=original;}
+ await move(who,{type:"join",seat:0,buyIn:20000},randomUUID(),r.handNumber,null,Date.now());
  const other=[player(2),player(3)].find(p=>!r.seats.some(s=>s?.userId===p.id))!;
  await move(other,{type:"join",seat:1,buyIn:20000},randomUUID(),r.handNumber,null,Date.now());
 });

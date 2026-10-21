@@ -21,19 +21,20 @@ async function waiting(now:number,ready=1){
  return readRoom();
 }
 function wallet(r:Room,i:number){return r.members.find(m=>m.id===user(i).id)!.wallet;}
-test("mixed ready expiry survives reconnect, starts remaining ready players, and refunds only nonparticipants once",async()=>{
- const original=Date.now,now=original();let r=await waiting(now,2);const expiry=r.readyDeadline!;
- assert.equal(r.street,"waiting");assert.equal(r.seats[2]!.inHand,false);
+test("mixed ready expiry refunds ALL stacks once across reconnect and concurrent worker ticks without dealing",async()=>{
+ const original=Date.now,now=original();const before=await waiting(now,2),expiry=before.readyDeadline!;
  await closeDatabase();
  try{
+  Date.now=()=>expiry-1;await tickRoom();
+  assert.equal((await readRoom()).seats.filter(Boolean).length,3);
   Date.now=()=>expiry;
-  await Promise.all(Array.from({length:6},()=>tickRoom()));
-  r=await readRoom();assert.equal(r.seats[2],null);assert.equal(wallet(r,2),100000);
-  assert.equal(wallet(r,0),90000);assert.equal(wallet(r,1),80000);
-  assert.ok(r.seats.slice(0,2).every(s=>s?.ready&&s.inHand));
-  assert.equal(r.handNumber,1);assert.equal(r.street,"preflop");assert.equal(r.readyDeadline,null);assertRoom(r);
-  await Promise.all(Array.from({length:6},()=>tickRoom()));
-  r=await readRoom();assert.equal(wallet(r,2),100000);assert.equal(r.handNumber,1);assertRoom(r);
+  await Promise.all(Array.from({length:8},()=>tickRoom()));
+  let r=await readRoom();
+  assert.ok(r.seats.every(s=>s===null));assert.ok(r.members.every(m=>m.wallet===100000));
+  assert.equal(r.readyDeadline,null);assert.equal(r.handNumber,0);assert.equal(r.street,"waiting");
+  assert.equal(pot(r),0);assert.equal(r.pokerCarry??0,0);assert.equal(r.pokerBonus??0,0);assertRoom(r);
+  await closeDatabase();await Promise.all(Array.from({length:8},()=>tickRoom()));r=await readRoom();
+  assert.ok(r.members.every(m=>m.wallet===100000));assertRoom(r);
  }finally{Date.now=original;}
 });
 test("all-unready persisted expiry is picked up on restart without requiring a ready seat",async()=>{
@@ -42,56 +43,58 @@ test("all-unready persisted expiry is picked up on restart without requiring a r
  try{
   Date.now=()=>before.readyDeadline!;
   await Promise.all(Array.from({length:6},()=>tickRoom()));
-  let r=await readRoom();assert.ok(r.seats.every(s=>s===null));assert.ok(r.members.every(m=>m.wallet===100000));
-  assert.equal(r.readyDeadline,null);assert.equal(r.handNumber,0);assert.equal(pot(r),0);assert.equal(r.pokerCarry??0,0);assertRoom(r);
-  await closeDatabase();await tickRoom();r=await readRoom();
-  assert.ok(r.members.every(m=>m.wallet===100000));assertRoom(r);
+  const r=await readRoom();assert.ok(r.seats.every(s=>s===null));assert.ok(r.members.every(m=>m.wallet===100000));
+  assert.equal(r.readyDeadline,null);assert.equal(r.handNumber,0);assert.equal(pot(r),0);assertRoom(r);
  }finally{Date.now=original;}
 });
-test("real request just before expiry saves readiness; boundary request and concurrent leaves cannot double-refund",async()=>{
- const original=Date.now,now=original();let r=await waiting(now);const expiry=r.readyDeadline!;
+test("ready request at expiry cannot rescue a ready OR unready seat; concurrent leave cannot double refund",async()=>{
+ const original=Date.now,now=original(),before=await waiting(now,2);
  try{
-  Date.now=()=>expiry-1;
-  await Promise.all([move(user(1),{type:"ready"},randomUUID(),0,null,Date.now()),tickRoom()]);
-  r=await readRoom();assert.ok(r.seats[1]?.ready);assert.equal(r.street,"waiting");
-  Date.now=()=>expiry;
+  Date.now=()=>before.readyDeadline!;
   const results=await Promise.allSettled([
+   move(user(0),{type:"ready"},randomUUID(),0,null,Date.now()),
    move(user(2),{type:"ready"},randomUUID(),0,null,Date.now()),
-   move(user(2),{type:"leave"},randomUUID(),0,null,Date.now()),
+   move(user(0),{type:"leave"},randomUUID(),0,null,Date.now()),
    ...Array.from({length:6},()=>tickRoom())
   ]);
-  assert.equal(results[0].status,"rejected");
-  r=await readRoom();assert.equal(r.seats[2],null);assert.equal(wallet(r,2),100000);
-  assert.ok(r.seats[0]?.ready);assert.ok(r.seats[1]?.ready);assert.equal(r.handNumber,1);assertRoom(r);
+  assert.equal(results[0].status,"rejected");assert.equal(results[1].status,"rejected");
+  const r=await readRoom();assert.ok(r.seats.every(s=>s===null));assert.ok(r.members.every(m=>m.wallet===100000));
+  assert.equal(r.handNumber,0);assertRoom(r);
  }finally{Date.now=original;}
 });
-for(const kind of ["ready","leave","join"] as const)for(const expiryFirst of [true,false]){
- test("forced CAS expiry versus "+kind+" rechecks both commit orders, expiryFirst="+expiryFirst,async()=>{
-  const now=Date.now(),before=await waiting(now),expiry=before.readyDeadline!;
-  const action:Action=kind==="join"?{type:"join",seat:3,buyIn:40000}:{type:kind};
-  const who=user(kind==="join"?3:1);
-  const act=(r:Room)=>applyAction(r,who,action,expiry-1);
+for(const expiryFirst of [true,false]){
+ test("forced CAS expiry vs final Ready preserves refunds or already-started hand, expiryFirst="+expiryFirst,async()=>{
+  const now=Date.now(),before=await waiting(now,2),expiry=before.readyDeadline!;
+  const deal=(r:Room)=>applyAction(r,user(2),{type:"ready"},expiry-1);
   const expire=(r:Room)=>tick(r,expiry);
   let entered!:()=>void,release!:()=>void,first=true;
   const reading=new Promise<void>(resolve=>{entered=resolve;});
   const gate=new Promise<void>(resolve=>{release=resolve;});
   const delayed=mutate(async r=>{
    if(first){first=false;entered();await gate;}
-   if(expiryFirst)act(r);else expire(r);
+   (expiryFirst?deal:expire)(r);
   }).then(()=>true,()=>false);
   await reading;
-  try{await mutate(expiryFirst?expire:act);}finally{release();}
-  assert.equal(await delayed,!(expiryFirst&&kind!=="join"));
-  let r=await readRoom();assertRoom(r);assert.equal(r.seats[2],null);assert.equal(wallet(r,2),100000);
-  if(kind==="ready"&&!expiryFirst){
-   assert.ok(r.seats[1]?.ready);assert.equal(wallet(r,1),80000);assert.equal(r.handNumber,1);
-  }else{assert.equal(r.seats[1],null);assert.equal(wallet(r,1),100000);assert.equal(r.handNumber,0);}
-  if(kind==="join"){
-   assert.equal(!!r.seats[3],expiryFirst);assert.equal(wallet(r,3),expiryFirst?60000:100000);
-  }
-  assert.ok(r.seats[0]?.ready);assert.equal(wallet(r,0),90000);
+  try{await mutate(expiryFirst?expire:deal);}finally{release();}
+  assert.equal(await delayed,!expiryFirst);
+  let r=await readRoom();assertRoom(r);
+  if(expiryFirst){assert.ok(r.seats.every(s=>s===null));assert.ok(r.members.every(m=>m.wallet===100000));assert.equal(r.handNumber,0);}
+  else{assert.ok(r.seats.slice(0,3).every(s=>s?.inHand));assert.equal(r.handNumber,1);assert.deepEqual(r.members.slice(0,3).map(m=>m.wallet),[90000,80000,70000]);}
   await Promise.all(Array.from({length:6},()=>mutate(r=>tick(r,expiry))));
-  r=await readRoom();assert.equal(wallet(r,1),kind==="ready"&&!expiryFirst?80000:100000);
-  assert.equal(wallet(r,2),100000);assertRoom(r);
+  r=await readRoom();assertRoom(r);assert.equal(r.handNumber,expiryFirst?0:1);
+ });
+}
+for(const kind of ["unready","leave"] as const)for(const expiryFirst of [true,false]){
+ test("forced CAS expiry vs "+kind+" refunds each stack once, expiryFirst="+expiryFirst,async()=>{
+  const now=Date.now(),before=await waiting(now,2),expiry=before.readyDeadline!;
+  const action=(r:Room)=>applyAction(r,user(0),{type:kind},expiry-1);
+  const expire=(r:Room)=>tick(r,expiry);
+  let entered!:()=>void,release!:()=>void,first=true;
+  const reading=new Promise<void>(resolve=>{entered=resolve;});
+  const gate=new Promise<void>(resolve=>{release=resolve;});
+  const delayed=mutate(async r=>{if(first){first=false;entered();await gate;}(expiryFirst?action:expire)(r);}).then(()=>true,()=>false);
+  await reading;try{await mutate(expiryFirst?expire:action);}finally{release();}
+  assert.equal(await delayed,!expiryFirst);const r=await readRoom();
+  assert.ok(r.seats.every(s=>s===null));assert.ok(r.members.every(m=>m.wallet===100000));assert.equal(r.handNumber,0);assertRoom(r);
  });
 }
