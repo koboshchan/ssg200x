@@ -1,3 +1,4 @@
+import {attachSocketAuth} from "./runtime/socket-auth.mjs";
 import {createTabLeases} from "./runtime/tab-leases.mjs";
 const tabLeases=createTabLeases();
 const tabSweep=setInterval(()=>tabLeases.sweepAll(),500);tabSweep.unref();
@@ -46,7 +47,7 @@ const server=createServer(async(request,response)=>{
   await announceAirdrop(id);response.writeHead(204).end();
  }catch{response.writeHead(503).end();}
 });
-const io=new Server(server,{cors:{origin:process.env.APP_ORIGIN,credentials:true},maxHttpBufferSize:CHAT_MAX_PAYLOAD,transports:["websocket"]});
+const io=new Server(server,{cors:{origin:process.env.APP_ORIGIN,credentials:true},maxHttpBufferSize:CHAT_MAX_PAYLOAD,transports:["websocket"],pingInterval:25000,pingTimeout:20000});
 // Runtime-only Clerk keys; the legacy NEXT_PUBLIC name is accepted from the container environment only.
 const clerkPublishableKey=(process.env.CLERK_PUBLISHABLE_KEY||process.env["NEXT_PUBLIC_"+"CLERK_PUBLISHABLE_KEY"]||"").trim()||undefined;
 const clerkSecretKey=(process.env.CLERK_SECRET_KEY||"").trim()||undefined;
@@ -130,8 +131,7 @@ io.on("connection",socket=>{
    }catch(error){ack({ok:false,error:error.chatCode||"unavailable"});if(error.chatCode==="forbidden"||error.message==="session")socket.disconnect(true);}finally{socket.data.chatPending--;}
   });
  }
- const expiry=setTimeout(()=>socket.disconnect(true),Math.max(0,socket.data.expires-Date.now()));
- socket.on("disconnect",()=>clearTimeout(expiry));
+ attachSocketAuth(socket,{verify:token=>verifyToken(token,{secretKey:clerkSecretKey,authorizedParties:[process.env.APP_ORIGIN]}),checkSession:checkChatSession});
  void pushState(socket,true);
 });
 let running=false;

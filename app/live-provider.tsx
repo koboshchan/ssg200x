@@ -1,4 +1,5 @@
 "use client";
+import {attachSocketAuthClient} from "../runtime/socket-auth.mjs";
 import AirdropAnnouncement from "./airdrop-announcement";
 import {AIRDROP_EVENT,createAirdropReceiver} from "../runtime/airdrop-events.mjs";
 import {createContext,useContext,useEffect,useMemo,useRef,useState} from "react";
@@ -13,7 +14,7 @@ export type Connection="connecting"|"connected"|"disconnected";
    State events carry full/diff envelopes, decoded here before notifying subscribers.
    room:state PublicRoom, market:update MarketSnapshot, maintenance:state MaintenanceStatus.
    Non-admin blocked by maintenance: middleware rejects with Error("maintenance") (or emits maintenance:state {blocked:true} then disconnects).
-   Server disconnects at token expiry; client reconnects with a fresh token. */
+   Credentials renew in place before expiry; missing/invalid refresh still disconnects at the verified deadline. */
 type Live={connection:Connection;maintenance?:MaintenanceStatus;lastMessageAt:number;subscribe:(event:string,handler:(payload:any)=>void)=>()=>void;emit:(event:string,payload?:unknown)=>void;request:(event:string,payload?:unknown)=>Promise<any>};
 const Context=createContext<Live|null>(null);
 export function useLive(){const v=useContext(Context);if(!v)throw new Error("LiveProvider missing");return v;}
@@ -36,7 +37,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
   if(socketRef.current?.connected)socketRef.current.emit("tab:report",{route:routeRef.current});
  },[pathname]);
  useEffect(()=>{
-  let closed=false,retry:ReturnType<typeof setTimeout>|undefined,attempts=0,socket:Socket|undefined;
+  let closed=false,retry:ReturnType<typeof setTimeout>|undefined,attempts=0,socket:Socket|undefined,disposeAuth:(()=>void)|undefined;
   const dispatch=(event:string,p:unknown)=>{if(event!==AIRDROP_EVENT)latest.current.set(event,p);setLast(Date.now());listeners.current.get(event)?.forEach(h=>h(p));};
   airdropReceiver.current??=createAirdropReceiver(p=>listeners.current.get(AIRDROP_EVENT)?.forEach(h=>h(p)));
   const receiver=createStateReceiver(event=>socket?.connected&&socket.emit("state:resync",event));
@@ -49,6 +50,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    if(closed)return;
    socket=io({path:"/socket.io",transports:["websocket"],reconnection:true,reconnectionDelayMax:10000,auth:cb=>{tokenRef.current({skipCache:true}).then(token=>cb({token,...getTabIdentity(),route:routeRef.current})).catch(()=>cb({}));}});
    socketRef.current=socket;
+   disposeAuth=attachSocketAuthClient(socket,()=>tokenRef.current({skipCache:true}));
    socket.on("connect",()=>{receiver.clear();latest.current.clear();attempts=0;setConnection("connected");report();});
    socket.on("disconnect",()=>{receiver.clear();latest.current.clear();setConnection("disconnected");later();});
    socket.on("connect_error",e=>{setConnection("disconnected");if(e.message==="maintenance")setMaintenance(m=>({admin:false,active:true,manual:false,...m,blocked:true}));later();});
@@ -68,7 +70,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    // TableTalk's encrypted protocol and invalidation hints stay untouched.
    socket.on("chat:changed",(p:unknown)=>dispatch("chat:changed",p));
   }).catch(()=>setConnection("disconnected"));
-  return()=>{closed=true;clearInterval(reportTimer);document.removeEventListener("visibilitychange",report);window.removeEventListener("pageshow",report);receiver.clear();latest.current.clear();clearTimeout(retry);socket?.disconnect();socketRef.current=undefined;};
+  return()=>{closed=true;clearInterval(reportTimer);document.removeEventListener("visibilitychange",report);window.removeEventListener("pageshow",report);receiver.clear();latest.current.clear();clearTimeout(retry);disposeAuth?.();socket?.disconnect();socketRef.current=undefined;};
  },[]);
  const value=useMemo<Live>(()=>({connection,maintenance,lastMessageAt,...api}),[connection,maintenance,lastMessageAt,api]);
  return <Context.Provider value={value}>{children}<AirdropAnnouncement subscribe={api.subscribe}/>{tabBlocked?<TabBlockedOverlay/>:null}</Context.Provider>;
