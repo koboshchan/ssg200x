@@ -14,7 +14,7 @@ export type {Symbol,Bet} from "./market-shared";
 export type Quote={micro:number;at:number};
 export type Holding={symbol:Symbol;units:number;cost:number};
 export type Position={id:string;symbol:Symbol;side:"long"|"short";margin:number;leverage:number;entry:number;opened:number;feePpm?:number;openingFee?:number;maintenance?:number;liquidationOverride?:number;takeProfit?:number;stopLoss?:number};
-export type ClosedPosition={id:string;symbol:Symbol;side:"long"|"short";leverage:number;entry:number;exit:number;margin:number;realizedPnl:number;openingFee?:number;closingFee?:number;assessedClosingFee?:number;waivedClosingFee?:number;grossPnl?:number;reason:"TP"|"SL"|"Liq"|"Manual";closedAt:number};
+export type ClosedPosition={id:string;symbol:Symbol;side:"long"|"short";leverage:number;entry:number;exit:number;margin:number;realizedPnl:number;openingFee?:number;closingFee?:number;assessedClosingFee?:number;waivedClosingFee?:number;reason:"TP"|"SL"|"Liq"|"Manual";closedAt:number};
 export type Spin={id:string;number:number;stake:number;returned:number;at:number};
 export function portfolio(m:Member){m.holdings??=[];m.positions??=[];m.spins??=[];m.closedPositions??=[];return m;}
 export function value(units:number,micro:number){return Number(BigInt(units)*BigInt(micro)/1_000_000_000_000n);}
@@ -67,7 +67,7 @@ function settle(r:Room,m:Member,p:Position,mark:number,reason:ClosedPosition["re
  const returned=isLiquidation?0:Math.max(0,grossReturn-closingFee);
  ensure(Number.isSafeInteger(returned)&&returned<1e12,"Position exceeds simulation limit.");
  m.wallet+=returned;r.house=(r.house||0)+p.margin-returned;m.positions=m.positions!.filter(x=>x.id!==p.id);
- m.closedPositions=[{id:p.id,symbol:p.symbol,side:p.side,leverage:p.leverage,entry:p.entry,exit:mark,margin:p.margin,realizedPnl:returned-p.margin-(p.openingFee||0),...(p.feePpm?{grossPnl:isLiquidation?closingFee-p.margin:grossReturn-p.margin,openingFee:p.openingFee||0,closingFee,assessedClosingFee,waivedClosingFee:assessedClosingFee-closingFee}:{}),reason:isLiquidation?"Liq":reason,closedAt:now},...(m.closedPositions||[])];
+ m.closedPositions=[{id:p.id,symbol:p.symbol,side:p.side,leverage:p.leverage,entry:p.entry,exit:mark,margin:p.margin,realizedPnl:returned-p.margin-(p.openingFee||0),...(p.feePpm?{openingFee:p.openingFee||0,closingFee,assessedClosingFee,waivedClosingFee:assessedClosingFee-closingFee}:{}),reason:isLiquidation?"Liq":reason,closedAt:now},...(m.closedPositions||[])];
  m.activity=[(isLiquidation?"Liquidated ":"Closed ")+p.side+" "+p.symbol+" · "+(returned/100).toFixed(2)+" returned · fees "+(((p.openingFee||0)+closingFee)/100).toFixed(2)+" · position "+p.id,...(m.activity||[])].slice(0,40);
 }
 export function liquidate(r:Room,now=Date.now()){
