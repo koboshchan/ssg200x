@@ -62,9 +62,9 @@ test("provider keeps airdrop notifications out of cached state and leaves reconn
 });
 test("only the secret internal HTTP path can announce, not a client socket event",()=>{
  const source=readFileSync(new URL("../server.mjs",import.meta.url),"utf8");
- assert.match(source,/request.url!=="\/internal-airdrop"/);
+ assert.match(source,/\["\/internal-airdrop","\/internal-tab-check"\]\.includes\(request.url\)/);
  assert.match(source,/timingSafeEqual\(a,b\)/);
- assert.match(source,/Buffer.byteLength\(body\)>256/);
+ assert.match(source,/Buffer.byteLength\(body\)>1024/);
  assert.match(source,/await announceAirdrop\(id\)/);
  assert.doesNotMatch(source,/socket.on\(["']airdrop/);
 });
