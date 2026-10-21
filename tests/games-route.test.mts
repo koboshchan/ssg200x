@@ -1,0 +1,34 @@
+import test,{mock} from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {freshRoom,register,assertRoom} from '../lib/poker';
+import {AppError} from '../lib/errors';
+let room=freshRoom();const who={id:'games-route',name:'Games',email:'games@test',admin:false};
+mock.module('../lib/api.ts',{namedExports:{endpoint:async(_request:Request,handler:Function)=>{try{return Response.json(await handler(who));}catch(e){return Response.json({error:(e as Error).message},{status:e instanceof AppError?e.status:400});}},parse:async(request:Request,schema:any)=>schema.parse(await request.json())}});
+mock.module('../lib/store.ts',{namedExports:{rateLimit:async()=>{},visit:async()=>room,mutate:async(fn:Function)=>{for(let i=0;i<12;i++){const before=room,next=structuredClone(before),result=fn(next);assertRoom(next);await Promise.resolve();if(room.version!==before.version)continue;next.version++;room=next;return {room:next,result};}throw new AppError('Busy',409);}}});
+const {POST,GET}=await import('../app/api/games/route');
+const request=(body:object)=>new Request('https://games.invalid/api/games',{method:'POST',body:JSON.stringify(body)});
+const wager=()=>({type:'start',game:'plinko',amount:500,requestId:randomUUID(),requestAt:Date.now()});
+test('Games POST acknowledges the exact committed drop, including concurrent duplicate and lost-reply replay',async()=>{
+ room=freshRoom();register(room,who);const inputs=Array.from({length:4},wager);
+ const replies=await Promise.all(inputs.flatMap(body=>[POST(request(body)),POST(request(body))]));
+ assert.deepEqual(replies.map(r=>r.status),Array(8).fill(200));
+ const bodies=await Promise.all(replies.map(r=>r.json()));
+ for(let i=0;i<inputs.length;i++)for(const body of bodies.slice(i*2,i*2+2)){
+  assert.equal(body.actionGameId,inputs[i].requestId);
+  assert.ok(body.games.some((g:any)=>g.id===body.actionGameId&&g.kind==='plinko'));
+ }
+ const wallet=room.members[0].wallet,serialized=JSON.stringify(room.miniGames);
+ // Browser may lose any reply above; replay keeps that original request envelope.
+ for(const body of inputs){const replay=await POST(request(body));assert.equal(replay.status,200);assert.equal((await replay.json()).actionGameId,body.requestId);}
+ assert.equal(room.members[0].wallet,wallet);assert.equal(JSON.stringify(room.miniGames),serialized);assertRoom(room);
+ const changed=await POST(request({...inputs[0],amount:1000}));assert.equal(changed.status,409);
+ const snapshot=await GET(new Request('https://games.invalid/api/games'));assert.equal(snapshot.status,200);assert.equal((await snapshot.json()).games.length,4);
+});
+test('Games rejects unknown fields before any debit and returns safe acknowledgment after result retention',async()=>{
+ room=freshRoom();register(room,who);const first=wager();
+ assert.equal((await POST(request({...first,guaranteedWin:true}))).status,400);assert.equal(room.members[0].wallet,100000);
+ assert.equal((await POST(request(first))).status,200);for(let i=0;i<32;i++)assert.equal((await POST(request(wager()))).status,200);
+ const before=room.members[0].wallet;
+ const replay=await POST(request(first));assert.equal(replay.status,200);assert.equal((await replay.json()).actionGameId,null);assert.equal(room.members[0].wallet,before);
+});
