@@ -162,3 +162,7 @@
 .dd-stage .dd-seat .dd-reserve span,.dd-stage .dd-seat small,.dd-stage .dd-seat.dd-self .dd-reserve span{color:#e4f0e8}
 .dd-settle li small{color:#f1f8f4}
 @media(max-width:600px){.fx-rocket .rk-fly{left:auto;right:4px;margin-left:0;width:26px}.fx-rocket .rk-fly{z-index:0}}
+.fx-rocket .rk-fly{left:auto;right:4%;margin-left:0;z-index:0}
+.fx-rocket .puff{z-index:0}
+.fx-rocket{z-index:0}
+@media(max-width:600px){.fx-rocket .rk-fly{right:4px}}
