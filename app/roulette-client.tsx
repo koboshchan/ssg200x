@@ -1,4 +1,5 @@
 "use client";
+import {RouletteBetChips} from "./roulette-bet-chips";
 import {useEffect,useState} from 'react';
 import {ROULETTE_CHIPS as denominations} from '@/lib/roulette-chips';
 import {RED,type Bet} from '@/lib/market-shared';
@@ -18,7 +19,7 @@ export default function Roulette({room,busy,post}:Props){
  const maxTotal=room.casinoLimits.rouletteMaxTotal;
  const disabled=busy||locked||amount>room.me.wallet||stake+amount>maxTotal;
  const send=(action:object)=>post('/api/roulette',{...action,round:table.round,requestId:crypto.randomUUID(),requestAt:Date.now()});
- const cell=(label:string,kind:Bet['kind'],pick?:number)=>{const wagers=table.bets.filter(w=>w.bet.kind===kind&&w.bet.pick===pick);return <button key={kind+'-'+pick} aria-label={'Bet '+money(amount)+' on '+label} disabled={disabled} className={styles.cell+' '+(kind==='straight'?(pick===0?styles.zero:RED.has(pick!)?styles.red:styles.black):styles.outside)+(phase==='result'&&kind==='straight'&&pick===table.spin?.number?' '+styles.winningCell:'')} onClick={()=>send({type:'bet',bet:{kind,pick,amount}})}><strong>{label}</strong>{wagers.length?<span className={styles.overlays}>{wagers.map(w=><span key={w.id} className={styles.wager+(w.isYou?' '+styles.mine:'')} title={w.name+' '+money(w.bet.amount)}><b>{money(w.bet.amount)}</b><span>{w.name}</span></span>)}</span>:null}</button>;};
+ const cell=(label:string,kind:Bet['kind'],pick?:number)=>{const wagers=table.bets.filter(w=>w.bet.kind===kind&&w.bet.pick===pick);return <button key={kind+'-'+pick} aria-label={'Bet '+money(amount)+' on '+label} disabled={disabled} className={styles.cell+' '+(kind==='straight'?(pick===0?styles.zero:RED.has(pick!)?styles.red:styles.black):styles.outside)+(phase==='result'&&kind==='straight'&&pick===table.spin?.number?' '+styles.winningCell:'')} onClick={()=>send({type:'bet',bet:{kind,pick,amount}})}><strong>{label}</strong>{wagers.length?<RouletteBetChips bets={wagers}/>:null}</button>;};
  const recent=table.history[0],winners=recent?.winners||[];
  const phaseLabel={betting:'Open',locked:'Locked',spinning:'Spinning',result:'Result'}[phase];
  const phaseNote={betting:'Place your chips',locked:now>=table.spinsAt?'Waiting for the wheel':'No more bets',spinning:'Wheel in motion',result:'Next round shortly'}[phase];
