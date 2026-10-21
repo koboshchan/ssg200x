@@ -1,4 +1,5 @@
 "use client";
+import {getTabHeaders} from "@/lib/tab-identity";
 import {useEffect,useState} from "react";
 type Mode="price"|"pnl";
 const options:{value:Mode;label:string;hint:string}[]=[
@@ -9,7 +10,7 @@ export default function SettingsClient(){
  useEffect(()=>{let live=true;fetch("/api/settings").then(async r=>{const j=await r.json();if(!r.ok)throw new Error(j.error||"Could not load settings.");if(live)setMode(j.triggerInputMode);}).catch(e=>live&&setError(e.message));return()=>{live=false;};},[]);
  async function choose(next:Mode){
   if(next===mode||saving)return;const prev=mode;setMode(next);setSaving(true);setError("");
-  try{const r=await fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({triggerInputMode:next,requestId:crypto.randomUUID(),requestAt:Date.now()})});
+  try{const r=await fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json",...getTabHeaders()},body:JSON.stringify({triggerInputMode:next,requestId:crypto.randomUUID(),requestAt:Date.now()})});
    if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||"Could not save.");}
   catch(e){setMode(prev);setError(e instanceof Error?e.message:"Could not save.");}
   finally{setSaving(false);}

@@ -1,4 +1,5 @@
 "use client";
+import {getTabHeaders} from "@/lib/tab-identity";
 import CasinoAmountInput from "./casino-amount-input";
 import {casinoInputCents,isWholeCasinoAmount} from "@/lib/casino-amount";
 import {useServerClock} from "./use-server-clock";
@@ -119,7 +120,7 @@ function Game({tab}:{tab:RoomTab}){
  useEffect(()=>{if(room?.legal)setRaise(String(Math.ceil(room.legal.minTo/100)));},[room?.handNumber,room?.street,room?.legal?.minTo]);
  async function post(path:string,body:object){
   if(busyRef.current)return;if(connection!=="connected"){setError("Disconnected. Wait for the connection to return.");return;}busyRef.current=true;setBusy(true);setError("");
-  try{const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,requestAt:Date.now()})});const data=await response.json();if(!response.ok)throw new Error(data.error);setRoom(current=>mergeRoom(current,data));}
+  try{const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json",...getTabHeaders()},body:JSON.stringify({...body,requestAt:Date.now()})});const data=await response.json();if(!response.ok)throw new Error(data.error);setRoom(current=>mergeRoom(current,data));}
   catch(e){setError(e instanceof Error?e.message:"Could not complete action.");}
   finally{busyRef.current=false;setBusy(false);}
  }

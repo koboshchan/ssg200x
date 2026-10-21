@@ -1,4 +1,5 @@
 "use client";
+import {getTabHeaders} from "@/lib/tab-identity";
 import {useEffect,useRef,useState} from "react";
 import {useLive,useLiveEvent} from "../../live-provider";
 import {createTransferHistoryRefresh,retryAfterMs} from "@/lib/transfer-history-refresh";
@@ -15,7 +16,7 @@ const AMOUNT="(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,2})?";
 const words=(v:string)=>v.trim().toLowerCase().split(/\s+/).filter(Boolean);
 
 async function call(url:string,body?:object,signal?:AbortSignal){
- const res=await fetch(url,body?{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}:{cache:"no-store",signal});
+ const res=await fetch(url,body?{method:"POST",headers:{"content-type":"application/json",...getTabHeaders()},body:JSON.stringify(body)}:{cache:"no-store",signal});
  const value=await res.json().catch(()=>({}));
  if(!res.ok)throw Object.assign(new Error(value.error||"Request unavailable."),{status:res.status,retryAfter:retryAfterMs(res.headers.get("Retry-After"))});
  return value;
