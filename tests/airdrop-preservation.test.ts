@@ -9,6 +9,8 @@ test("original airdrop banner, confetti and runtime remain byte-for-byte unchang
 });
 test("treasure banner is payment-only and has no confetti",()=>{
  const source=readFileSync("app/money-banner.tsx","utf8");
- assert.doesNotMatch(source,/airdrop|canvas|confetti/i);
+ assert.doesNotMatch(source,/canvas|confetti|kind:"airdrop"/i);
+ assert.match(source,/airdrop-announcement play payment-announcement/);
+ assert.match(source,/className="airdrop-message"/);
  assert.match(source,/kind:"payment"/);
 });
