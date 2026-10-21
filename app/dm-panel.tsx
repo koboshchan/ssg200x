@@ -227,6 +227,7 @@ export default function DmPanel({phase,goSetup}:{phase:string;goSetup:()=>void})
        if(e.key==="Escape"){if(options.length){e.preventDefault();e.stopPropagation();}setHintOpen(false);return;}
        if((e.key==="ArrowDown"||e.key==="ArrowUp")&&options.length){e.preventDefault();setHint((hintAt+(e.key==="ArrowDown"?1:-1)+options.length)%options.length);return;}
        if(e.key==="Enter"&&options.length){e.preventDefault();pickHint(options[hintAt]);}
+       if(e.key==="Tab"&&!e.shiftKey){const next=e.currentTarget.form?.querySelector<HTMLButtonElement>("button:not(:disabled)");if(next){e.preventDefault();next.focus();}}
       }}/>
      {options.length>0&&<ul className="dm-find-hints" role="listbox" id={findId} aria-label="Word suggestions">
       {options.map((w,i)=><li key={w} id={findId+"-"+i} role="option" aria-selected={i===hintAt} onPointerDown={e=>e.preventDefault()} onClick={()=>pickHint(w)}>{w}</li>)}
