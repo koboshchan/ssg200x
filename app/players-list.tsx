@@ -3,6 +3,7 @@ import {useEffect,useId,useMemo,useRef,useState} from "react";
 import type {PublicRoom} from "@/lib/public";
 import type {FingerprintPlayer} from "@/lib/device-fingerprints";
 import styles from "./players-list.module.css";
+import AdminChatReset from "./admin-chat-reset";
 
 type AdminUser=PublicRoom["adminUsers"][number];
 type Post=(path:string,body:object)=>Promise<void>;
@@ -125,6 +126,7 @@ function PlayerRow({user:u,busy,post,alts,reports,onOpen}:{user:AdminUser;busy:b
      {u.positions.length?<div className={styles.tableScroll}><table id={holdingsId}><caption className="sr-only">{u.name} open positions</caption><thead><tr><th scope="col">Position</th><th scope="col">Margin</th><th scope="col">Entry</th><th scope="col">Liquidation</th><th scope="col">Equity</th><th scope="col">P/L</th></tr></thead><tbody>{u.positions.map(x=><tr key={x.id}><th scope="row">{x.symbol} {x.side} {x.leverage}x</th><td>{money(x.margin)}</td><td>{usd(x.entry)}</td><td>{usd(x.liquidation)}</td><td>{money(x.equity)}</td><td className={x.pnl>=0?"positive":"negative"}>{signed(x.pnl)}</td></tr>)}</tbody></table></div>:<p>No open positions.</p>}
     </div>
    </details>
+   <AdminChatReset publicId={u.publicId} name={u.name} disabled={busy}/>
    <button disabled={busy} aria-expanded={editing} aria-controls={editorId} onClick={()=>{setEditing(!editing);setConfirm(false);}}>Adjust balance<span className="sr-only"> for {u.name}</span></button>
   </div>
   {editing?<div className={styles.adjuster} id={editorId}><label htmlFor={inputId} className="sr-only">Balance change in dollars for {u.name}</label>

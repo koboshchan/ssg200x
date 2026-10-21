@@ -59,7 +59,7 @@ export function indexedDbStore():ChatStore{
   async clearIdentity(u){
    // A new account key must not inherit retained epoch access from the previous identity.
    await tx("readwrite",s=>{
-    s.delete("identity:"+u);
+    s.delete("identity:"+u);s.delete("setup:"+u);s.delete("kek:"+u);
     const r=s.openCursor();
     r.onsuccess=()=>{const c=r.result;if(!c)return;
      if(typeof c.key==="string"&&(c.key.startsWith("epoch:"+u+":")||c.key.startsWith("bootstrap:"+u+":")||c.key.startsWith("pending:"+u+":")))c.delete();

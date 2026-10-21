@@ -1,3 +1,4 @@
+import {casinoLimits} from "./casino-limits";
 import {isWholeCasinoAmount} from "./casino-amount";
 import {playerReference} from "../runtime/clerk-names.mjs";
 import {ACTION_TURN_MS} from "./turn-timer";
@@ -204,7 +205,7 @@ export function applyAction(r: Room, who: Identity, action: Action, now: number)
  if (action.type === "join") {
   ensure(i < 0, "You already have a seat.", 409);
   ensure(Number.isInteger(action.seat) && action.seat >= 0 && action.seat < 6 && !r.seats[action.seat], "That seat is taken.", 409);
-  ensure(isWholeCasinoAmount(action.buyIn) && action.buyIn >= 10_000 && action.buyIn <= 100_000 && member.wallet >= action.buyIn, "Buy in with $100–$1,000 from your wallet.");
+  ensure(isWholeCasinoAmount(action.buyIn) && action.buyIn >= 10_000 && action.buyIn <= casinoLimits(r).pokerMaxBuyIn && member.wallet >= action.buyIn, "Buy in with at least $100 from your wallet, within the current poker limit.");
   member.wallet -= action.buyIn;
   r.seats[action.seat] = { userId: who.id, stack: action.buyIn, hole: [], bet: 0, committed: 0, folded: true, inHand: false, actedAt: null, sitOut: false, leaveAfter: false, seen: now, ready: false };
   addLog(r,playerReference(member) + " takes seat " + (action.seat+1));

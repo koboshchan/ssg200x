@@ -1,0 +1,28 @@
+import {test,after} from "node:test";
+import assert from "node:assert/strict";
+import {randomUUID} from "node:crypto";
+import {db,closeDatabase,readRoom} from "../../lib/db";
+import {mutate,visit,move} from "../../lib/store";
+import {assertRoom} from "../../lib/poker";
+import {casinoLimits} from "../../lib/casino-limits";
+import {changeCasinoLimits} from "../../lib/admin-casino-limits";
+if(!process.env.MONGODB_DB?.startsWith("fakebucks_test_"))throw Error("Requires isolated test DB");
+process.env.MONGODB_DB+="_poker_caps";
+after(async()=>{await(await db()).dropDatabase();await closeDatabase();});
+const admin={id:"a",name:"Admin",email:"a@test",admin:true},user={id:"u",name:"Player",email:"u@test",admin:false};
+test("Mongo persists audited poker cap; concurrent admin edits and joins use CAS; lowered cap preserves existing seats and blocks rebuys",async()=>{
+ await visit(admin);await visit(user);
+ const changes=await Promise.allSettled([20000,30000].map(pokerMaxBuyIn=>mutate(r=>changeCasinoLimits(r,admin,{...casinoLimits(r),pokerMaxBuyIn,expectedVersion:0}))));
+ assert.equal(changes.filter(x=>x.status==="fulfilled").length,1);
+ await closeDatabase();let r=await readRoom();assert.equal(casinoLimits(r).revision,1);
+ const cap=casinoLimits(r).pokerMaxBuyIn;
+ await move(user,{type:"join",seat:0,buyIn:cap},randomUUID(),0,null,Date.now());
+ await mutate(r=>changeCasinoLimits(r,admin,{...casinoLimits(r),pokerMaxBuyIn:10000,expectedVersion:1}));
+ await closeDatabase();r=await readRoom();assert.equal(r.seats[0]!.stack,cap);
+ await move(user,{type:"leave"},randomUUID(),0,null,Date.now());
+ const before=await readRoom();await assert.rejects(move(user,{type:"join",seat:0,buyIn:cap},randomUUID(),0,null,Date.now()),/limit/);assert.deepEqual(await readRoom(),before);
+ await move(user,{type:"join",seat:0,buyIn:10000},randomUUID(),0,null,Date.now());
+ r=await readRoom();assert.equal(r.seats[0]!.stack,10000);assert.equal(r.members.find(m=>m.id===user.id)!.wallet,90000);assertRoom(r);
+ const events=await(await db()).collection("audit").find({what:"casino-limits"}).sort({"new.revision":1}).toArray();
+ assert.equal(events.length,2);assert.equal(events[0].old.pokerMaxBuyIn,100000);assert.equal(events[1].new.pokerMaxBuyIn,10000);
+});
