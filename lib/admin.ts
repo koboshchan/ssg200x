@@ -1,3 +1,4 @@
+import {validTradeLimit} from "./trade-limit";
 import {roomFeeRates,closingFeeMode,type ClosingFeeMode} from "../runtime/perp-fee-policy.mjs";
 import {validFeePercent} from "./perp-fees";
 import {playerReference} from "../runtime/clerk-names.mjs";
@@ -31,7 +32,7 @@ export function setLiquidation(r:Room,who:Identity,target:string,id:string,price
  audit(r,who,"liquidation-price",m.id+"/"+id,liqPrice(p)/1e6,price);p.liquidationOverride=micro;liquidate(r);
 }
 export function setLimits(r:Room,who:Identity,maxTrade:number,maxLeverage:number){
- ensure(who.admin,"Administrator access required.",403);ensure(Number.isFinite(maxTrade)&&maxTrade>=1&&maxTrade<=1000000&&Math.abs(maxTrade*100-Math.round(maxTrade*100))<1e-7,"Trade limit must be $1–$1,000,000 to the cent.");
+ ensure(who.admin,"Administrator access required.",403);ensure(validTradeLimit(maxTrade),"Trade limit must be a positive finite dollar amount to the cent within safe ledger precision.");
  ensure(Number.isInteger(maxLeverage)&&maxLeverage>=1&&maxLeverage<=200,"Leverage cap must be 1–200x.");
  const limits={maxTrade,maxLeverage};audit(r,who,"trading-limits","global",r.limits||{maxTrade:1000000,maxLeverage:200},limits);r.limits=limits;
 }

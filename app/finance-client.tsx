@@ -64,12 +64,12 @@ export function Markets({room,busy,post}:Props){
  const choosePercent=(percent:number)=>{setSellSelection({symbol,percent});setAmount((Math.floor((holding?.value||0)*percent/100)/100).toFixed(2));};
  const send=(body:object)=>post("/api/finance",body);
  const sellReason=(h:PublicRoom["holdings"][number])=>{
-  if(h.symbol!==symbol)return h.value<1?"Worth less than $0.01 · units retained":h.value>Math.min(room.limits.maxTrade*100,100_000_000)?"Above trade limit · use order ticket":"";
+  if(h.symbol!==symbol)return h.value<1?"Worth less than $0.01 · units retained":h.value>room.limits.maxTrade*100?"Above trade limit · use order ticket":"";
   const quote=(room.quotes as Record<string,{micro:number;at:number}|undefined>)[h.symbol];
   if(!quote||!Number.isSafeInteger(quote.micro)||quote.micro<=0||Math.max(clock,room.serverNow)<quote.at||Math.max(clock,room.serverNow)-quote.at>=(isStockSymbol(h.symbol)?60_000:10_000))return "Live price unavailable";
   if(isStockSymbol(h.symbol)&&(!room.stockExecution?.[h.symbol]?.executable||clock>=room.stockExecution[h.symbol].validUntil))return "Stock market closed or unavailable";
   if(h.value<1)return "Worth less than $0.01 · units retained";
-  if(h.value>Math.min(room.limits.maxTrade*100,100_000_000))return "Above trade limit · use order ticket";
+  if(h.value>room.limits.maxTrade*100)return "Above trade limit · use order ticket";
   return "";
  };
  return <section className="markets"><div className="market-heading"><div><p className="eyebrow">MAKE-BELIEVE MARKETS</p><h2>Read the room.<br/>Or read the chart.</h2></div><div className="price"><span>{isFx(symbol)?symbol+" · "+symbol.slice(4)+" per 1 "+symbol.slice(0,3):stockDisplayName(symbol)+" / USD"}{isFx(symbol)&&forexMock?" · MOCK":""}</span><strong>{isFx(symbol)?(fxQ?fxRate(fxQ.micro,symbol)+" "+fxQ.quoteCurrency:"Unavailable"):q?price(q.micro):"Unavailable"}</strong><small>{isFx(symbol)?(forexMock||fxQ?.source==="mock"?"MOCK demo rate, not a real price. Trading disabled.":fx?.marketOpen===false?"Forex market closed. Trading disabled.":fx?.stream&&fx.stream!=="streaming"?"Forex stream "+fx.stream+". Trading disabled.":fxTradable?"Live streamed rate in native units"+(fxQ?.usdMicro?" · 1 "+symbol.slice(0,3)+" = $"+(fxQ.usdMicro/1e6).toFixed(4)+" USD":"")+".":"View only. "+fxReasonText(fxEx,fxQ?.at,clock)):fresh?"Cached server reference price":isStockSymbol(symbol)?(room.stockExecution?.[symbol]?.reason==="closed_or_calendar_unverified"?"Market closed":"Stock price stale or unavailable"):"Price feed unavailable · orders paused"}</small></div></div>

@@ -91,17 +91,18 @@ export function spot(r:Room,who:Identity,symbol:Symbol,side:"buy"|"sell",amount:
  ensure(activeSymbol(symbol,r),"Asset is delisted. New orders are disabled.",410);
  const m=portfolio(register(r,who));
  const price=requireSpotQuote(r,symbol,now);
- ensure(Number.isSafeInteger(amount)&&amount>=100&&amount<=100_000_000,"Use $1–$1,000,000 per order.");
+ ensure(Number.isSafeInteger(amount)&&amount>=100,"Use at least $1 per order within safe ledger precision.");
  ensure(amount<=(r.limits?.maxTrade??1000000)*100,"Order exceeds the host’s trade limit.");
  let h=m.holdings!.find(h=>h.symbol===symbol);
  if(side==="buy"){
  ensure(m.wallet>=amount,"Not enough cash.");const units=unitsFor(amount,price);ensure(units>0&&Number.isSafeInteger(units),"Order too small or too large.");
+ ensure(Number.isSafeInteger((h?.units||0)+units)&&Number.isSafeInteger((h?.cost||0)+amount),"Holding exceeds safe ledger precision.");
  m.wallet-=amount;if(!h){h={symbol,units:0,cost:0};m.holdings!.push(h);}h.units+=units;h.cost+=amount;
  }else{
  ensure(h&&h.units>0,"No holding to sell.");
  const units=Math.min(h.units,unitsFor(amount,price));ensure(units>0,"Order too small.");
  const cost=units===h.units?h.cost:Math.floor(h.cost*units/h.units),returned=value(units,price);
- ensure(returned>0,"Order too small.");h.units-=units;h.cost-=cost;m.wallet+=returned;r.house=(r.house||0)+cost-returned;
+ ensure(Number.isSafeInteger(returned)&&returned>0,"Order too small or too large.");ensure(Number.isSafeInteger(m.wallet+returned),"Wallet exceeds simulation limit.");h.units-=units;h.cost-=cost;m.wallet+=returned;r.house=(r.house||0)+cost-returned;
  if(h.units===0)m.holdings=m.holdings!.filter(x=>x!==h);
  }
 }
@@ -109,7 +110,7 @@ export function openPosition(r:Room,who:Identity,symbol:Symbol,side:"long"|"shor
  ensure(activeSymbol(symbol,r),"Asset is delisted. New orders are disabled.",410);
  const m=portfolio(register(r,who));
  ensure(!m.positions!.some(p=>p.id===id)&&!m.closedPositions!.some(p=>p.id===id),"Position request already executed.",409);
- const entry=requireQuote(r,symbol,now);ensure(Number.isSafeInteger(margin)&&margin>=100&&margin<=100_000_000&&m.wallet>=margin,"Not enough cash or invalid margin.");
+ const entry=requireQuote(r,symbol,now);ensure(Number.isSafeInteger(margin)&&margin>=100&&Number.isSafeInteger(margin*leverage)&&m.wallet>=margin,"Not enough cash or invalid margin.");
  ensure(margin<=(r.limits?.maxTrade??1000000)*100&&margin*leverage<=(r.limits?.maxTrade??1000000)*100,"Position margin or notional exceeds the host’s trade limit.");
  ensure(Number.isInteger(leverage)&&leverage>=1&&leverage<=(r.limits?.maxLeverage??200),"Leverage must be 1–200x.");ensure((r.maintenance||0)<1/leverage,"Chosen leverage requires more initial margin than maintenance margin.");ensure(m.positions!.length<20,"Close a position first.");
  const {openingFeePpm,closingFeePpm}=roomFeeRates(r),mode=closingFeeMode(r),reserve=mode==="profit"?0:closingFeePpm/1e6;

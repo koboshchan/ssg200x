@@ -2,6 +2,7 @@
 import {usePokerModeration} from "./use-poker-moderation";
 import {PokerPlayerMenu} from "./poker-player-menu";
 import {PokerTauntProvider,PokerTauntControls,PokerTauntEffects} from "./poker-taunts";
+import LimitsControls from "./trading-limit-controls";
 import {usePendingFinance} from "./use-pending-finance";
 import PerpFeeControl from "./perp-fee-control";
 import {getTabHeaders} from "@/lib/tab-identity";
@@ -89,14 +90,6 @@ function PositionRow({x,busy,post,meta}:{x:AdminPos;busy:boolean;post:(path:stri
   {ask&&valid?<><span className="adjust-note" role="status">Move liquidation to {usd(v*1e6)}? If the market is already past it, the position closes immediately.</span><button className="primary" disabled={busy} onClick={async()=>{await post("/api/admin",{type:"liquidation",publicId:x.publicId,positionId:x.id,price:v,...meta()});setPrice("");setAsk(false);}}>Confirm</button><button disabled={busy} onClick={()=>setAsk(false)}>Cancel</button></>:<button disabled={busy||!valid} onClick={()=>setAsk(true)}>Set liquidation</button>}</div></div>;
 }
 
-function LimitsControls({room,busy,post}:{room:PublicRoom;busy:boolean;post:(path:string,body:object)=>Promise<void>}){
- const [trade,setTrade]=useState(""),[lev,setLev]=useState(""),[ask,setAsk]=useState(false);
- const t=trade.trim()===""?room.limits.maxTrade:Number(trade),l=lev.trim()===""?room.limits.maxLeverage:Number(lev);
- const valid=(trade.trim()!==""||lev.trim()!=="")&&Number.isFinite(t)&&t>=1&&t<=1000000&&Number.isInteger(l)&&l>=1&&l<=200;
- return <><h3>Trading limits</h3><div className="risk-row"><p>Max per trade {money(room.limits.maxTrade*100)}. Max leverage {room.limits.maxLeverage}x. The trade cap applies to spot orders, perp margin and perp notional.</p>
-  <div className="adjust"><label><span className="sr-only">Max trade in dollars</span><div className="input-wrap"><span>$</span><input type="number" min="1" max="1000000" step="1" placeholder={String(room.limits.maxTrade)} value={trade} onChange={e=>{setTrade(e.target.value);setAsk(false);}}/></div></label><label><span className="sr-only">Max leverage</span><div className="input-wrap"><input type="number" min="1" max="200" step="1" placeholder={String(room.limits.maxLeverage)} value={lev} onChange={e=>{setLev(e.target.value);setAsk(false);}}/><span>x</span></div></label>
-  {ask&&valid?<><span className="adjust-note" role="status">Set max trade {money(t*100)} and max leverage {l}x? Existing positions are not closed.</span><button className="primary" disabled={busy} onClick={async()=>{await post("/api/admin",{type:"limits",maxTrade:t,maxLeverage:l,requestId:crypto.randomUUID(),requestAt:Date.now()});setTrade("");setLev("");setAsk(false);}}>Confirm</button><button disabled={busy} onClick={()=>setAsk(false)}>Cancel</button></>:<button disabled={busy||!valid} onClick={()=>setAsk(true)}>Save limits</button>}</div></div></>;
-}
 export type RoomTab="table"|"standings"|"access"|"markets"|"roulette"|"blackjack";
 export function RoomView({tab}:{tab:RoomTab}){
  return <Game tab={tab}/>;

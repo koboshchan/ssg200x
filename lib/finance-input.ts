@@ -2,7 +2,7 @@ import {validForexPair} from "./forex-policy";
 import {z} from "zod";
 import {rouletteBetSchema as bet} from "./casino-schemas";
 const base={requestId:z.string().uuid(),requestAt:z.number().int()};
-const money=z.number().int().min(100).max(100_000_000),symbol=z.string().max(20).refine(s=>/^[A-Z][A-Z0-9.\-]{0,14}$/.test(s)||validForexPair(s));
+const money=z.number().int().min(100).max(Number.MAX_SAFE_INTEGER),symbol=z.string().max(20).refine(s=>/^[A-Z][A-Z0-9.\-]{0,14}$/.test(s)||validForexPair(s));
 const triggerPrice=z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const triggerMode=z.enum(["price","pnl"]);
 const openTriggers={triggerInputMode:triggerMode.optional(),takeProfit:triggerPrice.optional(),stopLoss:triggerPrice.optional(),takeProfitPnl:triggerPrice.optional(),stopLossPnl:triggerPrice.optional()};
