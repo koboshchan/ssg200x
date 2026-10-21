@@ -14,16 +14,18 @@ import {type Symbol,type Bet,RED} from "./market-shared";
 export type {Symbol,Bet} from "./market-shared";
 export type Quote={micro:number;at:number};
 export type Holding={symbol:Symbol;units:number;cost:number};
-export type Position={id:string;symbol:Symbol;side:"long"|"short";margin:number;leverage:number;entry:number;opened:number;feePpm?:number;openingFeePpm?:number;closingFeePpm?:number;openingFee?:number;maintenance?:number;liquidationOverride?:number;takeProfit?:number;stopLoss?:number};
-export type ClosedPosition={id:string;symbol:Symbol;side:"long"|"short";leverage:number;entry:number;exit:number;margin:number;realizedPnl:number;openingFeePpm?:number;closingFeePpm?:number;openingFee?:number;closingFee?:number;assessedClosingFee?:number;waivedClosingFee?:number;reason:"TP"|"SL"|"Liq"|"Manual";closedAt:number};
+/** margin is the posted/notional basis; collateral is net of opening fee for new positions.
+ * Absent collateral retains the pre-migration wallet-paid opening fee behavior. */
+export type Position={id:string;symbol:Symbol;side:"long"|"short";margin:number;collateral?:number;leverage:number;entry:number;opened:number;feePpm?:number;openingFeePpm?:number;closingFeePpm?:number;openingFee?:number;maintenance?:number;liquidationOverride?:number;takeProfit?:number;stopLoss?:number};
+export type ClosedPosition={id:string;symbol:Symbol;side:"long"|"short";leverage:number;entry:number;exit:number;margin:number;collateral?:number;realizedPnl:number;openingFeePpm?:number;closingFeePpm?:number;openingFee?:number;closingFee?:number;assessedClosingFee?:number;waivedClosingFee?:number;reason:"TP"|"SL"|"Liq"|"Manual";closedAt:number};
 export type Spin={id:string;number:number;stake:number;returned:number;at:number};
 export function portfolio(m:Member){m.holdings??=[];m.positions??=[];m.spins??=[];m.closedPositions??=[];return m;}
 export function value(units:number,micro:number){return Number(BigInt(units)*BigInt(micro)/1_000_000_000_000n);}
 export function unitsFor(cents:number,micro:number){return Number(BigInt(cents)*1_000_000_000_000n/BigInt(micro));}
 export function pnl(p:Position,mark:number){return Math.floor(p.margin*p.leverage*(mark-p.entry)/p.entry*(p.side==="long"?1:-1));}
-export function liqPrice(p:Position){if(p.liquidationOverride!=null)return p.liquidationOverride;const m=(p.maintenance||0)+positionFeeRates(p).closingFeePpm/1e6;return p.side==="long"?p.entry*(1-1/p.leverage)/(1-m):p.entry*(1+1/p.leverage)/(1+m);}
+export function liqPrice(p:Position){if(p.liquidationOverride!=null)return p.liquidationOverride;const m=(p.maintenance||0)+positionFeeRates(p).closingFeePpm/1e6;return p.side==="long"?p.entry*(1-(p.collateral??p.margin)/(p.margin*p.leverage))/(1-m):p.entry*(1+(p.collateral??p.margin)/(p.margin*p.leverage))/(1+m);}
 export function liquidatable(p:Position,mark:number){return p.side==="long"?mark<=liqPrice(p):mark>=liqPrice(p);}
-export function equity(p:Position,mark:number){return Math.max(0,p.margin+pnl(p,mark));}
+export function equity(p:Position,mark:number){return Math.max(0,(p.collateral??p.margin)+pnl(p,mark));}
 /** Same server guard for every stock settlement path; unknown state preserves claims. */
 export function stockExecutable(r:Room,symbol:string,now=Date.now()){
  if(!stockSymbol(symbol,r))return true;
@@ -64,11 +66,11 @@ function settle(r:Room,m:Member,p:Position,mark:number,reason:ClosedPosition["re
  const grossReturn=equity(p,mark);
  // Liquidation already forfeits the margin; its fee is allocated within that
  // forfeiture, never charged a second time to cash. Gaps are insured by house.
- const closingFee=Math.min(assessedClosingFee,isLiquidation?p.margin:grossReturn);
+ const closingFee=Math.min(assessedClosingFee,isLiquidation?(p.collateral??p.margin):grossReturn);
  const returned=isLiquidation?0:Math.max(0,grossReturn-closingFee);
  ensure(Number.isSafeInteger(returned)&&returned<1e12,"Position exceeds simulation limit.");
- m.wallet+=returned;r.house=(r.house||0)+p.margin-returned;m.positions=m.positions!.filter(x=>x.id!==p.id);
- m.closedPositions=[{id:p.id,symbol:p.symbol,side:p.side,leverage:p.leverage,entry:p.entry,exit:mark,margin:p.margin,realizedPnl:returned-p.margin-(p.openingFee||0),...((p.feePpm!==undefined||p.openingFeePpm!==undefined||p.closingFeePpm!==undefined)?{...positionFeeRates(p),openingFee:p.openingFee||0,closingFee,assessedClosingFee,waivedClosingFee:assessedClosingFee-closingFee}:{}),reason:isLiquidation?"Liq":reason,closedAt:now},...(m.closedPositions||[])];
+ m.wallet+=returned;r.house=(r.house||0)+(p.collateral??p.margin)-returned;m.positions=m.positions!.filter(x=>x.id!==p.id);
+ m.closedPositions=[{id:p.id,symbol:p.symbol,side:p.side,leverage:p.leverage,entry:p.entry,exit:mark,margin:p.margin,...(p.collateral!==undefined?{collateral:p.collateral}:{}),realizedPnl:returned-p.margin-(p.collateral===undefined?(p.openingFee||0):0),...((p.feePpm!==undefined||p.openingFeePpm!==undefined||p.closingFeePpm!==undefined)?{...positionFeeRates(p),openingFee:p.openingFee||0,closingFee,assessedClosingFee,waivedClosingFee:assessedClosingFee-closingFee}:{}),reason:isLiquidation?"Liq":reason,closedAt:now},...(m.closedPositions||[])];
  m.activity=[(isLiquidation?"Liquidated ":"Closed ")+p.side+" "+p.symbol+" · "+(returned/100).toFixed(2)+" returned · fees "+(((p.openingFee||0)+closingFee)/100).toFixed(2)+" · position "+p.id,...(m.activity||[])].slice(0,40);
 }
 export function liquidate(r:Room,now=Date.now()){
@@ -104,10 +106,12 @@ export function openPosition(r:Room,who:Identity,symbol:Symbol,side:"long"|"shor
  const {openingFeePpm,closingFeePpm}=roomFeeRates(r);
  ensure((r.maintenance||0)+closingFeePpm/1e6<1/leverage,"Chosen leverage leaves insufficient margin after the closing fee reserve.");
  const openingFee=feeCents(margin,leverage,entry,entry,openingFeePpm);
- ensure(m.wallet>=margin+openingFee,"Not enough cash for margin and opening fee.");
- const position:Position={openingFeePpm,closingFeePpm,openingFee,id,symbol,side,margin,leverage,entry,opened:now,maintenance:r.maintenance||0,...(triggers.takeProfit!=null?{takeProfit:triggers.takeProfit}:{}),...(triggers.stopLoss!=null?{stopLoss:triggers.stopLoss}:{})};
+ const collateral=margin-openingFee;
+ ensure(collateral>0,"Posted margin cannot cover the opening fee.");
+ ensure(collateral>margin*leverage*((r.maintenance||0)+closingFeePpm/1e6),"Chosen leverage leaves insufficient collateral after opening fee and closing fee reserve.");
+ const position:Position={collateral,openingFeePpm,closingFeePpm,openingFee,id,symbol,side,margin,leverage,entry,opened:now,maintenance:r.maintenance||0,...(triggers.takeProfit!=null?{takeProfit:triggers.takeProfit}:{}),...(triggers.stopLoss!=null?{stopLoss:triggers.stopLoss}:{})};
  validateTriggers(position);
- m.wallet-=margin+openingFee;r.house=(r.house||0)+openingFee;m.positions!.push(position);
+ m.wallet-=margin;r.house=(r.house||0)+openingFee;m.positions!.push(position);
 }
 export function closePosition(r:Room,who:Identity,id:string,now=Date.now(),reason:ClosedPosition["reason"]="Manual"){
  const m=r.members.find(m=>m.id===who.id);const p=m?.positions?.find(x=>x.id===id);ensure(m&&p,"Position not found.",404);settle(r,m,p,delistedSymbol(p.symbol,r)?requireLegacyQuote(r,p.symbol,now).micro:requireQuote(r,p.symbol,now),reason,now);
@@ -137,7 +141,7 @@ export function spin(r:Room,who:Identity,bets:Bet[],n=randomInt(37),id:string=ra
  m.wallet+=returned-stake;r.house=(r.house||0)+stake-returned;
  m.spins=[{id,number:n,stake,returned,at:now},...m.spins!].slice(0,30);
 }
-export function assetsBook(m:Member){return (m.holdings||[]).reduce((n,h)=>n+h.cost,0)+(m.positions||[]).reduce((n,p)=>n+p.margin,0);}
+export function assetsBook(m:Member){return (m.holdings||[]).reduce((n,h)=>n+h.cost,0)+(m.positions||[]).reduce((n,p)=>n+(p.collateral??p.margin),0);}
 export function assetsMarket(r:Room,m:Member){
  const quotes={...r.quotes};for(const symbol of Object.keys(quotes) as Symbol[])if(delistedSymbol(symbol,r)&&!legacyQuote(r,symbol))delete quotes[symbol];
- r={...r,quotes};return (m.holdings||[]).reduce((n,h)=>n+(r.quotes?.[h.symbol]?value(h.units,r.quotes[h.symbol]!.micro):h.cost),0)+(m.positions||[]).reduce((n,p)=>n+(r.quotes?.[p.symbol]?equity(p,r.quotes[p.symbol]!.micro):p.margin),0);}
+ r={...r,quotes};return (m.holdings||[]).reduce((n,h)=>n+(r.quotes?.[h.symbol]?value(h.units,r.quotes[h.symbol]!.micro):h.cost),0)+(m.positions||[]).reduce((n,p)=>n+(r.quotes?.[p.symbol]?equity(p,r.quotes[p.symbol]!.micro):(p.collateral??p.margin)),0);}

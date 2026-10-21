@@ -34,7 +34,7 @@ for(const [opening,closing] of [[0,0.05],[0.05,0],[0.02,0.07]])for(const side of
  const r=setup();setPerpFees(r,who,opening,closing);
  openPosition(r,who,'BTC',side,10000,5,'p',1000);
  const p=r.members[0].positions![0];assert.deepEqual(positionFeeRates(p),{openingFeePpm:Math.round(opening*10000),closingFeePpm:Math.round(closing*10000)});
- assert.equal(p.openingFee,Math.round(50000*opening/100));assert.equal(r.members[0].wallet,90000-p.openingFee!);
+ assert.equal(p.openingFee,Math.round(50000*opening/100));assert.equal(r.members[0].wallet,90000);
  const before=liqPrice(p);setPerpFees(r,who,0.1,0.1);assert.equal(liqPrice(p),before);
  r.quotes!.BTC={micro:side==='long'?110000000:90000000,at:1001};
  const wire=marketPayload(r,who.id,1001),full=publicRoom(r,who);
@@ -50,14 +50,14 @@ for(const [opening,closing] of [[0,0.05],[0.05,0],[0.02,0.07]])for(const side of
 test('single-rate snapshot predating split retains rate; pre-fee legacy stays free',()=>{
  for(const ppm of [undefined,0,500]){
   const r=setup();setPerpFees(r,who,0,0);openPosition(r,who,'BTC','long',10000,5,'old',1000);
-  const p=r.members[0].positions![0];delete p.openingFeePpm;delete p.closingFeePpm;delete p.openingFee;if(ppm!==undefined)p.feePpm=ppm;
+  const p=r.members[0].positions![0];delete p.openingFeePpm;delete p.closingFeePpm;delete p.openingFee;delete p.collateral;if(ppm!==undefined)p.feePpm=ppm;
   setPerpFees(r,who,0.1,0.1);assert.equal(positionFeeRates(p).closingFeePpm,ppm??0);
   closePosition(r,who,'old',1000);assert.equal(r.members[0].wallet,100000-Math.round(50000*(ppm??0)/1e6));assertRoom(r);
  }
 });
-test('only closing leg determines liquidation reserve',()=>{
+test('opening fee reduces collateral before closing and maintenance reserves',()=>{
  const r=setup();setPerpFees(r,who,0.1,0);r.maintenance=0.0045;
- openPosition(r,who,'BTC','long',1000,200,'high-open',1000);
+ assert.throws(()=>openPosition(r,who,'BTC','long',1000,200,'high-open',1000));
  setPerpFees(r,who,0,0.1);assert.throws(()=>openPosition(r,who,'BTC','long',1000,200,'high-close',1000));
  assertRoom(r);
 });

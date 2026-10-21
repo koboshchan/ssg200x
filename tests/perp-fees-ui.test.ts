@@ -19,6 +19,8 @@ test('hydrated real market previews opening charge before confirmation, submits 
  const page=await browser.newPage({viewport:{width,height:900}});await page.route('https://fees.test/**',async(route:any)=>route.fulfill({contentType:'text/html',body:'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><div id="root"></div>'}));
  await page.goto('https://fees.test');await page.addStyleTag({content:readFileSync('app/globals.css','utf8')});await page.addScriptTag({content:out.outputFiles[0].text});
  await page.getByRole('button',{name:'Perps',exact:true}).click();await page.getByText(/Estimated opening fee \$0.25/).waitFor();
+ await page.getByText(/Wallet debit \$100.00. Remaining collateral \$99.75/).waitFor();
+ assert.equal(await page.getByText('Collateral $99.75',{exact:true}).count(),1);
  assert.equal(await page.getByRole('columnheader',{name:'Net realized P/L'}).count(),1);assert.equal(await page.getByRole('cell',{name:/^\$0.25 \/ \$0.25/}).count(),1);assert.equal(await page.getByText('-$0.50',{exact:true}).count(),1);
  assert.equal(await page.getByText('Opening fee $0.25 (0.05%) · closing rate 0.05%',{exact:true}).count(),1);
  await page.getByRole('button',{name:'Open long · 5x',exact:true}).click();

@@ -16,7 +16,7 @@ test('Mongo CAS concurrent opening receipts debit once, persistence locks rate a
  if(r.receipts.some(x=>x.id==='open-receipt'))return;
  openPosition(r,who,'BTC','long',10000,5,'p',now,{takeProfit:110000000});r.receipts.push({id:'open-receipt',userId:who.id,at:now});
  })));
- await closeDatabase();let r=await readRoom();assert.equal(r.members[0].wallet,89990);assert.equal(r.members[0].positions!.length,1);assert.equal(r.house,10);assert.equal(r.members[0].positions![0].openingFeePpm,200);assert.equal(r.members[0].positions![0].closingFeePpm,700);assertRoom(r);
+ await closeDatabase();let r=await readRoom();assert.equal(r.members[0].wallet,90000);assert.equal(r.members[0].positions!.length,1);assert.equal(r.house,10);assert.equal(r.members[0].positions![0].collateral,9990);assert.equal(r.members[0].positions![0].openingFeePpm,200);assert.equal(r.members[0].positions![0].closingFeePpm,700);assertRoom(r);
  await mutate(r=>{setPerpFee(r,who,0.1);r.quotes!.BTC={micro:110000000,at:now+1};});
  await Promise.all(Array.from({length:5},(_,i)=>mutate(r=>{
  if(i%2===0){if(r.members[0].positions?.some(p=>p.id==='p'))closePosition(r,who,'p',now+1);}else settleTriggers(r,now+1);
