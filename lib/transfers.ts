@@ -85,6 +85,7 @@ export async function sendTransfer(who:Identity,input:{code:unknown;requestId:st
   ensure(Number.isSafeInteger(sender.wallet)&&sender.wallet>=amount,"Not enough available cash.",409);ensure(Number.isSafeInteger(recipient.wallet+amount),"Recipient balance exceeds the simulation limit.");
   const record:Transfer={_id:id,sender:who.id,recipient:recipient.id,senderName:sender.name,recipientName:recipient.name,amount,note,at:Date.now(),fingerprint,senderBefore:sender.wallet,senderAfter:sender.wallet-amount,recipientBefore:recipient.wallet,recipientAfter:recipient.wallet+amount};
   sender.wallet-=amount;recipient.wallet+=amount;
+  recipient.receivedPayments=[{id,amount,senderId:sender.id,at:record.at},...(recipient.receivedPayments??[])].slice(0,20);
   sender.adjustments=(sender.adjustments||0)-amount;recipient.adjustments=(recipient.adjustments||0)+amount;
   for(const [m,text] of [[sender,`Sent $${(amount/100).toFixed(2)} to ${playerReference(recipient)}`],[recipient,`Received $${(amount/100).toFixed(2)} from ${playerReference(sender)}`]] as const)m.activity=[text,...(m.activity||[])].slice(0,40);
   assertRoom(r);
