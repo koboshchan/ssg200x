@@ -9,7 +9,7 @@ export type FxState={dealing:boolean;dealId:number;flyTrick:string;flyFrom:"self
 const query="(prefers-reduced-motion: reduce)";
 function subscribe(cb:()=>void){const m=window.matchMedia(query);m.addEventListener("change",cb);return()=>m.removeEventListener("change",cb);}
 export function useReducedMotion(){return useSyncExternalStore(subscribe,()=>window.matchMedia(query).matches,()=>true);}
-export const trickKey=(g:Room)=>g.trick?g.trick.seat+":"+g.trick.cards.join(","):"";
+export const trickKey=(g:Room)=>g.trick?g.handId+":"+g.trick.seat+":"+g.trick.cards.join(","):"";
 const rel=(seat:number,me:number)=>["self","right","left"][(seat-Math.max(me,0)+3)%3] as FxState["flyFrom"];
 const idle:FxState={dealing:false,dealId:0,flyTrick:"",flyFrom:"self",landlordId:0,popId:0,popTo:1,shakeId:0,settleId:0};
 /** Detects REAL state transitions (version increases within the same room) and drives effects.
