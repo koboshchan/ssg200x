@@ -42,7 +42,8 @@ export default function MarketSymbolSettings(){
     </form>
     {full?<p className="admin-note">Stock limit reached. Remove one to add another.</p>:null}
    </fieldset>;})}
-   {data.marketSymbols.delisted.length?<ForexCadence/><p className="admin-note">Delisted: {data.marketSymbols.delisted.join(", ")}</p>:null}
+   <ForexCadence/>
+   {data.marketSymbols.delisted.length?<p className="admin-note">Delisted: {data.marketSymbols.delisted.join(", ")}</p>:null}
   </>}
   {error?<div className="error" role="alert">{error}<button aria-label="Dismiss error" onClick={()=>setError("")}>×</button></div>:null}
  </section>;
