@@ -33,7 +33,7 @@ export function rouletteTick(r:Room,now:number,rng:(max:number)=>number=randomIn
  const b=existing;
  if(b.spin){
   if(now<b.spin.nextAt)return false;
-  for(const member of r.members)settleAdvancements(member,b.settledBets??[],b.spin.number,b.round,b.spin.resultAt);
+  for(const member of r.members)settleAdvancements(member,b.settledBets??[],b.spin.number,b.round,b.spin.resultAt,r);
   b.round++;b.started=now;b.previousBets=b.settledBets??[];b.bets=[];delete b.settledBets;delete b.spin;return true;
  }
  if(now<b.started+ROULETTE_MS)return false;

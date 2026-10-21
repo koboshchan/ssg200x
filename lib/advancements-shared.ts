@@ -8,4 +8,7 @@ export const ADVANCEMENTS=[
  {tier:13,name:"Lucky Number Who?",icon:"clover"},
  {tier:14,name:"I'm super unlucky",icon:"crown"},
 ] as const;
-export type AdvancementState={streak:number;lastRound:number;unlocked:Record<string,number>};
+export type AdvancementState={streak:number;lastRound:number;unlocked:Record<string,number>;counts?:Record<string,number>;rewarded?:Record<string,number>};
+
+export const ADVANCEMENT_REWARDS_CENTS:Record<number,number>=Object.fromEntries(ADVANCEMENTS.map(a=>[a.tier,0])); // Pending Lucas: play-money cents, first unlock only.
+export function advancementCount(state:AdvancementState,tier:number){return state.counts?.[tier]??(state.unlocked[tier]===undefined?0:1);}

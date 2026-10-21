@@ -24,7 +24,7 @@ test("net worth matches signed-in standings across poker phases, marks and game 
   const expected=publicRoom(structuredClone(r),alice).leaderboard;
   assert.deepEqual(snapshot.rows.map(({name,netWorth})=>({name,netWorth})),expected.map(({name,netWorth})=>({name,netWorth})));
   assert.equal(snapshot.updatedAt,123);
-  for(const row of snapshot.rows)assert.deepEqual(Object.keys(row).sort(),["avatar","name","netWorth","rank"]);
+  for(const row of snapshot.rows)assert.deepEqual(Object.keys(row).sort(),["advancements","avatar","name","netWorth","rank"]);
   const json=JSON.stringify(snapshot);
   for(const secret of [alice.id,bob.id,alice.email,bob.email,r.members[0].publicId,"secret-position","secret-bet","As","privateMetadata","wallet","holdings"])assert.equal(json.includes(secret),false,secret);
  }

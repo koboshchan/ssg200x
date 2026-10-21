@@ -1,3 +1,5 @@
+import {advancementView} from "./advancements";
+import type {AdvancementState} from "./advancements-shared";
 import {assetsMarket} from "./finance";
 import {blackjackMemberAssets} from "./blackjack";
 import {rouletteAssets} from "./roulette";
@@ -5,7 +7,7 @@ import {active} from "./poker";
 import type {Room} from "./types";
 import type {DisplayProfiles} from "../runtime/clerk-names.mjs";
 
-export type LeaderboardRow={rank:number;name:string;avatar:string;imageUrl?:string;netWorth:number};
+export type LeaderboardRow={rank:number;advancements:AdvancementState;name:string;avatar:string;imageUrl?:string;netWorth:number};
 export type LeaderboardSnapshot={updatedAt:number;rows:LeaderboardRow[]};
 // Display names are public, but never fall back to an email address or user ID.
 export function displayName(name:string){
@@ -21,7 +23,7 @@ export function leaderboardSnapshot(room:Room|null,now=Date.now(),profiles?:Disp
   // from the same fresh server-side Clerk batch as display names.
   const avatar=Array.from(name.split(/\s+/).map(word=>Array.from(word)[0]).join("")).slice(0,2).join("").toUpperCase();
   const imageUrl=profiles?.get(member.id)?.avatar;
-  return {name,avatar,netWorth,...(imageUrl?{imageUrl}:{})};
+  return {advancements:advancementView(member),name,avatar,netWorth,...(imageUrl?{imageUrl}:{})};
  }).sort((a,b)=>b.netWorth-a.netWorth||a.name.localeCompare(b.name));
  return {updatedAt:now,rows:rows.map((row,index)=>({rank:index+1,...row}))};
 }

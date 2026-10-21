@@ -64,3 +64,15 @@ test("engine settlement is atomic, no unlock or streak leak before result animat
  const saved=structuredClone(r);rouletteTick(r,78001,()=>1);assert.deepEqual(r,saved);assertRoom(r);
 });
 test("cancelled bets do not count",()=>{const r=setup();rouletteState(r,1000);rouletteAction(r,who,{type:"bet",bet:{kind:"red",amount:100}},1,"bet",1000);rouletteAction(r,who,{type:"cancel",betId:"bet"},1,"cancel",1001);rouletteTick(r,61000,()=>0);rouletteTick(r,78000,()=>0);assert.equal(r.members[0].advancements,undefined);});
+test("repeat thresholds increment counts once per new streak; first reward only with durable audit and conserved issuance",()=>{
+ const r=setup(),m=r.members[0],rewards={7:2500};
+ for(let round=1;round<=7;round++)settleAdvancements(m,[wager()],0,round,round*100,r,rewards);
+ assert.equal(m.advancements!.counts![7],1);assert.equal(m.wallet,102500);assert.equal(r.issuance,2500);assert.equal(m.adjustments,2500);
+ assert.equal(r.auditPending!.length,1);assert.equal(r.auditPending![0].what,"advancement-first-reward");
+ settleAdvancements(m,[wager()],0,7,800,r,rewards);assert.equal(m.wallet,102500);
+ settleAdvancements(m,[wager()],0,8,800,r,rewards);assert.equal(m.advancements!.counts![7],1);
+ settleAdvancements(m,[wager()],1,9,900,r,rewards);
+ for(let round=10;round<=16;round++)settleAdvancements(m,[wager()],0,round,round*100,r,rewards);
+ assert.equal(m.advancements!.counts![7],2);assert.equal(m.wallet,102500);assert.equal(r.auditPending!.filter(e=>(e.new as {tier:number}).tier===7).length,1);
+ assert.equal(m.advancements!.unlocked[7],700);assert.equal(m.advancements!.rewarded![7],2500);assertRoom(r);
+});
