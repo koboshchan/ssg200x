@@ -52,7 +52,7 @@ function revealStreet(r: Room) {
 }
 export function cashOut(r: Room, i: number) {
  const s = r.seats[i]; if (!s) return;
- ensure(!(active(r) && s.inHand) && !s.ready, "You can only leave while unready and out of a hand.", 409);
+ ensure(!(active(r) && s.inHand), "You can only leave while out of a hand.", 409);
  const m = r.members.find(m => m.id === s.userId)!;
  m.wallet += s.stack; r.seats[i] = null;
 }
@@ -210,11 +210,14 @@ export function applyAction(r: Room, who: Identity, action: Action, now: number)
   addLog(r,playerReference(member) + " takes seat " + (action.seat+1));
  } else if (action.type === "leave") {
   ensure(i >= 0, "You are not seated.");
-  const s = r.seats[i]!;
-  ensure(!s.ready && !(active(r) && s.inHand), "You can only leave while unready and out of a hand.", 409);
   cashOut(r,i);
   if (!r.seats.some(s=>s?.ready)) r.readyDeadline = null;
   if (r.street === "waiting") startHand(r,now);
+ } else if (action.type === "unready") {
+  ensure(i >= 0, "Choose a seat first.");
+  ensure(!(active(r) && r.seats[i]!.inHand), "The hand has started. Wait for it to finish.", 409);
+  r.seats[i]!.ready = false;
+  // Keep the existing waiting window; toggling readiness must not extend it.
  } else if (action.type === "ready" || action.type === "resume") {
   ensure(i >= 0, "Choose a seat first.");
   ensure(r.street === "waiting", "Wait for the hand to finish.", 409);

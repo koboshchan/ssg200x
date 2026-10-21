@@ -12,6 +12,6 @@ export type Identity = { id: string; name: string; email: string; admin: boolean
 export type Action =
  | { type: "join"; seat: number; buyIn: number }
  | { type: "leave" }
- | { type: "resume" } | { type: "ready" }
+ | { type: "resume" } | { type: "ready" } | { type: "unready" }
  | { type: "fold" } | { type: "check" } | { type: "call" }
  | { type: "raise"; to: number };

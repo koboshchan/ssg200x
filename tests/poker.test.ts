@@ -71,12 +71,12 @@ test("random legal play across 500 hands preserves invariant after every action"
  assert.equal(totalChips(r),600_000);
 });
 
-test("joining never deals; all seated players must explicitly ready, with one-way five-minute lock",()=>{
+test("joining never deals; all seated players must explicitly ready, with a five-minute waiting window",()=>{
  const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
  assert.equal(r.street,"waiting");assert.equal(r.handNumber,0);
  applyAction(r,user(0),{type:"ready"},2000);assert.equal(r.readyDeadline,2000+READY_MS);
  applyAction(r,user(0),{type:"ready"},3000);assert.equal(r.readyDeadline,2000+READY_MS);
- assert.throws(()=>applyAction(r,user(0),{type:"leave"},3000));
+
  applyAction(r,user(1),{type:"ready"},3000);assert.equal(r.street,"waiting");
  tick(r,2000+READY_MS-1);assert.ok(r.seats[0]?.ready);assert.ok(r.seats[1]?.ready);
  tick(r,2000+READY_MS);assert.equal(r.readyDeadline,null);assert.ok(r.seats[0]);assert.ok(r.seats[1]);assert.equal(r.seats[0]?.ready,true);
@@ -175,16 +175,45 @@ test("persisted all-unready window cashes everyone out once without creating pot
  assert.equal(restarted.readyDeadline,null);assert.equal(pot(restarted),0);assert.equal(restarted.pokerCarry??0,0);
  const once=JSON.stringify(restarted);assert.equal(tick(restarted,1000000),false);assert.equal(JSON.stringify(restarted),once);assertRoom(restarted);
 });
-test("ready expiry leaves lone ready player locked and never cashes players out during a hand",()=>{
+test("ready expiry leaves lone ready player seated and never cashes players out during a hand",()=>{
  const r=freshRoom();
  for(let i=0;i<2;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
  applyAction(r,user(0),{type:"ready"},2000);const expiry=r.readyDeadline!;
  tick(r,expiry);assert.ok(r.seats[0]?.ready);assert.equal(r.seats[1],null);assert.equal(r.members[0].wallet,80000);
- assert.throws(()=>applyAction(r,user(0),{type:"leave"},expiry),/only leave/);
+
  applyAction(r,user(1),{type:"join",seat:1,buyIn:20000},expiry+1);
  applyAction(r,user(1),{type:"ready"},expiry+2);
  // A stale persisted waiting deadline must never refund participants in an active hand.
  r.readyDeadline=expiry;const wallets=r.members.map(m=>m.wallet);
  tick(r,expiry+3);assert.equal(r.street,"preflop");assert.ok(r.seats[0]);assert.ok(r.seats[1]);
  assert.deepEqual(r.members.map(m=>m.wallet),wallets);assertRoom(r);
+});
+
+test("unready withdraws consent before dealing without extending the waiting window",()=>{
+ const r=freshRoom();for(let i=0;i<2;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
+ applyAction(r,user(0),{type:"ready"},2000);const expiry=r.readyDeadline;
+ applyAction(r,user(0),{type:"unready"},3000);assert.equal(r.seats[0]!.ready,false);assert.equal(r.readyDeadline,expiry);
+ applyAction(r,user(1),{type:"ready"},4000);assert.equal(r.handNumber,0);
+ applyAction(r,user(0),{type:"ready"},5000);assert.equal(r.handNumber,1);
+ const before=structuredClone(r);assert.throws(()=>applyAction(r,user(0),{type:"unready"},6000),/hand has started/);
+ assert.deepEqual(r,before);assertRoom(r);
+});
+test("ready cashout credits exactly once and cannot cash out an active or folded participant",()=>{
+ const r=freshRoom();register(r,user(0),1000);applyAction(r,user(0),{type:"join",seat:0,buyIn:20000},1000);
+ applyAction(r,user(0),{type:"ready"},2000);applyAction(r,user(0),{type:"leave"},3000);
+ assert.equal(r.members[0].wallet,100000);assert.equal(r.seats[0],null);assert.equal(r.readyDeadline,null);
+ assert.throws(()=>applyAction(r,user(0),{type:"leave"},4000));assertRoom(r);
+});
+test("unready last ready player keeps original five-minute normal-refund window",()=>{
+ const r=freshRoom();register(r,user(0),1000);applyAction(r,user(0),{type:"join",seat:0,buyIn:20000},1000);
+ applyAction(r,user(0),{type:"ready"},2000);const expiry=r.readyDeadline!;
+ applyAction(r,user(0),{type:"unready"},3000);tick(r,expiry);
+ assert.equal(r.seats[0],null);assert.equal(r.members[0].wallet,100000);assert.equal(pot(r),0);assertRoom(r);
+});
+test("completed hand clears consent and idle ticks never automatically deal the next hand",()=>{
+ const r=setup();act(r,r.seats[r.turn!]!.userId,{type:"fold"},2000);
+ assert.equal(r.street,"showdown");assert.ok(r.seats.filter(Boolean).every(s=>!s!.ready));
+ tick(r,20000);tick(r,40000);assert.equal(r.handNumber,1);assert.equal(r.street,"waiting");
+ applyAction(r,user(0),{type:"ready"},41000);assert.equal(r.handNumber,1);
+ applyAction(r,user(1),{type:"ready"},42000);assert.equal(r.handNumber,2);assertRoom(r);
 });

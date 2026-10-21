@@ -39,8 +39,9 @@ test("parallel duplicate leave credits bankroll once and readiness-leave race is
  const result=await Promise.allSettled([
  move(who,{type:"ready"},randomUUID(),r.handNumber,null,Date.now()),
  move(who,{type:"leave"},randomUUID(),r.handNumber,null,Date.now())]);
- assert.equal(result.filter(x=>x.status==="fulfilled").length,1);
+ assert.ok(result.some(x=>x.status==="fulfilled"));
  r=await readRoom();assertRoom(r);
+ assert.equal(r.seats[0],null);assert.equal(r.members.find(m=>m.id===who.id)!.wallet,100000);
  if(!r.seats[0])await move(who,{type:"join",seat:0,buyIn:20000},randomUUID(),r.handNumber,null,Date.now());
  // Expire the ready window using the actual worker and a deterministic server clock.
  const original=Date.now,now=original(),otherId=r.seats[1]!.userId;
@@ -63,10 +64,10 @@ test("parallel duplicate ready starts exactly one hand and locks leaving",async(
  const id=randomUUID();
  await Promise.all(Array.from({length:8},()=>move(first,{type:"ready"},id,r.handNumber,null,Date.now())));
  r=await readRoom();assert.equal(r.street,"waiting");
- await assert.rejects(move(first,{type:"leave"},randomUUID(),r.handNumber,null,Date.now()));
  const id2=randomUUID();
  await Promise.all(Array.from({length:8},()=>move(who,{type:"ready"},id2,r.handNumber,null,Date.now())));
  const next=await readRoom();assert.equal(next.handNumber,r.handNumber+1);assert.equal(next.street,"preflop");
+ await assert.rejects(move(first,{type:"leave"},randomUUID(),next.handNumber,null,Date.now()));
  assert.equal(next.readyDeadline,null);assertRoom(next);
 });
 test("stale hand, stale turn and expired request fail without mutations",async()=>{

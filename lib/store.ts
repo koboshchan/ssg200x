@@ -41,7 +41,7 @@ export async function move(who:Identity, action:Action, requestId:string, handNu
   tick(r,now);
   // Actions refer to a specific hand, never become an accidental bet in the next.
   if(["fold","check","call","raise"].includes(action.type))ensure(r.handNumber===handNumber&&r.deadline===turnDeadline,"The turn has changed. Refresh first.",409);
-  if(action.type==="ready"||action.type==="resume")ensure(r.handNumber===handNumber,"The hand has changed. Refresh first.",409);
+  if(action.type==="ready"||action.type==="resume"||action.type==="unready")ensure(r.handNumber===handNumber,"The hand has changed. Refresh first.",409);
   applyAction(r,who,action,now);
   r.receipts=[{id:requestId,userId:who.id,at:now},...r.receipts.filter(x=>x.at&&now-x.at<300_000)];
  })).room;
