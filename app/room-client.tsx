@@ -1,6 +1,7 @@
 "use client";
 import {getTabHeaders} from "@/lib/tab-identity";
 import DeviceFingerprint from "./device-fingerprint";
+import InPlayNavigation from "./in-play-navigation";
 const PlayersList=dynamic(()=>import("./players-list"));
 import CasinoAmountInput from "./casino-amount-input";
 import {casinoInputCents,isWholeCasinoAmount} from "@/lib/casino-amount";
@@ -45,7 +46,7 @@ function SignedInShell({children}:{children:React.ReactNode}){
  const {maintenance}=useLive();
  const {user}=useUser();
  // Only the server-derived boolean is sent to the browser, never Clerk private metadata.
- return <Shell signedIn admin={maintenance?.admin===true} account={<UserButton/>}>{user?<DeviceFingerprint userId={user.id}/>:null}{children}<ChatDock/></Shell>;
+ return <Shell signedIn admin={maintenance?.admin===true} account={<UserButton/>}><InPlayNavigation/>{user?<DeviceFingerprint userId={user.id}/>:null}{children}<ChatDock/></Shell>;
 }
 export function Shell({children,account,signedIn=false,admin=false}:{children:React.ReactNode;account?:React.ReactNode;signedIn?:boolean;admin?:boolean}){
  const path=usePathname()||"";
