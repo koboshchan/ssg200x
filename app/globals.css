@@ -156,7 +156,7 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
 .side-positions .spot-holding-header{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}.side-positions .spot-holding-header button{flex:none}
 .perps-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%}.perps-heading button{flex:none}
 
-.order-ticket .spot-sell-slider input[type=range]{padding:0;min-height:32px;accent-color:var(--green);cursor:pointer}.order-ticket .spot-sell-slider input:disabled{cursor:not-allowed}
+.order-ticket :is(.spot-sell-slider,.perps-leverage-slider) input[type=range]{padding:0;min-height:32px;accent-color:var(--green);cursor:pointer}.order-ticket .spot-sell-slider input:disabled{cursor:not-allowed}
 
 /* Keep fee disclosures legible beneath monetary values in trading tables. */
 .open-perps td small,.closed-positions td small{display:block}
@@ -276,3 +276,5 @@ html:has(.chat-toggle) body{height:calc(100dvh - 46px - env(safe-area-inset-bott
 
 /* Six-seat desktop: the bet chip sits fully below the hole cards instead of clipping them (bottom seats keep it above). */
 @media(min-width:561px){.felt-wrapper:not(.dense) .seat:not(.seat-3):not(.seat-4):not(.seat-7) .seat-bet{bottom:-21px}}
+
+.order-ticket .perps-leverage-slider input[type=range]{min-height:44px}.leverage-heading,.leverage-endpoints{display:flex;justify-content:space-between;align-items:center;gap:12px}.leverage-heading strong{color:var(--ink);font-size:13px;font-variant-numeric:tabular-nums}.leverage-endpoints{font-variant-numeric:tabular-nums}
