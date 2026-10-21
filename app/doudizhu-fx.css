@@ -138,3 +138,22 @@
 .dd-check{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;cursor:pointer;margin:14px 0 4px}.dd-check input{width:18px;height:18px;margin:0}
 .dd-recruit{margin:0 0 20px}.dd-recruit h3{font-size:15px;margin:0 0 8px}.dd-recruit ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}.dd-recruit li{display:flex;justify-content:space-between;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:10px 12px}.dd-recruit li strong{display:block;font-size:14px}.dd-recruit li small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
 .dd-stage .dd-vis .dd-check{margin:0}.dd-stage .dd-vis .dd-check span{color:#fff;font-size:13px}
+
+.fx-rocket,.fx-plane{overflow:hidden;pointer-events:none;contain:paint}
+.fx-plane .pl-fly{position:absolute;left:0;top:30%;width:132px;height:56px;animation:ddflyplane 1.9s cubic-bezier(.35,.1,.55,.95) forwards;will-change:transform}
+.fx-plane .pl{position:absolute;inset:0;width:100%;height:100%;filter:drop-shadow(0 8px 6px #0006)}
+.fx-plane .trail{display:none}
+.fx-plane .contrail{position:absolute;right:100%;top:46%;margin-right:-14px;width:240px;height:7px;border-radius:7px;background:linear-gradient(270deg,#fffe,#fff0);transform-origin:right center;animation:ddcontrail 1.9s ease-out forwards;opacity:.9}.fx-plane .c2{top:62%;height:4px;animation-delay:.06s;width:190px}
+@keyframes ddflyplane{0%{transform:translate(-190px,40px) rotate(8deg)}35%{transform:translate(18vw,8px) rotate(-6deg)}70%{transform:translate(55vw,-18px) rotate(-10deg)}100%{transform:translate(120vw,-70px) rotate(-4deg)}}
+@keyframes ddcontrail{0%{transform:scaleX(.1);opacity:0}25%{opacity:.9}100%{transform:scaleX(1);opacity:0}}
+.fx-rocket .streak,.fx-rocket b{display:none}
+.fx-rocket .rk-fly{position:absolute;left:50%;bottom:-120px;width:40px;margin-left:-20px;animation:ddlaunch 1.5s cubic-bezier(.5,0,.9,.6) forwards;will-change:transform}
+.fx-rocket .rk{position:relative;display:block;width:100%;height:auto;filter:drop-shadow(0 0 10px #59c4ff88);z-index:1}
+.fx-rocket .rk-fly .rk{position:static;left:auto;bottom:auto;animation:none}
+.fx-rocket .flame{transform-origin:24px 74px;animation:ddflame .12s ease-in-out infinite alternate}.fx-rocket .f2{animation-duration:.09s}
+.fx-rocket .puff{position:absolute;left:50%;top:92%;width:26px;height:26px;margin-left:-13px;border-radius:50%;background:radial-gradient(#fffe,#cfd8e8aa 60%,#0000);opacity:0;animation:ddpuff 1.2s calc(var(--i)*.12s) ease-out forwards;z-index:0}
+@keyframes ddlaunch{0%{transform:translateY(0) scale(1)}15%{transform:translateY(-6px)}100%{transform:translateY(calc(-100vh - 240px)) scale(1.1)}}
+@keyframes ddflame{from{transform:scaleY(.8)}to{transform:scaleY(1.25)}}
+@keyframes ddpuff{0%{opacity:0;transform:translateY(0) scale(.4)}20%{opacity:.85}100%{opacity:0;transform:translateY(90px) scale(2.4)}}
+@media(max-width:600px){.fx-plane .pl-fly{width:92px;height:40px}.fx-plane .contrail{width:150px}.fx-rocket .rk-fly{width:30px}}
+@media(prefers-reduced-motion:reduce){.fx-plane .pl-fly,.fx-rocket .rk-fly,.fx-plane .contrail,.fx-rocket .puff,.fx-rocket .flame{animation:none!important}}
