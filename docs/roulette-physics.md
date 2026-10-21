@@ -1,6 +1,9 @@
 # Server-locked roulette physics
 
-The approved top-down wood renderer and bowl simulation come from preview f72ec19.
+The top-down wood renderer uses the real app component. The v2 bowl simulation
+uses one 16ms semi-implicit step and one contact projection, without adaptive
+substeps or impact bisection. Rounded diamond height fields preserve horizontal
+forward momentum; vertical falls are not reflected sideways.
 The executable shared physics lives in runtime/roulette-physics.mjs, re-exported by
 lib/roulette-physics.ts. A .mjs module lets worker_threads and the browser consume
 the exact same equations without runtime TypeScript compilation. PHYS_VERSION is
@@ -42,7 +45,9 @@ At launch, wheel phase/velocity come from idleW/idleV at spinStartAt+d and ball
 position comes from the carried rel/r. After rest plus 700ms the wheel switches
 continuously in phase and velocity to the same analytic idleW/idleV on both sides,
 with a four-second damping constant tending to three degrees per second. Reduced
-motion fades only the ball; wheel equations and the physical result remain equal.
+motion keeps the displayed wheel at idle speed, fades the ball at launch, and
+crossfades into the physical capture. The physical trajectory/result are unchanged.
+The preference is read before the first canvas draw, including mid-spin joins.
 
 The old analytic wheelPose is retained for legacy fixtures only. Production UI
 does not use it and old in-flight spins lacking the new contract fail closed
