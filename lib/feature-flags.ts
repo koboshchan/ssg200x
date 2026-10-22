@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {confirmFeatureChange} from '../runtime/feature-confirmation.mjs';
 import {db,readRoom} from './db';
 import {ensure} from './errors';
 import {FEATURE_DEFAULTS,resolveFeatures,featureForPath,type FeatureKey} from './feature-catalog';
@@ -10,13 +11,13 @@ export async function featureSnapshot(){
  const doc=await collection.findOne({_id:'global'});
  return {features:resolveFeatures(doc?.features),configured:{...FEATURE_DEFAULTS,...doc?.features},revision:doc?.revision??0,forcedOff:(process.env.SSG_FEATURES_FORCE_OFF??'').split(',').map(x=>x.trim()).filter(x=>x in FEATURE_DEFAULTS)};
 }
-export async function changeFeatures(who:Identity,patch:Partial<Record<FeatureKey,boolean>>){
+export async function changeFeatures(who:Identity,patch:Partial<Record<FeatureKey,boolean>>,expectedRevision:number){
  ensure(who.admin,'Administrator access required.',403);
  const c=(await db()).collection<FlagDocument>('featureFlags');
- const fields=Object.fromEntries(Object.entries(patch).map(([k,v])=>['features.'+k,v]));
- // The flag change and its append-only audit entry share one Mongo atomic write.
- await c.updateOne({_id:'global'},{$set:fields,$inc:{revision:1},$push:{audit:{id:randomUUID(),who:who.id,at:Date.now(),patch}}},{upsert:true});
- return featureSnapshot();
+ ensure(Number.isSafeInteger(expectedRevision)&&expectedRevision>=0,'Invalid feature revision.');
+ const applied=await confirmFeatureChange(c,{features:patch,expectedRevision,actor:who.id,at:Date.now(),id:randomUUID()});
+ const snapshot=await featureSnapshot();
+ return applied?snapshot:{...snapshot,error:'Features were changed by someone else. Review your edits and apply again.'};
 }
 export async function requireFeature(key:FeatureKey){ensure((await featureSnapshot()).features[key],'Temporarily disabled.',503);}
 /** Entry is blocked, not exits. Existing hands and claims can finish without a new buy-in. */

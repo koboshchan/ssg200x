@@ -54,7 +54,9 @@ export async function endpoint(request:Request,handler:(who:Identity)=>Promise<u
   }
   await enforceFeatureRequest(new URL(request.url).pathname,request.method,featureInput,userId);
   await checkActionTab(request,userId);
-  return NextResponse.json(await handler(who),{headers:{"Cache-Control":"no-store"}});
+  const result=await handler(who);
+  if(result instanceof Response)return result;
+  return NextResponse.json(result,{headers:{"Cache-Control":"no-store"}});
  }catch(e) {
   const status=e instanceof AppError?e.status:e instanceof ZodError||e instanceof SyntaxError?400:503;
   return NextResponse.json({error:e instanceof AppError?e.message:status===400?"Invalid request.":"Service unavailable. Try again."},{status,headers:{"Cache-Control":"no-store",...(status===429?{"Retry-After":"60"}:{})}});

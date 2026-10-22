@@ -1,3 +1,4 @@
+import {broadcastFeatureState} from "./runtime/feature-broadcast.mjs";
 import {getFeatureSettings} from "./runtime/feature-settings.mjs";
 import {attachFeatureSocket} from "./runtime/feature-sockets.mjs";
 import {normalizeCommit,serveCommit} from "./runtime/git-commit.mjs";
@@ -114,7 +115,7 @@ io.use(async(socket,next)=>{
 // Demand and durable-position pins belong to this process, never route workers or browsers.
 const polyDirty=new Set();
 const polyStream=createPolymarketStream({enabled:()=>featureSettings.enabled("polymarket"),onChange:id=>polyDirty.add(id)});
-featureSettings.subscribe(()=>{polyStream.syncEnabled();for(const socket of io.sockets.sockets.values()){socket.emit("features:state",featureSettings.current());socket.data.forceFull=true;socket.data.statusAt=0;}});
+featureSettings.subscribe(()=>{polyStream.syncEnabled();broadcastFeatureState(io,featureSettings);});
 const polyMetadata=new Map();
 async function resolvePolyMarket(id){
  let old=polyMetadata.get(id);if(old?.until>Date.now())return old.value;if(old?.pending)return old.pending;
@@ -205,7 +206,7 @@ async function pushState(socket,force=false,profiles){
 io.on("connection",socket=>{
  try{tabLeases.attach(socket.data.identity.id,socket,socket.handshake.auth);}catch(error){socket.emit("live:error",{error:error.message});socket.disconnect(true);return;}
  attachFeatureSocket(socket,featureSettings);
- socket.emit("features:state",featureSettings.current());
+ socket.emit("features:state",featureSettings.snapshot());
  attachPokerTaunts(socket);
  socket.data.marketRoute=socket.handshake.auth?.route;
  socket.data.marketSubscriptions=attachMarketFeatureSubscriptions(socket,{settings:featureSettings});
