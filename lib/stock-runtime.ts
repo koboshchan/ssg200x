@@ -94,7 +94,11 @@ export class StockRuntime {
         };
         try{await this.o.publish(current,ticks);}
         catch{
-          if(revision===this.revision&&!this.stopped){this.o.log?.("stock_publication_failed");this.revoke();}
+          if(revision===this.revision&&!this.stopped){
+            this.o.log?.("stock_publication_failed");this.revoke();
+            // Wait for the next worker step before retrying a failed database.
+            this.dirty=false;this.pending=[];break;
+          }
           // A reconnect may already have queued fresh metadata/prints while
           // the obsolete attempt was blocked. Drain that epoch next.
           continue;

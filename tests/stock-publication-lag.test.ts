@@ -90,3 +90,7 @@ test("coalesced reconnect cannot resurrect the prior connection's accepted mark"
  assert.equal(room.stockExecution!.TSLA!.tick,null);
  assert.equal(stockExecutionPolicy(room.stockExecution!.TSLA!,start+2,["TSLA"]).executable,false);
 });
+test("database failure does not create an unbounded immediate retry loop",async()=>{
+ let calls=0;const f=await fixture(async()=>{calls++;throw Error("database unavailable");});
+ await f.runtime.drained();assert.ok(calls<=2);assert.equal(f.runtime.snapshot().TSLA.connected,false);f.runtime.stop();
+});
