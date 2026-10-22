@@ -6,6 +6,7 @@ import {stockDisplayName} from "@/lib/stock-config";
 import styles from "./market-symbol-picker.module.css";
 type Quote={micro:number;at:number};
 export type MarketSymbols={crypto:string[];stocks:string[];forex?:string[];delisted:string[];revision:number};
+export const fxRate=(micro:number,pair:string)=>{const d=pair.endsWith("/JPY")?3:5;return new Intl.NumberFormat("en-US",{minimumFractionDigits:d,maximumFractionDigits:d}).format(micro/1e6);};
 export const isForexPair=(s:string)=>/^[A-Z]{3}\/[A-Z]{3}$/.test(s);
 const rate=(m:number)=>new Intl.NumberFormat("en-US",{minimumFractionDigits:4,maximumFractionDigits:4}).format(m/1e6);
 type Props={symbol:string|null;symbols:MarketSymbols;quotes:Record<string,Quote|undefined>;changes?:Record<string,number|null|undefined>;summary?:MarketSummary;forexMock?:boolean;onSelect:(s:string)=>void};
@@ -22,9 +23,9 @@ export default function MarketSymbolPicker({symbol,symbols,quotes,changes,summar
  const groups=useMemo(()=>[["Stocks",symbols.stocks.filter(match)],["Crypto",symbols.crypto.filter(match)],["Forex",(symbols.forex??[]).filter(match)]] as const,[symbols.stocks,symbols.crypto,symbols.forex,term]);
  const q=symbol?quotes[symbol]:undefined;
  const rowMicro=(s:string)=>isForexPair(s)?quotes[s]?.micro:summary?summary[s]?.micro:quotes[s]?.micro;
- const row=(s:string)=><li key={s}><button className={styles.row} aria-current={s===symbol} onClick={()=>{onSelect(s);setOpen(false);}}><span className={styles.name}>{stockDisplayName(s)}</span><span className={styles.nums}><span>{rowMicro(s)!=null?(isForexPair(s)?rate(rowMicro(s)!):price(rowMicro(s)!)):"Unavailable"}{isForexPair(s)&&forexMock?<small title="Demo data, not a real price"> MOCK</small>:null}</span><Change v={summary?summary[s]?.change:changes?.[s]}/></span></button></li>;
+ const row=(s:string)=><li key={s}><button className={styles.row} aria-current={s===symbol} onClick={()=>{onSelect(s);setOpen(false);}}><span className={styles.name}>{stockDisplayName(s)}</span><span className={styles.nums}><span>{rowMicro(s)!=null?(isForexPair(s)?fxRate(rowMicro(s)!,s):price(rowMicro(s)!)):"Unavailable"}{isForexPair(s)&&forexMock?<small title="Demo data, not a real price"> MOCK</small>:null}</span><Change v={summary?summary[s]?.change:changes?.[s]}/></span></button></li>;
  return <>
-  <button data-market-picker className={styles.trigger} aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}>{symbol?<>{isForexPair(symbol)?symbol:stockDisplayName(symbol)+" / USD"} <small>{q?(isForexPair(symbol)?rate(q.micro):price(q.micro)):""}{isForexPair(symbol)&&forexMock?" MOCK":""}</small></>:"No markets"}<span aria-hidden>▾</span></button>
+  <button data-market-picker className={styles.trigger} aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}>{symbol?<>{isForexPair(symbol)?symbol:stockDisplayName(symbol)+" / USD"} <small>{q?(isForexPair(symbol)?fxRate(q.micro,symbol):price(q.micro)):""}{isForexPair(symbol)&&forexMock?" MOCK":""}</small></>:"No markets"}<span aria-hidden>▾</span></button>
   {open?createPortal(<><div className={styles.scrim} onClick={()=>setOpen(false)}/><aside className={styles.drawer} role="dialog" aria-label="Choose a market">
    <div className={styles.head}><h3>Markets</h3><button onClick={()=>setOpen(false)} aria-label="Close">×</button></div>
    <input className={styles.search} type="search" placeholder="Search symbols" aria-label="Search symbols" value={term} onChange={e=>setTerm(e.target.value)} autoFocus/>
