@@ -104,7 +104,7 @@ export function normalizePolyDataResolution(market:PolyMarket,value:unknown,now=
  if(matching.length!==1)return null;const row=matching[0],payouts=array(row.payouts);
  if(row.status!=="resolved"||row.extended_review===true||payouts.length!==2||!payouts.every(p=>typeof p==="number"&&Number.isSafeInteger(p)&&p>=0&&p<=1e6)||Number(payouts[0])+Number(payouts[1])!==1e6)return null;
  if(!market.outcomes.every(o=>polyToken.safeParse(o.tokenId).success))return null;
- return{marketId:market.id,conditionId:market.conditionId,version:market.version,payouts:Object.fromEntries(market.outcomes.map((o,i)=>[o.tokenId,Number(payouts[i])])),source:"data-v2-final",asOf:now,kind:payouts.every(p=>p===500_000)?"void":"settle"};
+ return{marketId:market.id,conditionId:market.conditionId,version:market.version,payouts:Object.fromEntries(market.outcomes.map((o,i)=>[o.tokenId,Number(payouts[i])])),source:"data-v2-final",asOf:now,kind:"settle"};
 }
 export async function polyResolution(id:string){
  const market=await polyMarket(id,true);if(!market.closed)return null;

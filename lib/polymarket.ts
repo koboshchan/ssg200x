@@ -87,7 +87,7 @@ export function settlePolymarket(r:Room,resolution:PolyResolution,now=Date.now()
  for(const p of positions){
   ensure(p.conditionId===resolution.conditionId&&p.version===resolution.version&&Object.hasOwn(resolution.payouts,p.tokenId),"Resolution identity mismatch.",409);
   const m=r.members.find(m=>m.id===p.userId);ensure(m,"Prediction owner missing.",500);
-  const amount=safe(BigInt(p.shareMicros)*BigInt(resolution.payouts[p.tokenId])/DENOM);wallet(r,m,amount);
+  const amount=resolution.kind==="void"?safe(BigInt(p.cost)):safe(BigInt(p.shareMicros)*BigInt(resolution.payouts[p.tokenId])/DENOM);wallet(r,m,amount);
   const item:PolyHistory={id:"settle:"+p.id,requestId:"settle:"+resolution.marketId,marketId:p.marketId,tokenId:p.tokenId,question:p.question,outcome:p.outcome,action:resolution.kind,shareMicros:p.shareMicros,amount,cost:p.cost,at:now};
   remember(s,p.userId,item);audit(r,worker,"polymarket."+resolution.kind,p.id,{shareMicros:p.shareMicros,cost:p.cost},{...item,payoutMicros:resolution.payouts[p.tokenId],source:resolution.source});
  }

@@ -63,14 +63,14 @@ test("worker independently resolves both users from real final-payout envelope; 
  const own=polyPortfolio(r,who),foreign=polyPortfolio(r,other);assert(!JSON.stringify(own).includes(other.id));assert.equal(foreign.history.filter(h=>h.action==="settle").length,1);
  const balances=r.members.map(m=>m.wallet),chips=totalChips(r);await tickPolymarket();r=await readRoom();assert.deepEqual(r.members.map(m=>m.wallet),balances);assert.equal(totalChips(r),chips);
 });
-test("50/50 invalid-market split uses payout not refund, floor once per combined holding; malformed identity cannot debit",async()=>{
+test("void refunds original cost once, racing settles safe; malformed identity cannot debit",async()=>{
  const m=normalizePolyMarket({...marketData(),id:"124",version:"v1",clobTokenIds:'["333","444"]'}),b=normalizePolyBook({...bookData(),asset_id:"333"},"333");
  const i={...input(),marketId:"124",tokenId:"333"};
  await mutate(r=>{changePolymarketSettings(r,{...who,admin:true},{enabled:true,maxTrade:100000});applyPolymarketTrade(r,who,i,m,b);});
  const resolution:PolyResolution={marketId:"124",conditionId:condition,version:"v1",payouts:{"333":500000,"444":500000},source:"data-v2-final",kind:"void",asOf:Date.now()};
- const before=await readRoom();await assert.rejects(()=>mutate(r=>settlePolymarket(r,{...resolution,conditionId:"bad"})),/identity/);
+ const before=await readRoom();const w0=before.members.find(m=>m.id===who.id)!.wallet,cost=before.polymarket!.positions.find(p=>p.marketId==="124")!.cost;await assert.rejects(()=>mutate(r=>settlePolymarket(r,{...resolution,conditionId:"bad"})),/identity/);
  assert.deepEqual((await readRoom()).members.map(m=>m.wallet),before.members.map(m=>m.wallet));
  await Promise.all([mutate(r=>settlePolymarket(r,resolution)),mutate(r=>settlePolymarket(r,resolution))]);
  const r=await readRoom();assertRoom(r);assert.equal(await(await db()).collection("audit").countDocuments({what:"polymarket.void"}),1);
- assert.equal(r.polymarket!.history[who.id][0].action,"void");
+ assert.equal(r.polymarket!.history[who.id][0].action,"void");assert.equal(r.members.find(m=>m.id===who.id)!.wallet,w0+cost);
 });

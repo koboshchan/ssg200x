@@ -10,7 +10,7 @@ const condition="0x"+"a".repeat(64);
 function market(now=Date.now()){return normalizePolyMarket({id:"123",conditionId:condition,version:"v1",outcomes:'["Yes","No"]',clobTokenIds:'["111","222"]',outcomePrices:'["0.6","0.4"]',active:true,closed:false,acceptingOrders:true,question:"Real question"},now);}
 function book(now=Date.now()):PolyBook{return normalizePolyBook({asset_id:"111",market:condition,timestamp:String(now),hash:"abc",bids:[{price:"0.59",size:"1000000"}],asks:[{price:"0.6",size:"1000000"}]},"111",now);}
 function input(patch:Partial<PolyTrade>={}):PolyTrade{return{action:"buy",marketId:"123",tokenId:"111",amount:1000,limitPrice:.61,requestId:randomUUID(),requestAt:Date.now(),...patch};}
-function resolution(payout=1_000_000):PolyResolution{return{marketId:"123",conditionId:condition,version:"v1",payouts:{"111":payout,"222":1e6-payout},source:"data-v2-final",asOf:Date.now(),kind:payout===500000?"void":"settle"};}
+function resolution(payout=1_000_000):PolyResolution{return{marketId:"123",conditionId:condition,version:"v1",payouts:{"111":payout,"222":1e6-payout},source:"data-v2-final",asOf:Date.now(),kind:"settle"};}
 test("v1/v2 normalize using explicit protocol discriminator, unknown versions never trade",()=>{
  const m=market();assert.equal(m.outcomes[0].tokenId,"111");
  const base={id:"1",active:true,closed:false,acceptingOrders:true,outcomes:'["A","B"]',clobTokenIds:'["1","2"]',positionIds:["3","4"]};
@@ -90,7 +90,7 @@ test("resolution requires matching final evidence, not closed date, price=1, pen
  assert.equal(normalizePolyResolution(m,{...clob,tokens:clob.tokens.map(t=>({...t,winner:false}))}),null);
  assert.equal(normalizePolyResolution(m,{...clob,condition_id:"bad"}),null);
  const row={condition_id:condition,status:"resolved",payouts:[500000,500000],extended_review:false};
- assert.equal(normalizePolyDataResolution(m,{data:[row]})?.kind,"void");
+ assert.equal(normalizePolyDataResolution(m,{data:[row]})?.kind,"settle");
  for(const patch of [{status:"disputed"},{payouts:[1000000,1000000]},{payouts:[0.5,999999.5]},{condition_id:"bad"},{extended_review:true}]){
   assert.equal(normalizePolyDataResolution(m,{data:[{...row,...patch}]}),null);
  }
@@ -115,4 +115,9 @@ test("public data singleflight deduplicates, preserves cache copies and encodes 
   assert.deepEqual((await polyChart("999777")).history,[{t:1700000000,p:.5}]);
   await assert.rejects(()=>polyBook("../evil"));
  }finally{globalThis.fetch=original;}
+});
+test("void refunds the original position cost, never share payout",()=>{
+ const r=freshRoom();applyPolymarketTrade(r,who,input(),market(),book());const cost=r.polymarket!.positions[0].cost,wallet=r.members[0].wallet;
+ settlePolymarket(r,{...resolution(),kind:"void"});
+ assert.equal(r.members[0].wallet,wallet+cost);assert.equal(r.polymarket!.history[who.id][0].action,"void");assert.equal(r.polymarket!.history[who.id][0].amount,cost);
 });
