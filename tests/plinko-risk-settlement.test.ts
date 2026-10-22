@@ -32,8 +32,8 @@ test('different risks remain immutable across out-of-order replays; changed enve
  assert.throws(()=>miniAction(r,who,{...inputs[0],risk:'high'}),/different order/);
  for(const input of inputs){
   const g=miniSnapshot(r,who).games.find(g=>g.id===input.requestId)!;
-  assert.equal(g.risk,input.risk);assert.deepEqual(g.plinkoTable,PLINKO_RISK_TABLES[input.risk].map(b=>b.multiplier));
-  g.plinkoTable![0]=999;
+  assert.equal(g.risk,input.risk);assert.deepEqual(g.plinkoTable,PLINKO_RISK_TABLES[input.risk]);
+  g.plinkoTable![0].multiplier=999;
  }
  assert.deepEqual(r,saved);
 });
@@ -42,5 +42,5 @@ test('omitted risk defaults medium, but legacy records retain historical table a
  assert.equal(r.miniGames![0].risk,'medium');
  const g=r.miniGames![0];delete g.risk;delete g.plinkoTable;
  const view=miniSnapshot(r,who).games[0];
- assert.equal(view.risk,undefined);assert.deepEqual(view.plinkoTable,LEGACY_PLINKO_TABLE.map(b=>b.multiplier));
+ assert.equal(view.risk,undefined);assert.deepEqual(view.plinkoTable,LEGACY_PLINKO_TABLE);
 });
