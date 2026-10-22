@@ -158,3 +158,57 @@ test("crypto shares a feed for spot/perps, stops only when both flags are off, a
  assert.equal(count("crypto"),2);assert.equal(active("crypto").length,1);
  assert.equal(count("stocks"),0);assert.equal(count("forex"),0);
 });
+
+// @ts-expect-error direct runtime module, no frontend/network replacement
+import {attachMarketFeatureSubscriptions} from '../runtime/market-feature-subscriptions.mjs';
+// @ts-expect-error direct runtime module
+import {createPolymarketStream,attachPolymarketPresence} from '../runtime/polymarket-stream.mjs';
+class Client {
+ id:string;connected=true;data:any;handlers=new Map<string,Function[]>();events:any[]=[];
+ constructor(id:string,route='/markets'){this.id=id;this.data={marketRoute:route,expires:now+1000000};}
+ on(event:string,fn:Function){this.handlers.set(event,[...(this.handlers.get(event)??[]),fn]);}
+ emit(...args:any[]){this.events.push(args);}
+ async receive(event:string,...args:any[]){for(const fn of this.handlers.get(event)??[])await fn(...args);}
+}
+class PolyWire extends EventTarget {
+ readyState=0;closed=false;frames:string[]=[];
+ send(data:string){this.frames.push(data);}
+ open(){this.readyState=1;this.dispatchEvent(new Event('open'));}
+ close(){this.closed=true;this.readyState=3;this.dispatchEvent(new Event('close'));}
+}
+test('one process toggles real Alpaca/OANDA/Polymarket runtimes AND current client subscriptions off/on',async()=>{
+ await boot();await worker!.ready;
+ const settings=globals[settingsSlot],wires:PolyWire[]=[];
+ const poly=createPolymarketStream({enabled:()=>settings.enabled('polymarket'),now:()=>now,graceMs:0,connect:()=>{const w=new PolyWire();wires.push(w);return w;}});
+ const off=settings.subscribe(()=>poly.syncEnabled());
+ const stock=new Client('stocks'),fxClient=new Client('fx'),pm=new Client('pm','/polymarket');
+ for(const s of [stock,fxClient]){
+  const subscriptions=attachMarketFeatureSubscriptions(s,{settings,now:()=>now});
+  subscriptions.updateSymbols(room.marketSymbols);
+ }
+ attachPolymarketPresence(pm,{settings,now:()=>now,checkSession:async()=>{},resolveMarket:async()=>({tokens:['11','12']}),stream:{...poly,setViewer(viewer:string,id:string|null,tokens:string[]){poly.setViewer(viewer,id,tokens);pm.data.polyMarketId=id;}}});
+ try{
+  await patch({stocks:true,forex:true});now+=40000;await step();
+  await stock.receive('market:subscribe','AAPL');
+  await stock.receive('candles:subscribe',{symbol:'AAPL',granularity:'1m'});
+  await fxClient.receive('market:subscribe','EUR/USD');
+  await fxClient.receive('candles:subscribe',{symbol:'EUR/USD',granularity:'1m'});
+  await pm.receive('polymarket:watch','1');wires[0].open();
+  assert.equal(active('stocks').length,1);assert.equal(streams[0].signal.aborted,false);assert.equal(poly.diagnostics().connections,1);
+  assert.equal(stock.data.marketSymbol,'AAPL');assert.equal(stock.data.chart.symbol,'AAPL');
+  assert.equal(fxClient.data.marketSymbol,'EUR/USD');assert.equal(fxClient.data.chart.symbol,'EUR/USD');assert.equal(pm.data.polyMarketId,'1');
+
+  Object.assign(configured,{polymarket:false});await patch({stocks:false,forex:false});
+  assert.equal(active('stocks').length,0);assert.equal(streams[0].signal.aborted,true);assert.equal(streams[0].cancelled,true);assert.equal(wires[0].closed,true);
+  for(const s of [stock,fxClient]){assert.equal(s.data.marketSymbol,undefined);assert.equal(s.data.chart,undefined);}
+  assert.equal(pm.data.polyMarketId,null);assert.equal(poly.diagnostics().subscribed.length,0);
+  // No client re-emission, process replacement, or new worker on re-enable.
+  Object.assign(configured,{polymarket:true});await patch({stocks:true,forex:true});now+=40000;await step();wires[1].open();
+  assert.equal(count('stocks'),2);assert.equal(count('forex'),2);assert.equal(poly.diagnostics().connections,1);
+  assert.equal(stock.data.marketSymbol,'AAPL');assert.equal(stock.data.chart.symbol,'AAPL');
+  assert.equal(fxClient.data.marketSymbol,'EUR/USD');assert.equal(fxClient.data.chart.symbol,'EUR/USD');assert.equal(pm.data.polyMarketId,'1');
+ }finally{
+  for(const s of [stock,fxClient,pm]){s.connected=false;await s.receive('disconnect');}
+  off();poly.stop();assert.ok(wires.every(w=>w.closed));
+ }
+});

@@ -32,6 +32,9 @@ export function createPolymarketStream({connect=url=>new WebSocket(url),now=Date
  function invalidate(){books.clear();subscribed.clear();for(const id of markets.keys())changed(id);}
  function lose(ws){if(socket!==ws)return;socket=null;invalidate();retryAt=now()+Math.min(30000,500*2**Math.min(attempt++,6));try{ws.close();}catch{}}
  function closeDisabled(){
+  // Grace is useful only while live. Do not resurrect abandoned viewers when a
+  // feature comes back before the ordinary idle grace period would expire.
+  for(const [id,m]of markets)if(!m.viewers.size&&!m.pins.size){markets.delete(id);changed(id);}
   const old=socket;socket=null;
   if(old)try{old.close();}catch{}
   if(old||books.size||subscribed.size)invalidate();
@@ -40,6 +43,7 @@ export function createPolymarketStream({connect=url=>new WebSocket(url),now=Date
  function reconcile(){
   if(stopped)return;
   if(!enabled()){closeDisabled();return;}
+  for(const [id,m]of markets)if(m.until!==null&&now()>=m.until){markets.delete(id);changed(id);}
   const tokens=desired();
   if(!tokens.size){if(socket){const old=socket;socket=null;try{old.close();}catch{}}invalidate();return;}
   if(!socket&&now()>=retryAt){
@@ -93,25 +97,37 @@ export function createPolymarketStream({connect=url=>new WebSocket(url),now=Date
 }
 
 // Presence uses server-authenticated socket identity only. One selected market per socket.
-export function attachPolymarketPresence(socket,{stream,resolveMarket,checkSession,now=Date.now}){
- let version=0,last=0,count=0,pending=false;
- const clear=()=>{version++;stream.setViewer(socket.id,null);};
- socket.on('polymarket:watch',async(id,ack)=>{
-  const reply=value=>{if(typeof ack==='function')ack(value);};
-  if(id===null){clear();reply({ok:true});return;}
-  if(!idOK(id)||socket.data.marketRoute!=='/polymarket'){reply({ok:false,error:'Invalid market presence'});return;}
-  const at=now();if(at-last>=10000){last=at;count=0;}if(++count>20||pending){reply({ok:false,error:'Presence rate limit'});return;}
-  const serial=++version;pending=true;
+export function attachPolymarketPresence(socket,{stream,resolveMarket,checkSession,now=Date.now,settings}){
+ let version=0,last=0,count=0,pending=false,wish=null;
+ const enabled=()=>!settings||settings.enabled('polymarket');
+ const valid=()=>socket.connected&&socket.data.expires>now()&&socket.data.marketRoute==='/polymarket';
+ const clearActive=()=>{version++;stream.setViewer(socket.id,null);};
+ const clear=()=>{wish=null;clearActive();};
+ async function select(id,reply=()=>{}){
+  const serial=++version;
   try{
    await checkSession(socket);
-   if(!socket.connected||socket.data.expires<=now())throw new Error('Sign in again');
+   if(!valid()||!enabled()||serial!==version)return;
    const market=await resolveMarket(id);
-   if(serial!==version||!socket.connected||socket.data.marketRoute!=='/polymarket')return;
+   if(serial!==version||!valid()||!enabled()||wish!==id)return;
    if(!Array.isArray(market.tokens)||market.tokens.length!==2||!market.tokens.every(tokenOK))throw new Error('Unsupported market');
    stream.setViewer(socket.id,id,market.tokens);reply({ok:true,...stream.status(id)});
   }catch{if(serial===version){clear();reply({ok:false,error:'Live market unavailable'});}}
-  finally{pending=false;}
+ }
+ socket.on('polymarket:watch',async(id,ack)=>{
+  const reply=value=>{if(typeof ack==='function')ack(value);};
+  if(id===null){clear();reply({ok:true});return;}
+  if(!idOK(id)||!valid()){reply({ok:false,error:'Invalid market presence'});return;}
+  if(!enabled()){clear();reply({ok:false,error:'feature_disabled'});return;}
+  const at=now();if(at-last>=10000){last=at;count=0;}if(++count>20||pending){reply({ok:false,error:'Presence rate limit'});return;}
+  wish=id;pending=true;
+  try{await select(id,reply);}finally{pending=false;}
  });
- socket.on('tab:report',report=>{if(report?.route!=='/polymarket')clear();});
- socket.on('disconnect',clear);
+ const off=settings?.subscribe(()=>{
+  if(!enabled()){clearActive();return;}
+  if(!valid()){clear();return;}
+  if(wish)void select(wish);
+ });
+ socket.on('tab:report',report=>{if(typeof report?.route!=='string')return;socket.data.marketRoute=report.route;if(report.route!=='/polymarket')clear();});
+ socket.on('disconnect',()=>{clear();off?.();});
 }

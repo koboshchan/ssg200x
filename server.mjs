@@ -7,7 +7,7 @@ import {createPolymarketHistory,authorizePolymarketHistory,polymarketFinancialPi
 import {createPolymarketStream,attachPolymarketPresence} from "./runtime/polymarket-stream.mjs";
 import {createPokerTaunts} from "./runtime/poker-taunts.mjs";
 import {serveRelease,attachReleaseHandshake} from "./runtime/release.mjs";
-import {subscribeMarket} from "./runtime/market-subscription.mjs";
+import {attachMarketFeatureSubscriptions} from "./runtime/market-feature-subscriptions.mjs";
 import {attachSocketAuth} from "./runtime/socket-auth.mjs";
 import {createTabLeases} from "./runtime/tab-leases.mjs";
 const tabLeases=createTabLeases();
@@ -29,7 +29,7 @@ import {Server} from "socket.io";
 import {createClerkClient,verifyToken} from "@clerk/backend";
 import {MongoClient} from "mongodb";
 import {randomBytes} from "node:crypto";
-import {subscribeChart,emitChartState} from "./runtime/chart-stream.mjs";
+import {emitChartState} from "./runtime/chart-stream.mjs";
 import {emitRoomState} from "./runtime/room-state.mjs";
 import {verifiedSocketIdentity} from "./runtime/socket-identity.mjs";
 // Assigned before Next prepares its route workers. Never accept an externally set secret.
@@ -155,8 +155,8 @@ const polyStreamTimer=setInterval(()=>{
   if(polyOwners.has(id))for(const book of polyStream.status(id).books)void polyHistory.append(id,book.asset_id,book).catch(()=>console.warn('Prediction tick persistence deferred'));
   const update=polyStream.status(id);update.books=update.books.map(book=>({...book,bids:book.bids.slice(0,12),asks:book.asks.slice(0,12)}));for(const socket of io.sockets.sockets.values()){
   if(!socket.connected||socket.data.expires<=Date.now())continue;
-  if(socket.data.polyMarketId===id)socket.emit('polymarket:price',update);
-  if(polyOwners.get(id)?.has(socket.data.identity.id))socket.emit('polymarket:positions',{marketId:id});
+  if(featureSettings.enabled("polymarket")&&socket.data.polyMarketId===id)socket.emit('polymarket:price',update);
+  if(featureSettings.enabled("polymarket")&&polyOwners.get(id)?.has(socket.data.identity.id))socket.emit('polymarket:positions',{marketId:id});
  }}polyDirty.clear();
 },500);polyStreamTimer.unref();
 const chat=createPokerChatService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk,canSend:()=>featureSettings.enabled("chat")&&featureSettings.enabled("tableTalk")});
@@ -189,6 +189,9 @@ async function pushState(socket,force=false,profiles){
   await checkChatSession(socket);
   if(snapshotAdmin!==socket.data.identity.admin||snapshotTable!==(socket.data.pokerTableId||"01"))return;
   if(!socket.connected||socket.data.expires<=Date.now())return;
+  if(data.room?.marketSymbols)socket.data.marketSubscriptions?.updateSymbols(data.room.marketSymbols);
+  socket.data.marketSubscriptions?.sync();
+  if(data.room)data.room=socket.data.marketSubscriptions.project(data.room);
   force=force||socket.data.forceFull===true;socket.data.forceFull=false;
   for(const [key,event] of [["maintenance","maintenance:state"]]){
    emitState(socket,event,data[key],force);
@@ -205,7 +208,8 @@ io.on("connection",socket=>{
  socket.emit("features:state",featureSettings.current());
  attachPokerTaunts(socket);
  socket.data.marketRoute=socket.handshake.auth?.route;
- attachPolymarketPresence(socket,{stream:{...polyStream,setViewer(viewer,id,tokens){polyStream.setViewer(viewer,id,tokens);socket.data.polyMarketId=id;}},resolveMarket:resolvePolyMarket,checkSession:checkChatSession});
+ socket.data.marketSubscriptions=attachMarketFeatureSubscriptions(socket,{settings:featureSettings});
+ attachPolymarketPresence(socket,{settings:featureSettings,stream:{...polyStream,setViewer(viewer,id,tokens){polyStream.setViewer(viewer,id,tokens);socket.data.polyMarketId=id;}},resolveMarket:resolvePolyMarket,checkSession:checkChatSession});
  socket.on("state:resync",event=>{
   if(!STATE_STREAMS.includes(event)||Date.now()<(socket.data.resyncAt||0))return;
   socket.data.resyncAt=Date.now()+1000;socket.data.forceFull=true;socket.data.statusAt=0;
@@ -216,9 +220,6 @@ io.on("connection",socket=>{
   socket.data.pokerTableId=id;socket.data.forceFull=true;socket.data.initialized=false;socket.data.statusAt=0;
  });
  socket.data.marketRoute=socket.handshake.auth?.route;
- socket.on("tab:report",report=>{if(typeof report?.route!=="string")return;socket.data.marketRoute=report.route;if(report.route!=="/markets"){subscribeMarket(socket,null);subscribeChart(socket,null);}});
- socket.on("market:subscribe",symbol=>{if(symbol===null||socket.data.marketRoute==="/markets")subscribeMarket(socket,symbol);});
- socket.on("candles:subscribe",selection=>{if(selection===null||socket.data.marketRoute==="/markets")subscribeChart(socket,selection);});
  for(const event of ["register","state","claim","wrap","send","history","keys:get","keys:put"]){
   socket.on("chat:"+event,async(payload,ack)=>{
    if(typeof ack!=="function")return;

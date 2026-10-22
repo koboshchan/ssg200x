@@ -5,7 +5,7 @@ export function subscribeChart(socket,selection,now=Date.now()){
  if(selection===null){resetStream(socket,"candles:state");socket.data.chart=undefined;socket.data.chartFingerprint=undefined;socket.data.chartChangeAt=0;return;}
  if(now<(socket.data.chartChangeAt||0))return;
  if(!selection||typeof selection!=="object"||Array.isArray(selection)||Object.keys(selection).length!==2||
-  typeof selection.symbol!=="string"||!/^[A-Z][A-Z0-9.\-]{0,14}$/.test(selection.symbol)||
+  typeof selection.symbol!=="string"||!(/^[A-Z][A-Z0-9.\-]{0,14}$/.test(selection.symbol)||/^[A-Z]{3}\/[A-Z]{3}$/.test(selection.symbol))||
   !["1m","5m","15m","1h","6h","1d"].includes(selection.granularity))return;
  resetStream(socket,"candles:state");
  socket.data.chart={symbol:selection.symbol,granularity:selection.granularity};
