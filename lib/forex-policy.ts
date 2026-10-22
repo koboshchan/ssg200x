@@ -6,7 +6,7 @@ export function validForexPair(symbol:string){return FOREX_DEFAULTS.includes(sym
 const ny=new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",weekday:"short",hour:"2-digit",hourCycle:"h23"});
 export function forexMarketOpen(now:number){if(!Number.isFinite(now))return false;const p=Object.fromEntries(ny.formatToParts(now).map(p=>[p.type,p.value]));const h=Number(p.hour);return p.weekday!=="Sat"&&!(p.weekday==="Fri"&&h>=17)&&!(p.weekday==="Sun"&&h<17);}
 export type ForexQuote={micro:number;at:number;source:"mock"|"oanda";quoteCurrency:string;received?:number;receiptMono?:number;nativeMicro?:number;usdMicro?:number;quoteUsd?:number;legs?:{at:number;received:number;receiptMono:number}[]};
-export type ForexStatus={mode:"mock"|"live"|"unconfigured";stream?:"streaming"|"connecting"|"reconnecting"|"down";marketOpen:boolean;message:string;leaseUntil?:number;clockDomain?:string;errors?:Record<string,string>;cadenceSeconds?:number;dailyUsed?:number;dailyLimit?:number;nextPollAt?:number};
+export type ForexStatus={mode:"mock"|"live"|"unconfigured";stream?:"streaming"|"connecting"|"reconnecting"|"down";marketOpen:boolean;message:string;leaseUntil?:number;clockDomain?:string;errors?:Record<string,string>};
 export function forexDecision(symbol:string,q:ForexQuote|undefined,status:ForexStatus|undefined,now:number,mono?:number,clockDomain?:string){
  const deny=(reason:string)=>({executable:false,reason,validUntil:0});
  if(!validForexPair(symbol))return deny("unsupported_forex");
