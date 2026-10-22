@@ -30,7 +30,7 @@ test('risk variance strictly increases and exact weighted cent-floor loss is in 
   return {n,d};
  });
  for(let i=1;i<moments.length;i++)assert.ok(moments[i].n*moments[i-1].d>moments[i-1].n*moments[i].d);
- for(const risk of PLINKO_RISKS)for(const bet of [1n,99n,100n,1000n,99900n]){
+ for(const risk of PLINKO_RISKS)for(let bet=1n;bet<=10000n;bet++){
   const weightedPaid=PLINKO_RISK_TABLES[risk].reduce((sum,b,k)=>
    sum+BigInt(PLINKO_BINOMIAL[k])*(bet*BigInt(b.numerator)/BigInt(b.denominator)),0n);
   // E[payout]=weightedPaid/256. Strict lower bound .98*B-1.
