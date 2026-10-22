@@ -136,7 +136,7 @@ function ActivityView({id}:{id:string}){
 
 function Ticket({ev,market,portfolio,settings,onTraded}:{ev:PEvent;market:Market;portfolio:Portfolio|null;settings:{enabled:boolean;maxTradeCents:number}|null;onTraded:(m:string)=>void}){
  const [action,setAction]=useState<"buy"|"sell">("buy"),[side,setSide]=useState<"yes"|"no">("yes"),[amount,setAmount]=useState("10"),[confirm,setConfirm]=useState(false),[busy,setBusy]=useState(false),[err,setErr]=useState("");
- const reqId=useRef(rid()),dlg=useRef<HTMLDialogElement>(null);
+ const reqId=useRef(rid()),reqAt=useRef(Date.now()),dlg=useRef<HTMLDialogElement>(null);
  const py=yes(market),price=side==="yes"?py:1-py;
  const pos=portfolio?.positions.find(p=>p.marketId===market.id&&p.side===side&&p.status==="open");
  const n=Number(amount),valid=Number.isInteger(n)&&n>0;
@@ -150,10 +150,10 @@ function Ticket({ev,market,portfolio,settings,onTraded}:{ev:PEvent;market:Market
  async function submit(){
   setBusy(true);setErr("");
   try{
-   const body:Record<string,unknown>={requestId:reqId.current,marketId:market.id,side,action};
+   const body:Record<string,unknown>={requestId:reqId.current,requestAt:reqAt.current,marketId:market.id,side,action,limitPrice:action==="buy"?Math.min(0.99,Math.ceil((price+0.03)*1000)/1000):Math.max(0.01,Math.floor((price-0.03)*1000)/1000)};
    if(action==="buy")body.amountCents=n*100;else body.shares=n;
    const r=await api<{fill:{shares:number;price:number;cents:number}}>("/trade",{method:"POST",body:JSON.stringify(body)});
-   reqId.current=rid();setConfirm(false);
+   reqId.current=rid();reqAt.current=Date.now();setConfirm(false);
    onTraded((action==="buy"?"Bought ":"Sold ")+r.fill.shares.toFixed(2)+" "+side.toUpperCase()+" at "+cents(r.fill.price)+" for "+money(r.fill.cents));
   }catch(e){setErr(e instanceof Error?e.message:"Trade failed.");setConfirm(false);}
   finally{setBusy(false);}
@@ -163,7 +163,7 @@ function Ticket({ev,market,portfolio,settings,onTraded}:{ev:PEvent;market:Market
   <p className={styles.tq}>{market.question}</p>
   <div className={styles.seg} role="group" aria-label="Action">{(["buy","sell"] as const).map(a=><button key={a} aria-pressed={action===a} onClick={()=>{setAction(a);setErr("");}}>{a==="buy"?"Buy":"Sell"}</button>)}</div>
   <div className={styles.sides} role="group" aria-label="Outcome"><button className={styles.yesBtn} aria-pressed={side==="yes"} onClick={()=>setSide("yes")}>Yes {cents(py)}</button><button className={styles.noBtn} aria-pressed={side==="no"} onClick={()=>setSide("no")}>No {cents(1-py)}</button></div>
-  <label className={styles.field}><span>{label}</span><CasinoAmountInput value={amount} onChange={setAmount} min={1}/></label>
+  <label className={styles.field}><span>{label}</span><CasinoAmountInput value={amount} onChange={v=>{setAmount(v);reqId.current=rid();reqAt.current=Date.now();}} min={1}/></label>
   {action==="sell"&&<div className={styles.quick}><span className={styles.muted}>{pos?"You hold "+pos.shares.toFixed(2)+" "+side.toUpperCase():"No "+side.toUpperCase()+" shares held"}</span>{pos&&<button onClick={()=>setAmount(String(Math.floor(pos.shares)||1))}>Max</button>}</div>}
   {action==="buy"&&<div className={styles.quick}>{[5,10,25,100].map(v=><button key={v} onClick={()=>setAmount(String(v))}>${v}</button>)}</div>}
   <dl className={styles.sum}><div><dt>Price</dt><dd>{cents(price)}</dd></div><div><dt>{action==="buy"?"Est. shares":"Shares"}</dt><dd>{action==="buy"?shares.toFixed(2):(valid?Math.min(n,pos?.shares||0).toFixed(2):"-")}</dd></div><div><dt>{action==="buy"?"Payout if "+side.toUpperCase():"You receive"}</dt><dd className={styles.pos}>{payoutC>0?money(Math.round(payoutC)):"-"}</dd></div></dl>
