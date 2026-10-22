@@ -57,7 +57,8 @@ test("settlement starts a new five-minute interval, with no extra debit on expir
  for(let i=0;i<3;i++)move(r,i,{type:"ready"});
  move(r,0,{type:"bid",bid:3});for(let i=0;i<3;i++)move(r,i,{type:"double",doubleMultiplier:1});
  g.players[0].hand=["3s"];move(r,0,{type:"play",cards:["3s"]},2000);
- assert.equal(g.phase,"finished");assert.equal(g.idleDeadline,2000+DOUDIZHU_IDLE_MS);
+ assert.equal(g.phase,"revealing");assert.equal(g.idleDeadline,undefined);
+ tickDoudizhu(r,7000);assert.equal(g.phase,"finished");assert.equal(g.idleDeadline,7000+DOUDIZHU_IDLE_MS);
  const wallets=r.members.map(m=>m.wallet);
  assert(tickDoudizhu(r,g.idleDeadline!));assert.deepEqual(r.members.map(m=>m.wallet),wallets);assertRoom(r);
 });

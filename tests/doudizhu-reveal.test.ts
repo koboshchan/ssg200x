@@ -1,0 +1,33 @@
+import {test} from "node:test";
+import assert from "node:assert/strict";
+import {randomUUID} from "node:crypto";
+import {freshRoom,register,assertRoom} from "../lib/poker";
+import {applyDoudizhu,publicDoudizhu,tickDoudizhu,doudizhuNeedsTick,DOUDIZHU_REVEAL_MS,type DoudizhuInput} from "../lib/doudizhu";
+test("all remaining cards become public only after final play; five-second server gate settles once",()=>{
+ const r=freshRoom(),now=10000,users=Array.from({length:4},(_,i)=>({id:"reveal-"+i,name:"Player "+i,email:"private@test.invalid",admin:false}));
+ users.forEach(u=>register(r,u,now));
+ const move=(seat:number,data:Partial<DoudizhuInput>,at=now)=>applyDoudizhu(r,users[seat],{type:"ready",requestId:randomUUID(),requestAt:at,version:r.doudizhu?.[0]?.version,...data} as DoudizhuInput,at);
+ move(0,{type:"create"});const g=r.doudizhu![0];for(let i=1;i<3;i++)move(i,{type:"join",code:g.code});
+ for(let i=0;i<3;i++)move(i,{type:"ready"});
+ for(let i=0;i<3;i++)assert.deepEqual(publicDoudizhu(r,users[i]).room!.players.map(p=>"hand" in p),users.slice(0,3).map((_,j)=>j===i));
+ move(0,{type:"bid",bid:3});for(let i=0;i<3;i++)move(i,{type:"double",doubleMultiplier:1});
+ g.players[0].hand=["3s"];
+ for(let i=0;i<3;i++)assert.deepEqual(publicDoudizhu(r,users[i]).room!.players.map(p=>"hand" in p),users.slice(0,3).map((_,j)=>j===i));
+ const wallets=r.members.map(m=>m.wallet);
+ move(0,{type:"play",cards:["3s"]});assert.equal(g.phase,"revealing");assert.equal(g.deadline,now+DOUDIZHU_REVEAL_MS);assert.equal(g.result,null);assert.equal(g.settled,false);
+ for(let i=0;i<3;i++)assert.deepEqual(publicDoudizhu(r,users[i]).room!.players.map(p=>p.hand),g.players.map(p=>p.hand));
+ assert.equal(publicDoudizhu(r,users[3],g.code).room,null);
+ for(let i=0;i<3;i++)for(const type of ["ready","leave","play","pass","bid","double"] as const)assert.throws(()=>move(i,{type,cards:["3s"],bid:3,doubleMultiplier:1}),/started|between hands|Not playing|Not bidding|Not choosing|Not your turn/);
+ assert.equal(doudizhuNeedsTick(r,now+4999),false);assert.equal(tickDoudizhu(r,now+4999),false);assert.deepEqual(r.members.map(m=>m.wallet),wallets);
+ // Reconnect reads and a persisted clone retain the same server deadline.
+ const restored=structuredClone(r);assert.equal(publicDoudizhu(restored,users[1]).room!.deadline,now+5000);
+ assert.equal(doudizhuNeedsTick(restored,now+5000),true);assert(tickDoudizhu(restored,now+5000));
+ assert.equal(restored.doudizhu![0].phase,"finished");assert(restored.doudizhu![0].settled);assertRoom(restored);
+ const settled=structuredClone(restored);assert.equal(tickDoudizhu(restored,now+5001),false);assert.deepEqual(restored,settled);
+ assert.equal(restored.auditPending!.filter(a=>a.what==="doudizhu.settlement").length,1);
+ tickDoudizhu(r,now+5000);move(0,{type:"ready"},now+5001);
+ assert(publicDoudizhu(r,users[1]).room!.players.every(p=>p.self||!("hand" in p)));
+ for(let i=1;i<3;i++)move(i,{type:"ready"},now+5001);
+ assert.equal(g.phase,"bidding");assert.equal(g.revealWinner,undefined);
+ assert(publicDoudizhu(r,users[0]).room!.players.every(p=>p.self||!("hand" in p)));
+});

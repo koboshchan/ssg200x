@@ -14,3 +14,14 @@
 .dd-mult{display:inline-block;margin-top:2px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:700;background:#ffffff26;color:#fff}.dd-mult-2{background:#e3b04b;color:#2a1b00}.dd-mult-4{background:#e54b3c;color:#fff}
 .dd-pairs{margin:8px 0 0;padding:8px 10px;border-radius:10px;background:#0000000f;font-size:13px}.dd-pairs small{display:block;color:var(--muted)}.dd-pairs ul{list-style:none;margin:4px 0 0;padding:0;display:grid;gap:2px}
 .dd-reaction-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0 0}.dd-reaction-bar button{font-size:12px;padding:8px 0;border:0;background:none;font-weight:500;color:var(--muted)}.dd-reaction-bar small{font-size:12px;color:var(--muted)}
+
+/* End-of-hand cards live in normal flow, separate from the later settlement overlay. */
+.dd-end-reveal{position:relative;z-index:2;margin:16px 0;padding:16px;border:1px solid #ffffff40;border-radius:12px;background:#103d2c;color:#fff}
+.dd-end-reveal>p{margin:0 0 16px;font-size:14px}
+.dd-reveal-row{display:grid;grid-template-columns:140px minmax(0,1fr);gap:12px;align-items:start;padding:12px 0;border-top:1px solid #ffffff25}
+.dd-reveal-row strong{font-size:14px;overflow-wrap:anywhere}
+.dd-reveal-row small{display:block;font-weight:400;font-size:12px;color:#c7ded0;margin-top:5px}
+.dd-reveal-cards{display:flex;flex-wrap:wrap;gap:4px;min-width:0}
+.dd-reveal-cards .card{width:36px;height:52px;padding:5px;flex-shrink:0}
+.dd-reveal-cards .card b{font-size:16px}.dd-reveal-cards .card i{font-size:17px}
+@media(max-width:600px){.dd-end-reveal{padding:12px}.dd-reveal-row{grid-template-columns:minmax(0,1fr);gap:8px}.dd-reveal-row small{display:inline;margin-left:8px}}
