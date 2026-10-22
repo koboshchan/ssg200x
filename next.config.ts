@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
+import {pokerKickDemoEnabled} from "./lib/poker-kick-demo";
 const config: NextConfig = {
   output: "standalone",
+  // A copied public demo flag must never expose the trigger in a normal build.
+  env: {NEXT_PUBLIC_POKER_KICK_DEMO: process.env.NEXT_PUBLIC_POKER_KICK_DEMO === "1" && pokerKickDemoEnabled() ? "1" : "0"},
   allowedDevOrigins: process.env.DEV_ALLOWED_ORIGINS?.split(",").map(host => host.trim()).filter(Boolean) ?? [],
   outputFileTracingIncludes: {"/*":["./server.mjs","./runtime/**/*","./node_modules/socket.io/**/*","./node_modules/engine.io/**/*","./node_modules/@clerk/backend/**/*","./node_modules/@clerk/shared/**/*","./node_modules/mongodb/**/*"]},
   poweredByHeader: false,
