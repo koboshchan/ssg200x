@@ -60,6 +60,6 @@ function ForexFeed(){
  if(!st)return null;
  const state=st.mode==="mock"?"MOCK data":st.mode==="unconfigured"?"not configured":st.stream==="streaming"?"streaming":st.stream==="down"?"stream down":st.stream==="reconnecting"?"reconnecting":"connecting";
  return <fieldset className="admin-set"><legend>Forex feed<span className="admin-count">{state}</span></legend>
-  <p className="admin-note">{st.message} Live OANDA stream, shared by all players · market {st.marketOpen?"open":"closed"}. Only live USD-quoted pairs can trade; other pairs are view only.</p>
+  <p className="admin-note">{st.message} Live OANDA stream, shared by all players · market {st.marketOpen?"open":"closed"}. Trading is allowed only when the server reports a fresh live quote and conversion route.</p>
  </fieldset>;
 }
