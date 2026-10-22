@@ -9,6 +9,7 @@ import {createFeatureRevisionObserver} from '../runtime/feature-revision.mjs';
 test('atomic confirmations enforce revision CAS, preserve audit and do not mutate on stale review',async()=>{
  let row:any=null;
  const collection={
+  async findOne(){return structuredClone(row);},
   async updateOne(query:any,update:any,options:any){
    const revision=row?.revision??0;
    const expected=query.revision??0;
@@ -63,4 +64,38 @@ test('confirmation API requires expected revision and returns real 409 with curr
  assert.match(source,/changeFeatures\(who,features,expectedRevision\)/);
  assert.match(source,/status:'error' in result\?409:200/);
  assert.match(readFileSync('lib/api.ts','utf8'),/if\(result instanceof Response\)return result/);
+});
+
+test('confirmed multi-flag batch increments once and fans out to ALL sockets; no-op and conflict never broadcast',async()=>{
+ let row:any={features:{stocks:false,forex:false},revision:10,audit:[]},writes=0;
+ const collection={
+  async findOne(){return structuredClone(row);},
+  async updateOne(filter:any,update:any){
+   if(filter.revision!==row.revision)return {matchedCount:0};
+   assert.deepEqual(update.$inc,{revision:1});writes++;
+   for(const [key,value] of Object.entries(update.$set))row.features[key.slice(9)]=value;
+   row.revision+=update.$inc.revision;row.audit.push(update.$push.audit);return {matchedCount:1};
+  }
+ };
+ const settings=createFeatureSettings(collection,{pollMs:100000});await settings.ready;
+ const events:any[]=[];
+ const clients=['admin','ordinary-player','other-route'].map(id=>[id,{connected:true,data:{},emit(event:string,payload:any){events.push({id,event,payload});}}] as const);
+ const io={sockets:{sockets:new Map(clients)}};
+ settings.subscribe(()=>broadcastFeatureState(io,settings));
+ const input={features:{stocks:true,forex:true},expectedRevision:10,actor:'admin',at:1,id:'batch'};
+ try{
+  assert.equal(await confirmFeatureChange(collection,input),true);await settings.refresh();
+  assert.equal(row.revision,11);assert.equal(writes,1);assert.equal(row.audit.length,1);
+  assert.deepEqual(events.map(e=>e.id),['admin','ordinary-player','other-route']);
+  for(const event of events){assert.equal(event.event,'features:state');assert.equal(event.payload.revision,11);assert.equal(typeof event.payload.revision,'number');}
+  assert.equal(await confirmFeatureChange(collection,{...input,expectedRevision:11}),true);await settings.refresh();
+  assert.equal(writes,1);assert.equal(row.revision,11);assert.equal(events.length,3);assert.equal(row.audit.length,1);
+  assert.equal(await confirmFeatureChange(collection,{...input,features:{stocks:false}}),false);await settings.refresh();
+  assert.equal(writes,1);assert.equal(row.revision,11);assert.equal(events.length,3);
+ }finally{settings.stop();}
+});
+test('implicit configured defaults are also no-ops without inserting a document',async()=>{
+ let writes=0;const collection={findOne:async()=>null,updateOne:async()=>{writes++;return {upsertedCount:1};}};
+ assert.equal(await confirmFeatureChange(collection,{features:{stocks:false,poker:true},expectedRevision:0,actor:'admin',at:1,id:'noop'}),true);
+ assert.equal(writes,0);
 });
