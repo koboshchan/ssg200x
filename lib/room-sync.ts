@@ -2,7 +2,7 @@ import type {PublicRoom} from "./public";
 export type MarketSnapshot=Pick<PublicRoom,"version"|"serverNow"|"quotes"|"holdings"|"positions"|"closedPositions"|"activity"|"leaderboard">&{perpFeePpm?:number;perpOpeningFeePpm?:number;perpClosingFeePpm?:number;perpClosingFeeMode?:PublicRoom["perpClosingFeeMode"];stockExecution?:PublicRoom["stockExecution"];wallet:number;netWorth:number};
 let quoteCache:PublicRoom["quotes"]={} as PublicRoom["quotes"];
 export function mergeRoom(current:PublicRoom|null,next:PublicRoom){
- if(current&&next.version<current.version)return current;
+ if(current&&(current as {pokerTableId?:string}).pokerTableId===(next as {pokerTableId?:string}).pokerTableId&&next.version<current.version)return current;
  quoteCache=Object.fromEntries(Object.entries({...quoteCache,...current?.quotes,...next.quotes}).sort((a,b)=>(b[1]?.at??0)-(a[1]?.at??0)).slice(0,64));
  return {...next,quotes:quoteCache};
 }

@@ -2,9 +2,12 @@ import {createIdentityStore} from './chat-identity.mjs';
 import {randomUUID} from 'node:crypto';
 import {shape,uuid,binary,text,fail,digest,registerData,bundleFingerprint,signedWrap,signedMessage,verify,validateDevice} from './chat-protocol.mjs';
 // All persistence is constructed field by field. Never spread caller input into Mongo.
-export function createChatService(db,{now=Date.now,clerk}={}){
+export function createChatService(db,{now=Date.now,clerk,roomId='main'}={}){
+ if(!['main','poker-02','poker-03'].includes(roomId))throw new Error('Invalid chat room');
+ const scope=roomId==='main'?{$or:[{room:'main'},{room:{$exists:false}}]}:{room:roomId};
+ const scoped=collection=>new Proxy(collection,{get(target,key){if(['find','findOne','countDocuments'].includes(key))return (query={},...args)=>target[key]({$and:[query,scope]},...args);const value=target[key];return typeof value==='function'?value.bind(target):value;}});
  const identity=clerk?createIdentityStore(db,clerk):null;
- const rooms=db.collection('rooms'),states=db.collection('chat_states'),devices=db.collection('chat_devices'),wraps=db.collection('chat_wraps'),messages=db.collection('chat_messages'),rates=db.collection('chat_rates');
+ const rooms=db.collection('rooms'),states=db.collection('chat_states'),devices=db.collection('chat_devices'),wraps=scoped(db.collection('chat_wraps')),messages=scoped(db.collection('chat_messages')),rates=db.collection('chat_rates');
  let queue=Promise.resolve(),pending=0;
  const serial=fn=>{if(pending>=128)return Promise.reject(Object.assign(new Error("busy"),{chatCode:"busy"}));pending++;const result=queue.then(fn).finally(()=>pending--);queue=result.catch(()=>{});return result;};
  const ready=Promise.all([messages.createIndex({epoch:1,senderUserId:1,id:1},{unique:true}),messages.createIndex({epoch:1,cursor:-1}),devices.createIndex({userId:1,deviceId:1},{unique:true}),rates.createIndex({expiresAt:1},{expireAfterSeconds:0})]);
@@ -14,9 +17,9 @@ export function createChatService(db,{now=Date.now,clerk}={}){
   if(!members.includes(user))fail('forbidden');
   const directory=await devices.find({userId:{$in:members}},{projection:{_id:0,userId:1,deviceId:1,dhPublic:1,signPublic:1}}).sort({userId:1,deviceId:1}).limit(4096).toArray();
   const fingerprint=digest(JSON.stringify([members,directory]));
-  let state=await states.findOne({_id:'main'});
-  if(!state){await states.updateOne({_id:'main'},{$setOnInsert:{revision:1,epoch:randomUUID(),fingerprint,status:'unclaimed',owner:null,leaseUntil:0,counter:0,removalVersion:room.chatRemovalVersion||0,members,directory}},{upsert:true});state=await states.findOne({_id:'main'});}
-  if(state.fingerprint!==fingerprint||(state.removalVersion||0)!==(room.chatRemovalVersion||0)){const removed=(state.members||[]).some(u=>!members.includes(u));const rotate=removed||(state.removalVersion||0)!==(room.chatRemovalVersion||0);if(rotate&&state.bootstrap)await wraps.updateOne({_id:state.bootstrap._id},{$setOnInsert:state.bootstrap},{upsert:true});const changed=await states.updateOne({_id:'main',revision:state.revision,fingerprint:state.fingerprint},{$set:{fingerprint,members,directory,removalVersion:room.chatRemovalVersion||0,...(rotate?{epoch:randomUUID(),status:'unclaimed',owner:null,leaseUntil:0,counter:0,bootstrap:null}:{})},$inc:{revision:1}});if(!changed.matchedCount)fail('stale_revision');state=await states.findOne({_id:'main'});}
+  let state=await states.findOne({_id:roomId});
+  if(!state){await states.updateOne({_id:roomId},{$setOnInsert:{revision:1,epoch:randomUUID(),fingerprint,status:'unclaimed',owner:null,leaseUntil:0,counter:0,removalVersion:room.chatRemovalVersion||0,members,directory}},{upsert:true});state=await states.findOne({_id:roomId});}
+  if(state.fingerprint!==fingerprint||(state.removalVersion||0)!==(room.chatRemovalVersion||0)){const removed=(state.members||[]).some(u=>!members.includes(u));const rotate=removed||(state.removalVersion||0)!==(room.chatRemovalVersion||0);if(rotate&&state.bootstrap)await wraps.updateOne({_id:state.bootstrap._id},{$setOnInsert:state.bootstrap},{upsert:true});const changed=await states.updateOne({_id:roomId,revision:state.revision,fingerprint:state.fingerprint},{$set:{fingerprint,members,directory,removalVersion:room.chatRemovalVersion||0,...(rotate?{epoch:randomUUID(),status:'unclaimed',owner:null,leaseUntil:0,counter:0,bootstrap:null}:{})},$inc:{revision:1}});if(!changed.matchedCount)fail('stale_revision');state=await states.findOne({_id:roomId});}
   return {room,members,directory,state};
  }
  async function fence(s,user){
@@ -24,12 +27,12 @@ export function createChatService(db,{now=Date.now,clerk}={}){
   const current=await snapshot(user);if(current.state.revision!==s.state.revision||current.state.epoch!==s.state.epoch)fail('stale_revision');
   if(!(await rooms.updateOne({_id:'main',version:current.room.version},{$inc:{version:1}})).matchedCount)fail('stale_revision');
  }
- function current(p,s){if(p.room!==undefined&&p.room!=='main')fail();if(!Number.isSafeInteger(p.revision)||p.revision!==s.state.revision||uuid(p.epoch)!==s.state.epoch)fail('stale_revision');uuid(p.deviceId);}
+ function current(p,s){if(p.room!==undefined&&p.room!==roomId)fail();if(!Number.isSafeInteger(p.revision)||p.revision!==s.state.revision||uuid(p.epoch)!==s.state.epoch)fail('stale_revision');uuid(p.deviceId);}
  async function device(user,id){const d=await devices.findOne({userId:user,deviceId:uuid(id)});if(!d)fail('device_required');if(identity){const pointer=await db.collection('chat_identity_versions').findOne({_id:user});if(!pointer||pointer.status!=='active'||pointer.version!==d.keyVersion)fail('identity_conflict');}return d;}
- async function hasWrap(epoch,user,id){const state=await states.findOne({_id:'main',epoch});if(state?.bootstrap?.toUserId===user&&state.bootstrap.toDeviceId===id)return state.bootstrap;return wraps.findOne({_id:digest(JSON.stringify([epoch,user,id]))});}
- function view(s,user,ws){return {room:'main',revision:s.state.revision,epoch:s.state.epoch,status:s.state.status,owner:s.state.owner,leaseUntil:s.state.leaseUntil,members:s.members.map(userId=>({userId,devices:s.directory.filter(d=>d.userId===userId).map(d=>({deviceId:d.deviceId,dhPublic:d.dhPublic,signPublic:d.signPublic,fingerprint:bundleFingerprint(userId,d)}))})),wraps:ws};}
- const cleanWrap=d=>({v:1,room:'main',revision:d.revision,epoch:d.epoch,senderUserId:d.senderUserId,deviceId:d.deviceId,toUserId:d.toUserId,toDeviceId:d.toDeviceId,salt:d.salt,iv:d.iv,ciphertext:d.ciphertext,signature:d.signature,...(d.senderDhPublic?{senderDhPublic:d.senderDhPublic,senderSignPublic:d.senderSignPublic}:{})});
- const cleanMessage=d=>({v:1,room:'main',revision:d.revision,epoch:d.epoch,senderUserId:d.senderUserId,deviceId:d.deviceId,id:d.id,ts:d.ts,iv:d.iv,ciphertext:d.ciphertext,signature:d.signature,senderSignPublic:d.senderSignPublic,serverTs:d.serverTs,cursor:d.cursor});
+ async function hasWrap(epoch,user,id){const state=await states.findOne({_id:roomId,epoch});if(state?.bootstrap?.toUserId===user&&state.bootstrap.toDeviceId===id)return state.bootstrap;return wraps.findOne({_id:digest(JSON.stringify([epoch,user,id]))});}
+ function view(s,user,ws){return {room:roomId,revision:s.state.revision,epoch:s.state.epoch,status:s.state.status,owner:s.state.owner,leaseUntil:s.state.leaseUntil,members:s.members.map(userId=>({userId,devices:s.directory.filter(d=>d.userId===userId).map(d=>({deviceId:d.deviceId,dhPublic:d.dhPublic,signPublic:d.signPublic,fingerprint:bundleFingerprint(userId,d)}))})),wraps:ws};}
+ const cleanWrap=d=>({v:1,room:roomId,revision:d.revision,epoch:d.epoch,senderUserId:d.senderUserId,deviceId:d.deviceId,toUserId:d.toUserId,toDeviceId:d.toDeviceId,salt:d.salt,iv:d.iv,ciphertext:d.ciphertext,signature:d.signature,...(d.senderDhPublic?{senderDhPublic:d.senderDhPublic,senderSignPublic:d.senderSignPublic}:{})});
+ const cleanMessage=d=>({v:1,room:roomId,revision:d.revision,epoch:d.epoch,senderUserId:d.senderUserId,deviceId:d.deviceId,id:d.id,ts:d.ts,iv:d.iv,ciphertext:d.ciphertext,signature:d.signature,senderSignPublic:d.senderSignPublic,serverTs:d.serverTs,cursor:d.cursor});
  async function wrapViews(rows){
   const cache=new Map();
   return Promise.all(rows.map(async row=>{
@@ -97,7 +100,7 @@ export function createChatService(db,{now=Date.now,clerk}={}){
    if(s.state.status!=='unclaimed'&&!takeover)fail('waiting');
    if(await wraps.countDocuments({epoch:p.epoch})||await messages.countDocuments({epoch:p.epoch}))fail('waiting');
    const epoch=takeover?randomUUID():p.epoch;
-   const result=await states.updateOne({_id:'main',revision:p.revision,epoch:p.epoch,status:s.state.status,leaseUntil:s.state.leaseUntil},{$set:{epoch,status:'claimed',owner:{userId:user,deviceId:p.deviceId},leaseUntil:now()+30000}});if(!result.matchedCount)fail('stale_revision');
+   const result=await states.updateOne({_id:roomId,revision:p.revision,epoch:p.epoch,status:s.state.status,leaseUntil:s.state.leaseUntil},{$set:{epoch,status:'claimed',owner:{userId:user,deviceId:p.deviceId},leaseUntil:now()+30000}});if(!result.matchedCount)fail('stale_revision');
    return view(await snapshot(user),user,[]);
   }
   if(event==='wrap'){
@@ -111,9 +114,9 @@ export function createChatService(db,{now=Date.now,clerk}={}){
    if(!initial&&(s.state.status!=='active'||!await hasWrap(p.epoch,user,p.deviceId)))fail('waiting');
    await fence(s,user);
    const id=digest(JSON.stringify([p.epoch,p.toUserId,p.toDeviceId])),content=signedWrap(user,p),existing=await hasWrap(p.epoch,p.toUserId,p.toDeviceId);
-   if(existing){if(existing.content!==content||existing.signature!==p.signature)fail('conflict');if(initial)await states.updateOne({_id:'main',revision:p.revision,epoch:p.epoch,status:'claimed',owner:s.state.owner},{$set:{status:'active',leaseUntil:0}});return {wrap:cleanWrap(existing)};}
-   const doc={_id:id,v:1,room:'main',revision:p.revision,epoch:p.epoch,senderUserId:user,deviceId:p.deviceId,toUserId:p.toUserId,toDeviceId:p.toDeviceId,salt:p.salt,iv:p.iv,ciphertext:p.ciphertext,signature:p.signature,senderDhPublic:d.dhPublic,senderSignPublic:d.signPublic,content};
-   if(initial){const activation=await states.updateOne({_id:'main',revision:p.revision,epoch:p.epoch,status:'claimed',owner:s.state.owner},{$set:{status:'active',leaseUntil:0,bootstrap:doc}});if(!activation.matchedCount)fail('stale_revision');}
+   if(existing){if(existing.content!==content||existing.signature!==p.signature)fail('conflict');if(initial)await states.updateOne({_id:roomId,revision:p.revision,epoch:p.epoch,status:'claimed',owner:s.state.owner},{$set:{status:'active',leaseUntil:0}});return {wrap:cleanWrap(existing)};}
+   const doc={_id:id,v:1,room:roomId,revision:p.revision,epoch:p.epoch,senderUserId:user,deviceId:p.deviceId,toUserId:p.toUserId,toDeviceId:p.toDeviceId,salt:p.salt,iv:p.iv,ciphertext:p.ciphertext,signature:p.signature,senderDhPublic:d.dhPublic,senderSignPublic:d.signPublic,content};
+   if(initial){const activation=await states.updateOne({_id:roomId,revision:p.revision,epoch:p.epoch,status:'claimed',owner:s.state.owner},{$set:{status:'active',leaseUntil:0,bootstrap:doc}});if(!activation.matchedCount)fail('stale_revision');}
    else await wraps.insertOne(doc);
    return {wrap:cleanWrap(doc)};
   }
@@ -123,8 +126,8 @@ export function createChatService(db,{now=Date.now,clerk}={}){
    const content=signedMessage(user,p);if(!await verify(d.signPublic,content,p.signature))fail('invalid_signature');
    const prior=await messages.findOne({epoch:p.epoch,senderUserId:user,id:p.id});if(prior){if(prior.content!==content)fail('conflict');await fence(s,user);return {message:cleanMessage(prior),duplicate:true};}
    if(Math.abs(now()-p.ts)>300000)fail('expired');await fence(s,user);
-   const counter=await states.findOneAndUpdate({_id:'main',revision:p.revision,epoch:p.epoch,status:'active'},{$inc:{counter:1}},{returnDocument:'after'});if(!counter)fail('stale_revision');
-   const doc={_id:digest(content),v:1,room:'main',revision:p.revision,epoch:p.epoch,senderUserId:user,deviceId:p.deviceId,id:p.id,ts:p.ts,iv:p.iv,ciphertext:p.ciphertext,signature:p.signature,senderSignPublic:d.signPublic,serverTs:now(),cursor:counter.counter,content};await messages.insertOne(doc);return {message:cleanMessage(doc),duplicate:false};
+   const counter=await states.findOneAndUpdate({_id:roomId,revision:p.revision,epoch:p.epoch,status:'active'},{$inc:{counter:1}},{returnDocument:'after'});if(!counter)fail('stale_revision');
+   const doc={_id:digest(content),v:1,room:roomId,revision:p.revision,epoch:p.epoch,senderUserId:user,deviceId:p.deviceId,id:p.id,ts:p.ts,iv:p.iv,ciphertext:p.ciphertext,signature:p.signature,senderSignPublic:d.signPublic,serverTs:now(),cursor:counter.counter,content};await messages.insertOne(doc);return {message:cleanMessage(doc),duplicate:false};
   }
   if(event==='history'){
    shape(p,['v','epoch','deviceId'],['before','limit']);uuid(p.epoch);await device(user,p.deviceId);if(!await hasWrap(p.epoch,user,p.deviceId))fail('waiting');

@@ -1,3 +1,4 @@
+import {POKER_SEAT_COUNT} from "./poker-seats";
 import {marketSymbols} from "./symbol-registry";
 import { MongoClient, MongoServerError } from "mongodb";
 import type { Room } from "./types";
@@ -16,7 +17,13 @@ export async function readRoom() {
  // Seed pre-existing installations once; conditional write cannot overwrite an admin edit.
  // Append only. Existing seat IDs, active hands, pending turns and money stay intact.
  // The size predicate plus version increment fences concurrent room CAS writes.
- await c.updateOne({_id:"main",seats:{$size:6}},{$push:{seats:{$each:[null,null]}},$inc:{version:1}});
+ for(const field of ["seats","pokerTables.02.seats","pokerTables.03.seats"]) {
+  for(const size of [6,8]) {
+   // Append only under a size predicate. Concurrent upgrades are idempotent;
+   // version fencing prevents a stale action from replacing expanded state.
+   await c.updateOne({_id:"main",[field]:{$size:size}},{$push:{[field]:{$each:Array(POKER_SEAT_COUNT-size).fill(null)}},$inc:{version:1}} as any);
+  }
+ }
  const room=(await c.findOne({_id:"main"}))!;
  if(room.marketSymbols)return room;
  await c.updateOne({_id:"main",marketSymbols:{$exists:false}},{$set:{marketSymbols:marketSymbols()},$inc:{version:1}});

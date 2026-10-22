@@ -73,7 +73,7 @@ test("mounted provider reports routes without reconnect, blocks accessibly, and 
   const identity=await page.evaluate(()=>(window as any).harness.identity());
   assert.match(identity.tabId,/^[0-9a-f-]{36}$/);assert.match(identity.tabProof,/^[0-9a-f-]{36}$/);
   assert.notEqual(identity.tabId,identity.tabProof);
-  assert.deepEqual(await page.evaluate(()=>(window as any).testSocket.auths[0]),{token:"fresh-token",...identity,route:"/poker"});
+  assert.deepEqual(await page.evaluate(()=>(window as any).testSocket.auths[0]),{token:"fresh-token",...identity,route:"/poker",pokerTableId:"01"});
   assert.deepEqual(await page.evaluate(()=>(window as any).harness.headers()),{"X-Tab-Id":identity.tabId,"X-Tab-Proof":identity.tabProof});
   const reports=()=>page.evaluate(()=>(window as any).testSocket.reports.filter((r:any)=>r.event==="tab:report"));
   assert.equal((await reports()).at(-1).payload.route,"/poker");
@@ -87,7 +87,7 @@ test("mounted provider reports routes without reconnect, blocks accessibly, and 
   const before=(await reports()).length;await page.clock.runFor(10000);assert.equal((await reports()).length,before+2);
   await page.evaluate(()=>{document.dispatchEvent(new Event("visibilitychange"));window.dispatchEvent(new Event("pageshow"));});
   assert.equal((await reports()).length,before+4);
-  assert.deepEqual(await page.evaluate(()=>(window as any).testSocket.auth()),{token:"fresh-token",...identity,route:"/roulette"});
+  assert.deepEqual(await page.evaluate(()=>(window as any).testSocket.auth()),{token:"fresh-token",...identity,route:"/roulette",pokerTableId:"01"});
 
   await page.locator("#game").focus();
   await page.evaluate(()=>(window as any).testSocket.state({blocked:true,tabs:2}));

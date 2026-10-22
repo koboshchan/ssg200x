@@ -1,6 +1,6 @@
 services:
   app:
-    image: node:24-bookworm-slim
+    image: node:24.22.1-bookworm-slim
     build: !reset null
     working_dir: /work
     command: ["npm", "run", "dev"]

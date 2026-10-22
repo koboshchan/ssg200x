@@ -12,3 +12,11 @@ test("standalone tracing wins over custom-server runtime dependencies",()=>{
  assert.ok(production>=0&&standalone>production);
  assert.equal(file.indexOf("./node_modules",standalone),-1,"do not overwrite traced packages after standalone");
 });
+test("every Docker entry point pins the October security release",()=>{
+ for (const name of ["Dockerfile", "Dockerfile.prebuilt", "compose.dev.yaml"]) {
+  const file=readFileSync(new URL(`../${name}`,import.meta.url),"utf8");
+  const images=[...file.matchAll(/\bnode:(24[^\s]+)/g)].map(match=>match[1]);
+  assert.ok(images.length>0,`${name} must declare a Node image`);
+  for (const image of images) assert.match(image,/^24\.22\.1-(bookworm-slim|alpine)$/,`${name} must use a patched, explicit runtime`);
+ }
+});

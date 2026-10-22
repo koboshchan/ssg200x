@@ -1,5 +1,5 @@
 import {ensure} from "./errors";
-const games:Record<string,string>={"/api/action":"poker","/api/roulette":"roulette","/api/blackjack":"blackjack","/api/games":"games"};
+const games:Record<string,string>={"/api/doudizhu":"doudizhu","/api/action":"poker","/api/roulette":"roulette","/api/blackjack":"blackjack","/api/games":"games"};
 const guarded=new Set([...Object.keys(games),"/api/finance","/api/transfers"]);
 export async function checkActionTab(request:Request,userId:string){
  const path=new URL(request.url).pathname;

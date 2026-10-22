@@ -9,10 +9,10 @@ const admin={id:"a",name:"Admin",email:"a@test",admin:true},user={id:"u",name:"U
 function setup(){const r=freshRoom();register(r,admin,0);register(r,user,0);return r;}
 function limits(r:ReturnType<typeof freshRoom>,rouletteMaxTotal=10000,blackjackMaxHand=10000){changeCasinoLimits(r,admin,{rouletteMaxTotal,blackjackMaxHand,expectedVersion:casinoLimits(r).revision});}
 test("existing rooms retain $1,000 defaults; admin access is required; persisted revision guards stale edits",()=>{
- const r=setup();assert.deepEqual(casinoLimits(r),{rouletteMaxTotal:100000,blackjackMaxHand:100000,pokerMaxBuyIn:100000,gamesMaxBet:100000,revision:0});
+ const r=setup();assert.deepEqual(casinoLimits(r),{rouletteMaxTotal:100000,blackjackMaxHand:100000,pokerMaxBuyIn:100000,pokerEggPrice:5000,pokerTomatoPrice:5000,gamesMaxBet:100000,revision:0});
  assert.throws(()=>adminCasinoSnapshot(r,user),/Administrator/);
  assert.throws(()=>changeCasinoLimits(r,user,{rouletteMaxTotal:100,blackjackMaxHand:100,expectedVersion:0}),/Administrator/);
- limits(r);assert.deepEqual(casinoLimits(structuredClone(r)),{rouletteMaxTotal:10000,blackjackMaxHand:10000,pokerMaxBuyIn:100000,gamesMaxBet:100000,revision:1});
+ limits(r);assert.deepEqual(casinoLimits(structuredClone(r)),{rouletteMaxTotal:10000,blackjackMaxHand:10000,pokerMaxBuyIn:100000,pokerEggPrice:5000,pokerTomatoPrice:5000,gamesMaxBet:100000,revision:1});
  assert.equal(r.auditPending!.at(-1)!.what,"casino-limits");
  assert.throws(()=>changeCasinoLimits(r,admin,{rouletteMaxTotal:100,blackjackMaxHand:100,expectedVersion:0}),/changed/);
 });

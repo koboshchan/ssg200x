@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {freshRoom,register,assertRoom} from "../lib/poker";
 import {openPosition,liqPrice} from "../lib/finance";
 import {editPositionTriggers} from "../lib/position-triggers";
-import {triggerInputMode,setTradingSettings,resolveTriggerInput} from "../lib/trading-settings";
+import {triggerInputMode,setTradingSettings,resolveTriggerInput,skipCloseConfirmation,setCloseConfirmation} from "../lib/trading-settings";
 import {pnlTriggerPrice} from "../lib/trigger-input";
 import {publicRoom} from "../lib/public";
 import {mergeMarket} from "../lib/room-sync";
@@ -68,4 +68,17 @@ test("saved mode is authoritative, rejects ambiguous payloads and stale UI, pres
  for(const input of [{takeProfit:120000000},{takeProfit:null},{takeProfit:120000000,takeProfitPnl:500},{stopLoss:90000000,stopLossPnl:100}])assert.throws(()=>resolveTriggerInput(m,p,input));
  assert.deepEqual(resolveTriggerInput(m,p,{takeProfitPnl:null}),{takeProfit:null});
  assert.throws(()=>resolveTriggerInput(m,p,{triggerInputMode:"price",takeProfitPnl:500}));
+});
+test("close confirmation defaults off, validates boolean, isolates users and survives serialization",()=>{
+ const r=freshRoom(),a=register(r,who),other={...who,id:"other"},b=register(r,other);
+ assert.equal(skipCloseConfirmation(a),false);assert.equal(skipCloseConfirmation(b),false);
+ setTradingSettings(r,who,"pnl");setCloseConfirmation(r,who,true);
+ assert.equal(triggerInputMode(a),"pnl");assert.equal(skipCloseConfirmation(b),false);
+ const restarted=JSON.parse(JSON.stringify(r));
+ assert.equal(skipCloseConfirmation(restarted.members[0]),true);
+ assert.equal(publicRoom(restarted,who).me.skipCloseConfirmation,true);
+ assert.equal(publicRoom(restarted,other).me.skipCloseConfirmation,false);
+ setTradingSettings(restarted,who,"price");assert.equal(skipCloseConfirmation(restarted.members[0]),true);
+ setCloseConfirmation(restarted,who,false);assert.equal(skipCloseConfirmation(restarted.members[0]),false);
+ assert.throws(()=>setCloseConfirmation(r,who,"true" as any));assertRoom(r);
 });

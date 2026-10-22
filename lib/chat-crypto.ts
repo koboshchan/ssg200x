@@ -106,7 +106,7 @@ async function sharedSecret(priv:CryptoKey,peerRaw:string){
  return subtle().importKey("raw",await subtle().deriveBits({name:"ECDH",public:pub},priv,256),"HKDF",false,["deriveKey"]);
 }
 /** Wrap the epoch key for one recipient device and sign it. */
-export async function makeWrap(me:Identity,user:string,fields:Omit<WrapFields,"room"|"deviceId">&{toUserId:string;toDeviceId:string},recipientDh:string,epochKey:CryptoKey){
+export async function makeWrap(me:Identity,user:string,fields:Omit<WrapFields,"room"|"deviceId">&{room?:string;toUserId:string;toDeviceId:string},recipientDh:string,epochKey:CryptoKey){
  const base:WrapFields={room:ROOM,deviceId:me.deviceId,...fields},header=wrapHeader(user,base),salt=randomBytes(32),iv=randomBytes(12);
  const key=await wrapKeyFor(await sharedSecret(me.dhPrivate,recipientDh),header,salt);
  const ciphertext=new Uint8Array(await subtle().encrypt({name:"AES-GCM",iv,additionalData:enc.encode(canonical(header))},key,await subtle().exportKey("raw",epochKey)));
@@ -116,8 +116,8 @@ export async function makeWrap(me:Identity,user:string,fields:Omit<WrapFields,"r
 }
 export type WireWrap={senderDhPublic?:string;senderSignPublic?:string;v:1;room:string;revision:number;epoch:string;senderUserId:string;deviceId:string;toUserId:string;toDeviceId:string;salt:string;iv:string;ciphertext:string;signature:string};
 /** Verify the sender signature, then unwrap. Throws on any mismatch. */
-export async function openWrap(me:Identity,user:string,w:WireWrap,sender:{signPublic:string;dhPublic:string}){
- if(w.toUserId!==user||w.toDeviceId!==me.deviceId||w.room!==ROOM)throw new Error("wrong_recipient");
+export async function openWrap(me:Identity,user:string,w:WireWrap,sender:{signPublic:string;dhPublic:string},room=ROOM){
+ if(w.toUserId!==user||w.toDeviceId!==me.deviceId||w.room!==room)throw new Error("wrong_recipient");
  if(!await verifyText(sender.signPublic,signedWrap(w.senderUserId,w),w.signature))throw new Error("bad_wrap_signature");
  const header=wrapHeader(w.senderUserId,w);
  const key=await wrapKeyFor(await sharedSecret(me.dhPrivate,sender.dhPublic),header,unb64(w.salt));
@@ -126,7 +126,7 @@ export async function openWrap(me:Identity,user:string,w:WireWrap,sender:{signPu
  return importEpochKey(raw);
 }
 export const MAX_TEXT_BYTES=4096;
-export async function sealMessage(me:Identity,user:string,fields:{revision:number;epoch:string;id:string;ts:number},text:string,epochKey:CryptoKey){
+export async function sealMessage(me:Identity,user:string,fields:{room?:string;revision:number;epoch:string;id:string;ts:number},text:string,epochKey:CryptoKey){
  const bytes=enc.encode(text);if(bytes.length<1||bytes.length>MAX_TEXT_BYTES)throw new Error("bad_length");
  const base:MessageFields={room:ROOM,deviceId:me.deviceId,...fields},iv=randomBytes(12);
  const ciphertext=new Uint8Array(await subtle().encrypt({name:"AES-GCM",iv,additionalData:enc.encode(canonical(messageHeader(user,base)))},epochKey,bytes));

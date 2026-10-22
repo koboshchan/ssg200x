@@ -1,4 +1,6 @@
+import {doudizhuAssets} from "./doudizhu";
 import {miniAssets} from "./minigames";
+import {pokerStates} from "./poker-tables";
 import {POKER_SEAT_COUNT,POKER_SEAT_ORDER} from "./poker-seats";
 import {casinoLimits} from "./casino-limits";
 import {isWholeCasinoAmount} from "./casino-amount";
@@ -13,7 +15,7 @@ import { ensure } from "./errors";
 import type { Room, Seat, Identity, Member, Action, Payout } from "./types";
 export const SMALL = 100, BIG = 200, STRADDLE = 500;
 export const TURN_MS = POKER_TURN_MS, BREAK_MS = 5_000, IDLE_MS = 90_000;
-export const READY_MS = 180_000;
+export const READY_MS = 120_000;
 const MAX_MEMBERS = 100;
 export function freshRoom(): Room {
  return { _id: "main", version: 0, members: [], seats: Array(POKER_SEAT_COUNT).fill(null), button: -1, street: "waiting", handNumber: 0, board: [], deck: [], currentBet: 0, minRaise: BIG, pending: [], turn: null, deadline: null, nextDeal: null, readyDeadline: null, payouts: [], log: [], receipts: [] };
@@ -60,6 +62,22 @@ export function cashOut(r: Room, i: number) {
  ensure(!(active(r) && s.inHand), "You can only leave while out of a hand.", 409);
  const m = r.members.find(m => m.id === s.userId)!;
  m.wallet += s.stack; r.seats[i] = null;
+}
+/** Administrative removal is a cashout, NOT the idle-seat forfeiture policy.
+ * Detached committed chips preserve their original side-pot contribution levels. */
+export function kickPokerSeat(r:Room,i:number,now:number) {
+ const s=r.seats[i];ensure(s,"Player is no longer seated.",409);
+ const wasActive=active(r),wasTurn=r.turn===i;
+ r.members.find(m=>m.id===s.userId)!.wallet+=s.stack;
+ if(wasActive&&s.committed)(r.pokerDead??=[]).push(s.committed);
+ // Showdown contributions have already been paid. Never refund them again.
+ r.seats[i]=null;r.pending=r.pending.filter(j=>j!==i);
+ if(wasActive) {
+  const alive=r.seats.filter(s=>s&&s.inHand&&!s.folded);
+  ensure(alive.length>0,"Cannot remove the last contender in an active hand.",409);
+  if(alive.length===1)showdown(r,now);
+  else if(wasTurn||!r.pending.length)advance(r,i,now);
+ }
 }
 /** Detached contributions keep their original side-pot levels. The remaining
  * stack is dead main-pot money, never a refundable/eligible contribution. */
@@ -274,12 +292,12 @@ export function tick(r: Room, now: number) {
 
  return changed;
 }
-export function totalChips(r: Room) { return r.members.reduce((n,m)=>n+m.wallet+assetsBook(m),(r.house||0)+(r.pokerBonus??0)+(r.pokerCarry??0)+(r.pokerDead??[]).reduce((n,v)=>n+v,0)) + miniAssets(r) + blackjackTablesAssets(r) + rouletteAssets(r) + r.seats.reduce((n,s)=>n+(s?s.stack+s.committed:0),0); }
+export function totalChips(r: Room) { return r.members.reduce((n,m)=>n+m.wallet+assetsBook(m),(r.house||0)+pokerStates(r).reduce((n,t)=>n+(t.pokerBonus??0)+(t.pokerCarry??0)+(t.pokerDead??[]).reduce((a,v)=>a+v,0),0)) + doudizhuAssets(r) + miniAssets(r) + blackjackTablesAssets(r) + rouletteAssets(r) + pokerStates(r).reduce((n,t)=>n+t.seats.reduce((a,s)=>a+(s?s.stack+s.committed:0),0),0); }
 export function assertRoom(r: Room) {
- const values = [r.pokerBonus??0,r.pokerCarry??0,...(r.pokerDead??[]),...r.members.map(m=>m.wallet), ...r.seats.flatMap(s=>s?[s.stack,s.bet,s.committed]:[])];
+ const values = [...(r.doudizhu??[]).flatMap(g=>g.players.map(p=>p.escrow)),...r.members.map(m=>m.wallet),...pokerStates(r).flatMap(t=>[t.pokerBonus??0,t.pokerCarry??0,...(t.pokerDead??[]),...t.seats.flatMap(s=>s?[s.stack,s.bet,s.committed]:[])])];
  ensure(values.every(n=>Number.isSafeInteger(n) && n>=0), "Invalid chip ledger.",500);
  ensure(totalChips(r) === r.members.length * 100_000+(r.issuance||0), "Chip conservation failed.",500);
- const users = r.seats.filter(Boolean).map(s=>s!.userId);
+ const users = pokerStates(r).flatMap(t=>t.seats.filter(Boolean).map(s=>s!.userId));
  ensure(new Set(users).size === users.length, "Duplicate seat.",500);
- if (active(r)) ensure(r.turn !== null && r.pending.includes(r.turn), "Invalid turn.",500);
+ for(const t of pokerStates(r))if(t.street!=="waiting"&&t.street!=="showdown")ensure(t.turn!==null&&t.pending.includes(t.turn),"Invalid turn.",500);
 }

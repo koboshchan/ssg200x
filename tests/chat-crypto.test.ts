@@ -49,3 +49,18 @@ test("wrap and message round trip with server-verifiable signatures; tampering i
  await assert.rejects(openWrap(b.identity,"user_b",wire,b.identity),/bad_wrap_signature/);
  await assert.rejects(sealMessage(a.identity,"user_a",{revision:2,epoch,id,ts:1},"x".repeat(4097),key),/bad_length/);
 });
+
+test("table-specific envelopes authenticate room for wraps and messages",async()=>{
+ const {createIdentity,newEpochKey,makeWrap,openWrap,sealMessage,openMessage}=await import("../lib/chat-crypto");
+ const {identity}=await createIdentity("scope-user",0),key=await newEpochKey();
+ const fields={revision:1,epoch:crypto.randomUUID(),toUserId:"scope-user",toDeviceId:identity.deviceId};
+ const wrap=await makeWrap(identity,"scope-user",{...fields,room:"poker-02"},identity.dhPublic,key);
+ const wire={...wrap,senderUserId:"scope-user"};
+ await assert.rejects(openWrap(identity,"scope-user",wire,identity),/wrong_recipient/);
+ const opened=await openWrap(identity,"scope-user",wire,identity,"poker-02");
+ await assert.rejects(openWrap(identity,"scope-user",{...wire,room:"poker-03"},identity,"poker-03"),/bad_wrap_signature/);
+ const p=await sealMessage(identity,"scope-user",{room:"poker-02",revision:1,epoch:fields.epoch,id:crypto.randomUUID(),ts:Date.now()},"table two",key);
+ const message={...p,senderUserId:"scope-user",senderSignPublic:identity.signPublic,serverTs:1,cursor:1};
+ assert.deepEqual(await openMessage(message,opened),{ok:true,text:"table two"});
+ assert.deepEqual(await openMessage({...message,room:"poker-03"},opened),{ok:false,reason:"signature"});
+});

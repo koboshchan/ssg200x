@@ -71,7 +71,7 @@ test("random legal play across 500 hands preserves invariant after every action"
  assert.equal(totalChips(r),600_000);
 });
 
-test("joining never deals; all seated players must explicitly ready, with a three-minute waiting window",()=>{
+test("joining never deals; all seated players must explicitly ready, with a two-minute waiting window",()=>{
  const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
  assert.equal(r.street,"waiting");assert.equal(r.handNumber,0);
  applyAction(r,user(0),{type:"ready"},2000);assert.equal(r.readyDeadline,2000+READY_MS);
@@ -129,10 +129,10 @@ test("showdown inHand is historical: cashout is allowed after settlement without
  assert.equal(r.street,"showdown");assertRoom(r);
 });
 
-test("readiness window protects idle unready blockers for the full three minutes",()=>{
+test("readiness window protects idle unready blockers for the full two minutes",()=>{
  const r=freshRoom();for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:20000},1000);}
  applyAction(r,user(0),{type:"ready"},2000);applyAction(r,user(1),{type:"ready"},3000);
- const expiry=r.readyDeadline!;assert.equal(READY_MS,180000);assert.equal(expiry,182000);
+ const expiry=r.readyDeadline!;assert.equal(READY_MS,120000);assert.equal(expiry,122000);
  tick(r,93001);
  assert.equal(r.seats.filter(Boolean).length,3);assert.equal(r.street,"waiting");assert.equal(r.handNumber,0);assert.equal(r.readyDeadline,expiry);
  tick(r,expiry-1);
@@ -205,7 +205,7 @@ test("ready cashout credits exactly once and cannot cash out an active or folded
  assert.equal(r.members[0].wallet,100000);assert.equal(r.seats[0],null);assert.equal(r.readyDeadline,null);
  assert.throws(()=>applyAction(r,user(0),{type:"leave"},4000));assertRoom(r);
 });
-test("unready last ready player keeps original three-minute normal-refund window",()=>{
+test("unready last ready player keeps original two-minute normal-refund window",()=>{
  const r=freshRoom();register(r,user(0),1000);applyAction(r,user(0),{type:"join",seat:0,buyIn:20000},1000);
  applyAction(r,user(0),{type:"ready"},2000);const expiry=r.readyDeadline!;
  applyAction(r,user(0),{type:"unready"},3000);tick(r,expiry);

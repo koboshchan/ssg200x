@@ -5,6 +5,7 @@ export function moneyInPlay(room:PublicRoom|null,pathname:string|null):number {
  if(!room)return 0;
  if(pathname==="/games"||pathname?.startsWith("/games/"))return room.gamesInPlay??0;
  if(pathname==="/poker"||pathname?.startsWith("/poker/")){
+  if(typeof room.pokerInPlay==="number")return room.pokerInPlay;
   const seat=room.seats[room.me.seat];
   if(!seat?.isYou)return 0;
   const active=room.street!=="waiting"&&room.street!=="showdown";

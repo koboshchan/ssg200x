@@ -11,4 +11,4 @@ export function openingFeeCents(postedMargin:number,leverage:number,ppm:number):
 export type ClosingFeeMode="notional"|"profit";
 export function closingFeeMode(snapshot:{closingFeeMode?:ClosingFeeMode;perpClosingFeeMode?:ClosingFeeMode}):ClosingFeeMode;
 export function closingFeeReserve(position:{closingFeeMode?:ClosingFeeMode;closingFeePpm?:number;feePpm?:number}):number;
-export function closingFeeCents(position:{closingFeeMode?:ClosingFeeMode;margin:number;leverage:number;entry:number;closingFeePpm?:number;feePpm?:number;openingFee?:number},mark:number,grossPnl:number,liquidated?:boolean):number;
+export function closingFeeCents(position:{closingFeeRoundUp?:boolean;closingFeeMode?:ClosingFeeMode;margin:number;leverage:number;entry:number;closingFeePpm?:number;feePpm?:number;openingFee?:number},mark:number,grossPnl:number,liquidated?:boolean):number;

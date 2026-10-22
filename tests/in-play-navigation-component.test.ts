@@ -88,7 +88,7 @@ test("mounted live guard intercepts client links for all games, preserves naviga
  await page.evaluate(()=>{const a=document.createElement("a");a.id="document-link";a.href="/settings";a.textContent="Settings";document.body.append(a)});
  await page.locator("#document-link").click();await dialog.waitFor();
  // Live changes update the displayed amount and zero never silently follows the target.
- const changed=structuredClone(fixtures.poker);changed.seats[0]!.stack=12345;await frame(changed);
+ const changed=structuredClone(fixtures.poker);changed.seats[0]!.stack=12345;changed.pokerInPlay=12345;await frame(changed);
  await page.getByRole("heading",{name:"You have $123.45 in play, leave anyway?",exact:true}).waitFor();
  await frame(fixtures.empty);await page.getByRole("heading",{name:"You have $0 in play, leave anyway?",exact:true}).waitFor();
  assert.equal(await page.locator("#path").textContent(),"/poker");

@@ -1,4 +1,6 @@
+import {doudizhuAssets} from "./doudizhu";
 import {miniAssets} from "./minigames";
+import {pokerMemberAssets} from "./poker-tables";
 import {hideFromLeaderboard} from "./privacy-settings";
 import {advancementView} from "./advancements";
 import type {AdvancementState} from "./advancements-shared";
@@ -20,7 +22,7 @@ export function leaderboardSnapshot(room:Room|null,now=Date.now(),profiles?:Disp
  const rows=(room?.members||[]).filter(member=>!hideFromLeaderboard(member)).map(member=>{
   const name=displayName(member.name);
   const seat=room!.seats.find(s=>s?.userId===member.id);
-  const netWorth=member.wallet+assetsMarket(room!,member)+blackjackMemberAssets(room!,member.id)+rouletteAssets(room!,member.id)+miniAssets(room!,member.id)+(seat?seat.stack+(active(room!)?seat.committed:0):0);
+  const netWorth=member.wallet+assetsMarket(room!,member)+blackjackMemberAssets(room!,member.id)+rouletteAssets(room!,member.id)+doudizhuAssets(room!,member.id)+miniAssets(room!,member.id)+pokerMemberAssets(room!,member.id);
   // Keep initials as the missing/broken-image fallback. Profile URLs come only
   // from the same fresh server-side Clerk batch as display names.
   const avatar=Array.from(name.split(/\s+/).map(word=>Array.from(word)[0]).join("")).slice(0,2).join("").toUpperCase();

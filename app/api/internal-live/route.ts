@@ -20,6 +20,6 @@ export async function POST(request:Request){
   const room=maintenance.blocked?null:await visit(who);
   const selection=chartSelection(request.headers.get("x-chart-symbol"),request.headers.get("x-chart-granularity"),room??undefined);
   const candles=selection&&!maintenance.blocked?{...selection,candles:await chartSnapshot(selection).catch(()=>null)}:null;
-  return NextResponse.json({maintenance,candles,room:room?.members.some(m=>m.id===who.id)?await publicRoom(room,who,profiles):null},{headers});
+  return NextResponse.json({maintenance,candles,room:room?.members.some(m=>m.id===who.id)?await publicRoom(room,who,profiles,input.pokerTableId):null},{headers});
  }catch{return NextResponse.json({error:"Live state unavailable"},{status:503,headers});}
 }

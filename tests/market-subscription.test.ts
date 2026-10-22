@@ -46,3 +46,12 @@ test("quotes retain bounded symbol history while server transport is independent
  const many=Object.fromEntries(Array.from({length:100},(_,i)=>["S"+i,{micro:1,at:i}]));
  assert.equal(Object.keys(mergeRoom(next,{version:3,quotes:many} as any).quotes).length,64);
 });
+
+test("native forex selection scopes the matching USD mark and rejects malformed subscriptions",()=>{
+ const socket={data:{} as any};subscribeMarket(socket,"EUR/USD");
+ assert.equal(socket.data.marketSymbol,"EUR/USD");
+ const room={quotes:{"EUR/USD":{micro:1100000,at:1},BTC:{micro:60000000000,at:1}}};
+ assert.deepEqual(scopeMarketRoom(room,socket.data.marketSymbol).quotes,{"EUR/USD":room.quotes["EUR/USD"]});
+ subscribeMarket(socket,"EUR/USD/JPY");assert.equal(socket.data.marketSymbol,"EUR/USD");
+ subscribeMarket(socket,null);assert.deepEqual(scopeMarketRoom(room,socket.data.marketSymbol).quotes,{});
+});

@@ -74,6 +74,29 @@ test("authenticated allowed socket snapshots use throttled visit presence, never
  const store=readFileSync(new URL("../lib/store.ts",import.meta.url),"utf8");
  const visit=store.slice(store.indexOf("export async function visit("),store.indexOf("export async function move("));
  assert.match(visit,/Date\.now\(\)-s\.seen < 15_000/);
- assert.match(visit,/r\.seats\[i\]!\.seen=Date\.now\(\)/);
+ assert.match(visit,/touchPokerSeat\(r,who\.id,Date\.now\(\)\)/);
  assert.match(visit,/register\(r,who\)/);
+});
+
+import {liveSnapshotInput as __snap} from "../lib/internal-live";
+import test2 from "node:test";
+import assert2 from "node:assert/strict";
+const __id={id:"u",name:"U",email:"u@x.co",admin:false};
+test2("live snapshot accepts only Clerk https avatars or null",()=>{
+  const ok=(a:unknown)=>__snap.safeParse({identity:__id,profiles:[["p",{name:"P",avatar:a}]]}).success;
+  assert2.equal(ok(null),true);
+  assert2.equal(ok("https://img.clerk.com/abc"),true);
+  assert2.equal(ok("http://img.clerk.com/abc"),false);
+  assert2.equal(ok("https://evil.example/a.png"),false);
+});
+
+test2("live snapshot rejects malformed avatar URLs",()=>{
+  const ok=(a:unknown)=>__snap.safeParse({identity:__id,profiles:[["p",{name:"P",avatar:a}]]}).success;
+  assert2.equal(ok("https://user:pw@img.clerk.com/a"),false);
+  assert2.equal(ok("https://img.clerk.com:8443/a"),false);
+  assert2.equal(ok("https://img.clerk.com.evil.example/a"),false);
+  assert2.equal(ok("https://evil.example/?u=https://img.clerk.com/a"),false);
+  assert2.equal(ok("ftp://img.clerk.com/a"),false);
+  assert2.equal(ok("javascript:alert(1)"),false);
+  assert2.equal(ok("//img.clerk.com/a"),false);
 });

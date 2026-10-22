@@ -44,9 +44,12 @@ export function closingFeeReserve(position){return closingFeeMode(position)==="p
  */
 export function closingFeeCents(position,mark,grossPnl,liquidated=false){
  const ppm=positionFeeRates(position).closingFeePpm;
- if(closingFeeMode(position)!=="profit")return feeCents(position.margin,position.leverage,position.entry,mark,ppm);
+ if(closingFeeMode(position)!=="profit"){
+  if(position.closingFeeRoundUp){const n=BigInt(position.margin)*BigInt(position.leverage)*BigInt(mark)*BigInt(ppm),d=BigInt(position.entry)*1000000n;return Number((n+d-1n)/d);}
+  return feeCents(position.margin,position.leverage,position.entry,mark,ppm);
+ }
  if(!Number.isSafeInteger(ppm)||ppm<0||ppm>1000000||!Number.isSafeInteger(grossPnl))throw new Error("Invalid profit fee basis.");
  const profit=Math.max(0,grossPnl-(position.openingFee||0));
  if(liquidated||profit===0)return 0;
- return Number((BigInt(profit)*BigInt(ppm)+500000n)/1000000n);
+ return Number((BigInt(profit)*BigInt(ppm)+(position.closingFeeRoundUp?999999n:500000n))/1000000n);
 }

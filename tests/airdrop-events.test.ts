@@ -53,7 +53,7 @@ test("real Socket.IO connected clients get each distinct event, disconnected and
 import {readFileSync} from "node:fs";
 test("provider keeps airdrop notifications out of cached state and leaves reconnect handling intact",()=>{
  const source=readFileSync(new URL("../app/live-provider.tsx",import.meta.url),"utf8");
- assert.match(source,/if\(event!==AIRDROP_EVENT\)latest.current.set/);
+ assert.match(source,/if\(event!==AIRDROP_EVENT&&event!=="poker:taunt"\)latest.current.set/);
  assert.match(source,/socket.on\(AIRDROP_EVENT,\(p:unknown\)=>airdropReceiver.current\?\.\(p\)\)/);
  assert.match(source,/airdropReceiver.current\?\?=createAirdropReceiver/);
  assert.doesNotMatch(source,/airdropReceiver.current\s*=\s*null/);

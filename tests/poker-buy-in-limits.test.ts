@@ -10,7 +10,7 @@ function setup(){const room=freshRoom();register(room,admin,0);register(room,use
 function cap(room:ReturnType<typeof setup>,pokerMaxBuyIn:number){changeCasinoLimits(room,admin,{...casinoLimits(room),pokerMaxBuyIn,expectedVersion:casinoLimits(room).revision});}
 test("legacy casino settings preserve existing caps and default poker to $1,000",()=>{
  const room=setup();room.casinoLimits={rouletteMaxTotal:500,blackjackMaxHand:1000,revision:5} as typeof room.casinoLimits;
- assert.deepEqual(casinoLimits(room),{rouletteMaxTotal:500,blackjackMaxHand:1000,pokerMaxBuyIn:100000,gamesMaxBet:100000,revision:5});
+ assert.deepEqual(casinoLimits(room),{rouletteMaxTotal:500,blackjackMaxHand:1000,pokerMaxBuyIn:100000,pokerEggPrice:5000,pokerTomatoPrice:5000,gamesMaxBet:100000,revision:5});
  for(const invalid of [0,100,9999,10001,Infinity,NaN,"10000",CASINO_LIMIT_MAX_CENTS+100]){
   room.casinoLimits!.pokerMaxBuyIn=invalid as number;assert.equal(casinoLimits(room).pokerMaxBuyIn,100000);
  }

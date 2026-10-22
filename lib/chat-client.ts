@@ -42,7 +42,7 @@ export class ChatClient{
  // Claim retries/removals synchronously, before any storage or render await.
  private sending=new Set<string>();private removed=new Set<string>();
  private opened=new Map<string,{key:CryptoKey;res:Awaited<ReturnType<typeof openMessage>>}>();private inflight=new Map<string,Promise<Awaited<ReturnType<typeof openMessage>>>>();private windowStart=0;private extra=0;
- constructor(private user:string,private transport:Transport,private store:ChatStore,private now:()=>number=Date.now,private open:typeof openMessage=openMessage,private budget=chatRequestBudget){}
+ constructor(private user:string,private transport:Transport,private store:ChatStore,private now:()=>number=Date.now,private open:typeof openMessage=openMessage,private budget=chatRequestBudget,private room="main"){if(!["main","poker-02","poker-03"].includes(room))throw new Error("Invalid chat room");}
  private request:Transport=(event,payload)=>this.budget.request(this.user,event,payload,this.transport);
  private recovering:Promise<void>|undefined;
  reconnect=()=>{
@@ -163,7 +163,7 @@ export class ChatClient{
  /** Only authenticated ciphertext is restored; plaintext stays in session memory. */
  private async restorePending(me:Identity){
   for(const p of await this.store.getPending(this.user)){
-   if(p.deviceId!==me.deviceId||p.room!=="main")continue;
+   if(p.deviceId!==me.deviceId||p.room!==this.room)continue;
    if([...this.raw.values()].some(m=>m.senderUserId===this.user&&m.id===p.id)){
     await this.store.deletePending(this.user,p.id);continue;
    }
@@ -204,7 +204,7 @@ export class ChatClient{
   }
   if(!pending){
    const key=await newEpochKey();
-   pending=await makeWrap(me,this.user,{revision:claimed.revision,epoch:claimed.epoch,toUserId:this.user,toDeviceId:me.deviceId},me.dhPublic,key);
+   pending=await makeWrap(me,this.user,{room:this.room,revision:claimed.revision,epoch:claimed.epoch,toUserId:this.user,toDeviceId:me.deviceId},me.dhPublic,key);
    // This transaction completes BEFORE the server is allowed to activate the epoch.
    await this.store.putBootstrap(this.user,claimed.epoch,key,pending);
   }
@@ -220,7 +220,7 @@ export class ChatClient{
    if(codeOf(e)==="stale_revision"&&fresh.epoch===pending.epoch&&fresh.status==="claimed"&&fresh.owner?.userId===this.user&&fresh.owner.deviceId===me.deviceId){
     const key=await this.store.getEpoch(this.user,fresh.epoch);
     if(!key)throw new Error("waiting");
-    const updated=await makeWrap(me,this.user,{revision:fresh.revision,epoch:fresh.epoch,toUserId:this.user,toDeviceId:me.deviceId},me.dhPublic,key);
+    const updated=await makeWrap(me,this.user,{room:this.room,revision:fresh.revision,epoch:fresh.epoch,toUserId:this.user,toDeviceId:me.deviceId},me.dhPublic,key);
     await this.store.putBootstrap(this.user,fresh.epoch,key,updated);
    }
    throw e;
@@ -270,12 +270,13 @@ export class ChatClient{
  }
  private async unwrapAll(me:Identity,view:View){
   for(const w of view.wraps||[]){
+   if(w.room!==this.room)continue;
    if(this.keys.has(w.epoch))continue;
    const have=await this.store.getEpoch(this.user,w.epoch);
    if(have){this.keys.set(w.epoch,have);continue;}
    const sender=await this.senderOf(view,w);if(!sender)continue;
    try{
-    const key=await openWrap(me,this.user,w,sender);
+    const key=await openWrap(me,this.user,w,sender,this.room);
     await this.store.putEpoch(this.user,w.epoch,key);this.keys.set(w.epoch,key);
    }catch{/* a bad or foreign wrap never yields a key; keep waiting for a good one */}
   }
@@ -288,7 +289,7 @@ export class ChatClient{
    for(const d of m.devices){
     const id=view.epoch+":"+m.userId+":"+d.deviceId;if(this.attempted.has(id))continue;
     try{
-     await this.request("wrap",await makeWrap(me,this.user,{revision:view.revision,epoch:view.epoch,toUserId:m.userId,toDeviceId:d.deviceId},d.dhPublic,key));
+     await this.request("wrap",await makeWrap(me,this.user,{room:this.room,revision:view.revision,epoch:view.epoch,toUserId:m.userId,toDeviceId:d.deviceId},d.dhPublic,key));
      this.attempted.add(id);
     }catch(e){
      // conflict means a wrap for that device already exists; anything else is retried on the next sync.
@@ -299,7 +300,7 @@ export class ChatClient{
  }
  private async fetchPage(me:Identity,epoch:string,before?:number){
   const res=await this.request("history",{v:1,epoch,deviceId:me.deviceId,...(before===undefined?{}:{before}),limit:PAGE}) as {messages:WireMessage[];nextCursor:number|null};
-  for(const m of res.messages)this.raw.set(m.epoch+":"+m.senderUserId+":"+m.id,m);
+  for(const m of res.messages){if(m.room!==this.room)throw new Error("wrong_room");this.raw.set(m.epoch+":"+m.senderUserId+":"+m.id,m);}
   return res.nextCursor;
  }
  private retryHint=RESYNC_MS;
@@ -396,7 +397,7 @@ export class ChatClient{
   try{
    if(!this.sealed.has(id)){
     const key=this.keys.get(this.lastView.epoch);if(!key)return false;
-    const payload=await sealMessage(me,this.user,{revision:this.lastView.revision,epoch:this.lastView.epoch,id,ts:this.now()},body,key);
+    const payload=await sealMessage(me,this.user,{room:this.room,revision:this.lastView.revision,epoch:this.lastView.epoch,id,ts:this.now()},body,key);
     await this.store.putPending(this.user,payload);this.sealed.set(id,payload);
    }
   }catch{this.set({error:"local_storage"});return false;}
@@ -409,7 +410,7 @@ export class ChatClient{
     try{
      const cur=this.lastView!,key=this.keys.get(cur.epoch);if(!key)throw new Error("waiting");
      let sealed=this.sealed.get(id);
-     if(!sealed){sealed=await sealMessage(me,this.user,{revision:cur.revision,epoch:cur.epoch,id,ts:this.now()},body,key);this.sealed.set(id,sealed);}
+     if(!sealed){sealed=await sealMessage(me,this.user,{room:this.room,revision:cur.revision,epoch:cur.epoch,id,ts:this.now()},body,key);this.sealed.set(id,sealed);}
      const res=await this.request("send",sealed) as {message:WireMessage};
      await this.store.deletePending(this.user,id);
      this.raw.set(res.message.epoch+":"+res.message.senderUserId+":"+res.message.id,res.message);
@@ -425,7 +426,7 @@ export class ChatClient{
       if(this.ambiguous.has(id))break;
       const cur=this.lastView!,key=this.keys.get(cur.epoch);
       if(!key)break;
-      const updated=await sealMessage(me,this.user,{revision:cur.revision,epoch:cur.epoch,id,ts:this.now()},body,key);
+      const updated=await sealMessage(me,this.user,{room:this.room,revision:cur.revision,epoch:cur.epoch,id,ts:this.now()},body,key);
       await this.store.putPending(this.user,updated);this.sealed.set(id,updated);continue;
      }
      if([...this.raw.values()].some(m=>m.senderUserId===this.user&&m.id===id)){this.local.delete(lk);this.sealed.delete(id);this.ambiguous.delete(id);await this.render();return true;}
