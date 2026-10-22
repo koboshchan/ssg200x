@@ -6,7 +6,7 @@ import {ensure} from './errors';
 import {audit} from './audit';
 import type {Room,Identity} from './types';
 export const POKER_KICK_VOTE_MS=30_000,POKER_KICK_COOLDOWN_MS=60_000;
-export type PokerKickVote={id:string;targetUserId:string;initiatorUserId:string;eligibleUserIds:string[];yesUserIds:string[];membership:string[];handNumber:number;startedAt:number;expiresAt:number;status:'active'|'passed'|'failed'|'cancelled'|'expired'};
+export type PokerKickVote={id:string;targetUserId:string;initiatorUserId:string;eligibleUserIds:string[];yesUserIds:string[];noUserIds?:string[];membership:string[];handNumber:number;startedAt:number;expiresAt:number;status:'active'|'passed'|'failed'|'cancelled'|'expired'};
 const base={tableId:z.enum(['01','02','03']).default('01'),requestId:z.string().uuid(),requestAt:z.number().int()};
 export const pokerKickSchema=z.discriminatedUnion('action',[
  z.object({...base,action:z.literal('start'),targetPublicId:z.string().min(1).max(64)}).strict(),
@@ -56,9 +56,9 @@ export function applyPokerKick(r:Room,who:Identity,request:PokerKickRequest,now:
    const target=r.members.find(m=>m.publicId===request.targetPublicId);
    ensure(target&&t.seats.some(s=>s?.userId===target.id),'Player is no longer seated.',409);
    ensure(target.id!==who.id,'You cannot vote to kick yourself.',400);
-   const voters=membership(t).filter(user=>user!==target.id);
-   ensure(voters.length>=2,'At least two other seated players are required.',409);
-   const v:PokerKickVote={id:randomUUID(),targetUserId:target.id,initiatorUserId:who.id,eligibleUserIds:voters,yesUserIds:[who.id],membership:membership(t),handNumber:t.handNumber,startedAt:now,expiresAt:now+POKER_KICK_VOTE_MS,status:'active'};
+   const voters=membership(t);
+   ensure(voters.length>=3,'At least two other seated players are required.',409);
+   const v:PokerKickVote={id:randomUUID(),targetUserId:target.id,initiatorUserId:who.id,eligibleUserIds:voters,yesUserIds:[who.id],noUserIds:[target.id],membership:membership(t),handNumber:t.handNumber,startedAt:now,expiresAt:now+POKER_KICK_VOTE_MS,status:'active'};
    (r.pokerKickVotes??={})[id]=v;
    // Global, persisted across all tables and reconnects. Expired entries may
    // be removed only after their full throttle window has elapsed.
@@ -68,14 +68,13 @@ export function applyPokerKick(r:Room,who:Identity,request:PokerKickRequest,now:
   }else{
    ensure(existing&&existing.id===request.voteId&&existing.status==='active','This vote has ended.',409);
    ensure(existing.eligibleUserIds.includes(who.id),'You are not eligible to vote.',403);
-   ensure(!existing.yesUserIds.includes(who.id),'You already voted.',409);
-   if(!request.yes)existing.status='failed';
-   else{
-    existing.yesUserIds.push(who.id);
-    if(existing.yesUserIds.length===existing.eligibleUserIds.length){
-     existing.status='passed';remove(r,id,existing.targetUserId,who,now);
-    }
-   }
+   const no=existing.noUserIds??=[existing.targetUserId];
+   ensure(!existing.yesUserIds.includes(who.id)&&!no.includes(who.id),'You already voted.',409);
+   if(request.yes)existing.yesUserIds.push(who.id);
+   else no.push(who.id);
+   if(pokerKickPassed(existing.yesUserIds.length,existing.eligibleUserIds.length)){
+    existing.status='passed';remove(r,id,existing.targetUserId,who,now);
+   }else if(!pokerKickPassed(existing.eligibleUserIds.length-no.length,existing.eligibleUserIds.length))existing.status='failed';
    audit(r,who,'poker.vote.'+(request.yes?'yes':'no'),existing.targetUserId,null,{tableId:id,voteId:existing.id,status:existing.status});
   }
  }
@@ -84,5 +83,8 @@ export function applyPokerKick(r:Room,who:Identity,request:PokerKickRequest,now:
 export function publicPokerKickVote(r:Room,id:PokerTableId){
  const v=r.pokerKickVotes?.[id];if(!v)return null;
  const publicId=(user:string)=>r.members.find(m=>m.id===user)?.publicId??'';
- return {id:v.id,targetPublicId:publicId(v.targetUserId),initiatorPublicId:publicId(v.initiatorUserId),eligiblePublicIds:v.eligibleUserIds.map(publicId),yesPublicIds:v.yesUserIds.map(publicId),startedAt:v.startedAt,expiresAt:v.expiresAt,status:v.status};
+ return {id:v.id,targetPublicId:publicId(v.targetUserId),initiatorPublicId:publicId(v.initiatorUserId),eligiblePublicIds:v.eligibleUserIds.map(publicId),yesPublicIds:v.yesUserIds.map(publicId),noPublicIds:(v.noUserIds??[v.targetUserId]).map(publicId),startedAt:v.startedAt,expiresAt:v.expiresAt,status:v.status};
 }
+
+// Strictly greater than 51%, without floating-point rounding.
+export function pokerKickPassed(yes:number,eligible:number){return eligible>0&&yes*100>51*eligible;}

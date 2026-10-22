@@ -128,3 +128,18 @@ test('nonadmin starts require waiting with an unready player, never showdown or 
   assert.equal(r.pokerKickVotes,undefined);
  }
 });
+
+test('three-seat majority passes with target auto NO; four-seat two YES cannot pass',()=>{
+ const r=setup(3);applyPokerKick(r,who(0),req(r,2),now);
+ assert.deepEqual(r.pokerKickVotes!['01']!.noUserIds,[who(2).id]);
+ cast(r,1);assert.equal(r.pokerKickVotes!['01']!.status,'passed');
+ const four=setup();applyPokerKick(four,who(0),req(four),now);
+ cast(four,1);assert.equal(four.pokerKickVotes!['01']!.status,'active');
+ assert.ok(four.seats[3]);
+});
+test('five-seat NO does not prematurely fail when three YES remain possible',()=>{
+ const r=setup(5);applyPokerKick(r,who(0),req(r,4),now);
+ cast(r,1,false);assert.equal(r.pokerKickVotes!['01']!.status,'active');
+ cast(r,2);assert.equal(r.pokerKickVotes!['01']!.status,'active');
+ cast(r,3);assert.equal(r.pokerKickVotes!['01']!.status,'passed');
+});
