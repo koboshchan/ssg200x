@@ -159,6 +159,18 @@ test('Mines preferences are account scoped; lost boards reveal bombs and all res
    const after=await result.boundingBox(),panelAfter=await page.locator('.panel').boundingBox();
    assert.equal(before!.height,52);assert.equal(after!.height,before!.height);assert.equal(after!.y,before!.y);assert.equal(panelAfter!.y,panelBefore!.y);
   }
+  await page.getByRole('tab',{name:'Dice',exact:true}).click();
+  const direction=page.getByRole('group',{name:'Direction'}),target=page.getByRole('slider',{name:'Target number'});
+  const directionBox=await direction.boundingBox(),targetBox=await target.boundingBox(),betBox=await page.getByLabel('Bet in dollars').boundingBox();
+  const diceCard=await page.getByRole('region',{name:'Dice',exact:true}).boundingBox();
+  assert.ok(directionBox!.y>=diceCard!.y+diceCard!.height);
+  assert.ok(directionBox!.y+directionBox!.height<=targetBox!.y);
+  assert.ok(targetBox!.y+targetBox!.height<betBox!.y);
+  assert.ok(Math.abs(targetBox!.width-diceCard!.width)<1);
+  const betY=betBox!.y;
+  await page.getByRole('button',{name:'Roll under',exact:true}).click();await target.fill('69');
+  await page.getByText('Target 69 · about 68% to win · ≈1.44×',{exact:true}).waitFor();
+  assert.equal((await page.getByLabel('Bet in dollars').boundingBox())!.y,betY);
   await page.getByRole('tab',{name:'Mines',exact:true}).click();
   await page.getByRole('button',{name:'Start',exact:true}).click();
   await page.waitForFunction(()=>(window as any).__reqs.length===1);
