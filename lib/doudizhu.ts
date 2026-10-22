@@ -8,8 +8,11 @@ import {audit} from "./audit";
 import type {Room,Identity} from "./types";
 export type DoudizhuInput={type:"create"|"join"|"ready"|"bid"|"play"|"pass"|"leave"|"visibility"|"double"|"reaction";doubleMultiplier?:number;kind?:"emote"|"throw";value?:string;target?:number;targetId?:string;expectedPrice?:number;isPublic?:boolean;code?:string;beansPerDollar?:number;maxLoss?:number;cards?:string[];bid?:number;requestId:string;requestAt:number;version?:number};
 export type DoudizhuPlayer={userId:string;ready:boolean;auto:boolean;hand:string[];escrow:number;plays:number;doubleMultiplier?:1|2|4;doubleChosen?:boolean};
-export type DoudizhuRoom={code:string;ownerId?:string;isPublic?:boolean;base?:number;rate?:number;scoringMode?:"beans"|"legacy-rate";beansPerDollar?:number;baseBeans?:number;maxLoss:number;reactions?:DoudizhuReaction[];version:number;phase:"waiting"|"bidding"|"doubling"|"playing"|"finished";handId:string;players:DoudizhuPlayer[];kitty:string[];turn:number;deadline:number|null;landlord:number|null;bid:number;bidder:number|null;bids:number;multiplier:number;trick:{cards:string[];combo:Combo;seat:number}|null;passes:number;settled:boolean;result:null|{winner:number;spring:boolean;unit:number;unitBeans?:number;beanDeltas?:number[];beanDeltaExact?:string[];deltas:number[];settlementId:string}};
+export type DoudizhuRoom={code:string;ownerId?:string;isPublic?:boolean;base?:number;rate?:number;scoringMode?:"beans"|"legacy-rate";beansPerDollar?:number;baseBeans?:number;maxLoss:number;reactions?:DoudizhuReaction[];idleDeadline?:number;version:number;phase:"waiting"|"bidding"|"doubling"|"playing"|"finished";handId:string;players:DoudizhuPlayer[];kitty:string[];turn:number;deadline:number|null;landlord:number|null;bid:number;bidder:number|null;bids:number;multiplier:number;trick:{cards:string[];combo:Combo;seat:number}|null;passes:number;settled:boolean;result:null|{winner:number;spring:boolean;unit:number;unitBeans?:number;beanDeltas?:number[];beanDeltaExact?:string[];deltas:number[];settlementId:string}};
 export const DOUDIZHU_TURN_MS=60_000;
+export const DOUDIZHU_IDLE_MS=5*60_000;
+function idleEligible(g:DoudizhuRoom){return (g.phase==="waiting"||g.phase==="finished")&&!g.players.some(p=>p.ready);}
+function syncIdle(g:DoudizhuRoom,now:number){if(idleEligible(g)){g.idleDeadline??=now+DOUDIZHU_IDLE_MS;}else delete g.idleDeadline;}
 export const DOUDIZHU_RULES={turnMs:DOUDIZHU_TURN_MS,description:"Happy Beans: 1000 base beans times bid and multiplier. Convert beans to cents by flooring beans × 100 / beansPerDollar before caps. Result bean deltas are exact settled cents × beansPerDollar / 100, including fractional beans. Each player reserves the room maximum loss. Bids, bombs, rocket and spring multiply points. Loss cannot exceed reserved chips; a losing landlord pays at most their reserve, split proportionally to farmer claims, with remainder cents ordered by largest fractional share then lower seat. After landlord selection everyone chooses No double x1, Double x2 or Super double x4. Each landlord-farmer claim multiplies both players’ choices before converting beans to cents. Unanswered choices time out to x1."};
 function ownerOf(g:DoudizhuRoom){return g.ownerId??g.players[0]?.userId;}
 export function doudizhuMaxRate(r:Room){return Number.isSafeInteger(r.doudizhuMaxRate)&&r.doudizhuMaxRate!>=1&&r.doudizhuMaxRate!<=1000000?r.doudizhuMaxRate!:1000;}
@@ -24,7 +27,7 @@ export function doudizhuAssets(r:Room,userId?:string){return (r.doudizhu??[]).re
 const system:Identity={id:"doudizhu-system",name:"Game timer",email:"",admin:false};
 function member(r:Room,id:string){const m=r.members.find(m=>m.id===id);ensure(m,"Account not found.",404);return m;}
 function escrow(r:Room,g:DoudizhuRoom,p:DoudizhuPlayer){const m=member(r,p.userId),amount=g.maxLoss;ensure(Number.isSafeInteger(amount)&&m.wallet>=amount,"Insufficient wallet for maximum-loss reserve.");m.wallet-=amount;p.escrow=amount;}
-function deal(g:DoudizhuRoom,now:number){const deck=shuffled();ensure(deck.length===54&&new Set(deck).size===54,"Invalid deck.",500);g.handId=randomUUID();g.players.forEach((p,i)=>{p.hand=deck.slice(i*17,i*17+17);p.plays=0;p.doubleMultiplier=1;p.doubleChosen=false;});g.kitty=deck.slice(51);g.phase="bidding";g.turn=0;g.deadline=now+DOUDIZHU_TURN_MS;g.bid=0;g.bidder=null;g.bids=0;g.multiplier=1;g.trick=null;g.passes=0;g.landlord=null;g.settled=false;g.result=null;}
+function deal(g:DoudizhuRoom,now:number){delete g.idleDeadline;const deck=shuffled();ensure(deck.length===54&&new Set(deck).size===54,"Invalid deck.",500);g.handId=randomUUID();g.players.forEach((p,i)=>{p.hand=deck.slice(i*17,i*17+17);p.plays=0;p.doubleMultiplier=1;p.doubleChosen=false;});g.kitty=deck.slice(51);g.phase="bidding";g.turn=0;g.deadline=now+DOUDIZHU_TURN_MS;g.bid=0;g.bidder=null;g.bids=0;g.multiplier=1;g.trick=null;g.passes=0;g.landlord=null;g.settled=false;g.result=null;}
 function settle(r:Room,g:DoudizhuRoom,winner:number,now:number){
  if(g.settled)return;
  ensure(g.landlord!==null,"No landlord.",500);
@@ -50,7 +53,7 @@ function settle(r:Room,g:DoudizhuRoom,winner:number,now:number){
  }
  const settlementId=g.handId+":settlement";
  g.players.forEach((p,i)=>{ensure(Number.isSafeInteger(p.escrow+deltas[i])&&p.escrow+deltas[i]>=0,"Invalid settlement.",500);member(r,p.userId).wallet+=p.escrow+deltas[i];p.escrow=0;p.ready=false;});
- g.settled=true;g.phase="finished";g.deadline=null;g.result={winner,spring,unit,deltas,settlementId,...(isBeans?{unitBeans,beanDeltas:deltas.map(c=>Number(settledBeansExact(c,g.beansPerDollar!))),beanDeltaExact:deltas.map(c=>settledBeansExact(c,g.beansPerDollar!))}:{})};
+ g.settled=true;g.phase="finished";g.deadline=null;g.idleDeadline=now+DOUDIZHU_IDLE_MS;g.result={winner,spring,unit,deltas,settlementId,...(isBeans?{unitBeans,beanDeltas:deltas.map(c=>Number(settledBeansExact(c,g.beansPerDollar!))),beanDeltaExact:deltas.map(c=>settledBeansExact(c,g.beansPerDollar!))}:{})};
  audit(r,system,"doudizhu.settlement",settlementId,null,{handId:g.handId,code:g.code,...g.result,at:now});
 }
 function action(r:Room,g:DoudizhuRoom,seat:number,type:"bid"|"play"|"pass",input:Partial<DoudizhuInput>,now:number){
@@ -77,8 +80,19 @@ function action(r:Room,g:DoudizhuRoom,seat:number,type:"bid"|"play"|"pass",input
  }
  g.deadline=now+DOUDIZHU_TURN_MS;
 }
-export function doudizhuNeedsTick(r:Room,now:number){return (r.doudizhu??[]).some(g=>(g.phase==="bidding"||g.phase==="doubling"||g.phase==="playing")&&g.deadline!==null&&now>=g.deadline);}
-export function tickDoudizhu(r:Room,now:number){let changed=false;for(const g of r.doudizhu??[]){
+export function doudizhuNeedsTick(r:Room,now:number){return (r.doudizhu??[]).some(g=>!g.players.length||(idleEligible(g)&&(g.idleDeadline===undefined||now>=g.idleDeadline))||(!idleEligible(g)&&g.idleDeadline!==undefined)||(g.phase==="bidding"||g.phase==="doubling"||g.phase==="playing")&&g.deadline!==null&&now>=g.deadline);}
+export function tickDoudizhu(r:Room,now:number){let changed=false;for(const g of [...r.doudizhu??[]]){
+ // Store mutations commit refunds, room removal and audit together under CAS.
+ if(!g.players.length||(idleEligible(g)&&g.idleDeadline!==undefined&&now>=g.idleDeadline)){
+  const refunds=g.players.map(p=>({userId:p.userId,amount:p.escrow}));
+  // Validate every account before changing any balance.
+  const accounts=g.players.map(p=>{ensure(Number.isSafeInteger(p.escrow)&&p.escrow>=0,"Invalid reserve.",500);return member(r,p.userId);});
+  g.players.forEach((p,i)=>{accounts[i].wallet+=p.escrow;p.escrow=0;});
+  r.doudizhu=r.doudizhu!.filter(x=>x!==g);
+  audit(r,system,"doudizhu.idle_cleanup",g.handId,null,{code:g.code,idleDeadline:g.idleDeadline,refunds,at:now});
+  changed=true;continue;
+ }
+ const prior=g.idleDeadline;syncIdle(g,now);if(prior!==g.idleDeadline){g.version++;changed=true;}
  if((g.phase==="bidding"||g.phase==="doubling"||g.phase==="playing")&&g.deadline!==null&&now>=g.deadline){
  if(g.phase==="doubling"){g.players.forEach(p=>{if(!p.doubleChosen){p.doubleMultiplier=1;p.doubleChosen=true;}});g.phase="playing";g.turn=g.landlord!;g.deadline=now+DOUDIZHU_TURN_MS;g.version++;changed=true;continue;}
  const p=g.players[g.turn];if(g.phase==="bidding")action(r,g,g.turn,"bid",{bid:0},now);
@@ -142,6 +156,7 @@ export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.n
    }
   }
  }
+ syncIdle(g!,now);
  g!.version++;
  audit(r,who,"doudizhu."+input.type,g!.handId,null,{code:g!.code,version:g!.version,requestId:input.requestId});
  r.doudizhuReceipts=[{id:input.requestId,userId:who.id,at:now,fingerprint:doudizhuFingerprint(input)},...retained];
@@ -152,6 +167,6 @@ export function publicDoudizhu(r:Room,who:Identity,code?:string){
  const g=own&&(!code||own.code===code.trim().toLowerCase().replace(/[\s-]+/g," "))?own:undefined;
  const preview=code?(r.doudizhu??[]).find(x=>x.code===code.trim().toLowerCase().replace(/[\s-]+/g," ")):undefined;
  const recruitingRooms=(r.doudizhu??[]).filter(x=>x.isPublic===true&&x.phase==="waiting"&&x.players.length>0&&x.players.length<3).map(x=>({code:x.code,count:x.players.length,scoringMode:x.scoringMode??"legacy-rate",beansPerDollar:x.beansPerDollar,baseBeans:x.baseBeans,rate:x.rate,maxLoss:x.maxLoss}));
- return {reactionPrices:{egg:casinoLimits(r).pokerEggPrice,tomato:casinoLimits(r).pokerTomatoPrice},recruitingRooms,preview:preview?{code:preview.code,scoringMode:preview.scoringMode??"legacy-rate",beansPerDollar:preview.beansPerDollar,baseBeans:preview.baseBeans,rate:preview.rate,maxLoss:preview.maxLoss,count:preview.players.length,phase:preview.phase}:null,houseRules:DOUDIZHU_RULES,maxBeansPerDollar:doudizhuMaxBeansPerDollar(r),maxRate:doudizhuMaxRate(r),wallet:r.members.find(m=>m.id===who.id)?.wallet??0,room:g?{code:g.code,isPublic:g.isPublic===true,isOwner:ownerOf(g)===who.id,ownerSeat:g.players.findIndex(p=>p.userId===ownerOf(g)),scoringMode:g.scoringMode??"legacy-rate",beansPerDollar:g.beansPerDollar,baseBeans:g.baseBeans,base:g.base,rate:g.rate,maxLoss:g.maxLoss,version:g.version,phase:g.phase,handId:g.handId,reactions:(g.reactions??[]).filter(e=>Date.now()-e.at<4000),players:g.players.map((p,seat)=>({seat,publicId:member(r,p.userId).publicId,doubleMultiplier:p.doubleMultiplier??1,doubleChosen:p.doubleChosen??false,name:member(r,p.userId).name,self:p.userId===who.id,ready:p.ready,auto:false,count:p.hand.length,...(p.userId===who.id?{hand:[...p.hand]}:{}),escrow:p.escrow})),kitty:g.landlord!==null?[...g.kitty]:[],turn:g.turn,deadline:g.deadline,landlord:g.landlord,bid:g.bid,multiplier:g.multiplier,trick:g.trick?structuredClone(g.trick):null,settled:g.settled,result:g.result?structuredClone(g.result):null}:null};
+ return {reactionPrices:{egg:casinoLimits(r).pokerEggPrice,tomato:casinoLimits(r).pokerTomatoPrice},recruitingRooms,preview:preview?{code:preview.code,scoringMode:preview.scoringMode??"legacy-rate",beansPerDollar:preview.beansPerDollar,baseBeans:preview.baseBeans,rate:preview.rate,maxLoss:preview.maxLoss,count:preview.players.length,phase:preview.phase}:null,houseRules:DOUDIZHU_RULES,maxBeansPerDollar:doudizhuMaxBeansPerDollar(r),maxRate:doudizhuMaxRate(r),wallet:r.members.find(m=>m.id===who.id)?.wallet??0,room:g?{code:g.code,isPublic:g.isPublic===true,isOwner:ownerOf(g)===who.id,ownerSeat:g.players.findIndex(p=>p.userId===ownerOf(g)),scoringMode:g.scoringMode??"legacy-rate",beansPerDollar:g.beansPerDollar,baseBeans:g.baseBeans,base:g.base,rate:g.rate,maxLoss:g.maxLoss,version:g.version,phase:g.phase,handId:g.handId,reactions:(g.reactions??[]).filter(e=>Date.now()-e.at<4000),players:g.players.map((p,seat)=>({seat,publicId:member(r,p.userId).publicId,doubleMultiplier:p.doubleMultiplier??1,doubleChosen:p.doubleChosen??false,name:member(r,p.userId).name,self:p.userId===who.id,ready:p.ready,auto:false,count:p.hand.length,...(p.userId===who.id?{hand:[...p.hand]}:{}),escrow:p.escrow})),kitty:g.landlord!==null?[...g.kitty]:[],turn:g.turn,deadline:g.deadline,idleDeadline:g.idleDeadline,landlord:g.landlord,bid:g.bid,multiplier:g.multiplier,trick:g.trick?structuredClone(g.trick):null,settled:g.settled,result:g.result?structuredClone(g.result):null}:null};
 }
 export type PublicDoudizhu=ReturnType<typeof publicDoudizhu>;
