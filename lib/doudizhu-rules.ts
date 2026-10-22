@@ -47,7 +47,7 @@ export function classify(cards:string[]):Combo|null {
     entries.length>=min && entries.at(-1)![0]<=14 &&
     entries.every(([r,n],i)=>n===multiplicity&&(i===0||r===entries[i-1][0]+1));
   if(size===1) return combo("single",entries[0][0]);
-  if(isBlack78(cards)) return {...combo("rocket",17),special:"black78"};
+  if(isBlack78(cards)) return {...combo("bomb",3),special:"black78"};
   if(size===2&&counts.has(16)&&counts.has(17)) return combo("rocket",17);
   if(entries.length===1){
     const kinds:Record<number,string>={2:"pair",3:"triple",4:"bomb"};
@@ -96,12 +96,12 @@ export function beats(play:Combo,previous:Combo):boolean {
 }
 
 
-// Both forms use one comparison/multiplier tier. Equal rockets cannot beat each other.
+// Black 78 has the exact comparison rank of four threes, despite using two cards.
 export const comboLabel=(combo:Combo)=>combo.special==="black78"?"Black 78":combo.kind.replaceAll("-"," ");
 /** Candidate special plays for hints/agents, validated by the same server rules.
  * Does not inspect opponents' hidden cards. Keep all suit combinations available.
  */
-export function rocketPlays(hand:readonly string[],previous:Combo|null=null):string[][]{
+export function specialPlays(hand:readonly string[],previous:Combo|null=null):string[][]{
  const candidates:string[][]=[];
  if(hand.includes("X")&&hand.includes("Y"))candidates.push(["X","Y"]);
  for(const seven of ["7s","7c"])for(const eight of ["8s","8c"])
