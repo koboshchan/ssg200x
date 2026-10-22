@@ -94,3 +94,14 @@ test("database failure does not create an unbounded immediate retry loop",async(
  let calls=0;const f=await fixture(async()=>{calls++;throw Error("database unavailable");});
  await f.runtime.drained();assert.ok(calls<=2);assert.equal(f.runtime.snapshot().TSLA.connected,false);f.runtime.stop();
 });
+test("disconnect and fast reconnect fences a blocked batch from the previous socket",async()=>{
+ let release!:()=>void;const blocked=new Promise<void>(r=>release=r);const committed:number[]=[];
+ let first=true;
+ const f=await fixture(async(current,ticks)=>{
+  if(first){first=false;await blocked;}
+  current();committed.push(...ticks.map(t=>t.price));
+ });
+ await flush();f.tick(210);
+ f.socket.onclose?.();release();await f.runtime.drained();
+ assert.deepEqual(committed,[]);assert.equal(f.runtime.snapshot().TSLA.connected,false);f.runtime.stop();
+});
