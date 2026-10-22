@@ -13,6 +13,7 @@ import {shuffled} from "../lib/doudizhu-rules";
 import {audit} from "../lib/audit";
 import {closeDatabase} from "../lib/db";
 export const scenarios={
+ black78:["7s","8c"],
  bomb:["3s","3h","3d","3c"],
  rocket:["X","Y"],
  airplane:["3s","3h","3d","4s","4h","4d","5s","6s"],

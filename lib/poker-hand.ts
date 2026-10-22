@@ -1,10 +1,7 @@
 import solver from "pokersolver";
 
-/** Hole cards only. Never infer the house hand from the combined seven cards. */
-export function isBlack78(hole: readonly string[]) {
- return hole.length === 2 && hole.every(card => /^[78][sc]$/.test(card)) &&
-  hole[0][0] !== hole[1][0];
-}
+import {isBlack78} from "./black78";
+export {isBlack78} from "./black78";
 
 /** Called only after the server filters folded players and side-pot eligibility.
  * Keep ordinary pokersolver ranking/ties intact; Black 78 has no board kicker.

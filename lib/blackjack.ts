@@ -1,3 +1,4 @@
+import {isBlack78} from "./black78";
 import {casinoLimits} from "./casino-limits";
 import {BLACKJACK_MAX_CHIPS,blackjackChips} from "./blackjack-chips";
 import {ROULETTE_CHIPS} from "./roulette-chips";
@@ -44,8 +45,7 @@ function playerDraw(r:BRoom,b:BlackjackState,s:BlackjackSeat,h:BlackjackHand){
 // Only the original two-card deal qualifies. Split hands never gain a tier.
 export function blackjackTier(cards:string[],split=false):number{
  if(split||cards.length!==2)return 0;
- const ranks=cards.map(c=>c[0]).sort().join('');
- if(ranks==='78'&&cards.every(c=>c[1]==='s'||c[1]==='c'))return 2;
+ if(isBlack78(cards))return 2;
  return blackjackValue(cards)===21?1:0;
 }
 const charlie=(h:BlackjackHand)=>h.cards.length===5&&blackjackValue(h.cards)<=21;
