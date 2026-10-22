@@ -170,8 +170,8 @@ export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.n
   }
  }
  if(input.type==="join"||input.type==="create")for(const game of games)game.spectators=(game.spectators??[]).filter(s=>s.userId!==who.id);
- syncIdle(g!,now);
- g!.version++;
+ const spectatorAction=input.type==="spectate"||input.type==="watch"||(input.type==="leave"&&!own);
+ if(!spectatorAction){syncIdle(g!,now);g!.version++;}
  audit(r,who,"doudizhu."+input.type,g!.handId,null,{code:g!.code,version:g!.version,requestId:input.requestId});
  r.doudizhuReceipts=[{id:input.requestId,userId:who.id,at:now,fingerprint:doudizhuFingerprint(input)},...retained];
 }

@@ -13,7 +13,7 @@ function setup(){
 test("spectating a full active private room has no wallet effect; exact one-seat payload only",()=>{
  const {r,g,move}=setup(),wallets=r.members.map(m=>m.wallet),assets=totalChips(r);
  assert.equal(publicDoudizhu(r,users[3],g.code).room,null);
- move(3,{type:"spectate",code:g.code});
+ const version=g.version;move(3,{type:"spectate",code:g.code});
  let view=publicDoudizhu(r,users[3]).room!;
  assert(view.spectating);assert.equal(view.watchSeat,null);assert(view.players.every(p=>!("hand" in p)));
  for(let seat=0;seat<3;seat++){
@@ -22,7 +22,7 @@ test("spectating a full active private room has no wallet effect; exact one-seat
   assert(view.players.filter(p=>p.seat!==seat).every(p=>!("hand" in p)));
   assert(view.players.every(p=>!p.self));assert.equal(view.spectatorCount,1);
  }
- assert.equal(publicDoudizhu(r,users[0]).room!.spectatorCount,1);
+ assert.equal(g.version,version);assert.equal(publicDoudizhu(r,users[0]).room!.spectatorCount,1);
  assert.deepEqual(r.members.map(m=>m.wallet),wallets);assert.equal(totalChips(r),assets);assertRoom(r);
  const wire=JSON.stringify(publicDoudizhu(r,users[3]));
  assert(!wire.includes("spectator-test"));assert(!wire.includes("@test.invalid"));assert(!wire.includes("seenAt"));
