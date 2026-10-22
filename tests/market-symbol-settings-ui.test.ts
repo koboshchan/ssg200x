@@ -10,7 +10,7 @@ const bundle=async()=>(await build({stdin:{contents:`
  import MarketSymbolPicker from "./app/market-symbol-picker";
  import MarketSymbolSettings from "./app/market-symbol-settings";
  const w:any=window;
- function App(){const [sel,setSel]=React.useState("BTC");return <><MarketSymbolPicker symbol={sel} symbols={w.__symbols} quotes={w.__quotes} changes={w.__changes} onSelect={setSel}/><MarketSymbolSettings/></>;}
+ function App(){const [sel,setSel]=React.useState("BTC");return <><main className="game-main"><MarketSymbolPicker symbol={sel} symbols={w.__symbols} quotes={w.__quotes} changes={w.__changes} onSelect={setSel}/></main><button className="chat-toggle" aria-label="Open chat">Chat</button><MarketSymbolSettings/></>;}
  createRoot(document.getElementById("root")!).render(<App/>);
  `,resolveDir:process.cwd(),loader:"tsx"},bundle:true,write:false,format:"iife",platform:"browser",jsx:"automatic",outdir:"/tmp/msq-out",loader:{".module.css":"local-css"},alias:{"@":process.cwd()},define:{"process.env.NODE_ENV":'"development"'}}));
 const names=(n:number,p:string)=>Array.from({length:n},(_,i)=>p+String.fromCharCode(65+i%26)+String.fromCharCode(65+Math.floor(i/26)%26));
@@ -43,6 +43,9 @@ test("mounted market picker and admin symbol settings across viewport and theme,
    assert.match(await trigger.innerText(),/\$67,000\.12/);
    await trigger.click();
    const dialog=page.getByRole("dialog",{name:"Choose a market"});await dialog.waitFor();
+   assert.equal(await dialog.evaluate((el:Element)=>el.parentElement===document.body),true,"picker escapes isolated game-main stacking context");
+   const hit=await dialog.boundingBox();assert.ok(hit);
+   assert.equal(await page.evaluate(()=>document.elementFromPoint(innerWidth-20,innerHeight-20)?.closest(".chat-toggle")!==null),false,"drawer covers the floating chat control");
    const surface=await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue("--surface").trim());
    const bg=await dialog.evaluate((el:Element)=>getComputedStyle(el).backgroundColor);
    const want=await page.evaluate(()=>{const d=document.createElement("div");d.style.background="var(--surface)";document.body.append(d);const c=getComputedStyle(d).backgroundColor;d.remove();return c;});

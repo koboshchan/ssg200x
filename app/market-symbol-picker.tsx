@@ -1,5 +1,6 @@
 "use client";
 import {useEffect,useMemo,useState} from "react";
+import {createPortal} from "react-dom";
 import type {MarketSummary} from "@/lib/market-summary";
 import {stockDisplayName} from "@/lib/stock-config";
 import styles from "./market-symbol-picker.module.css";
@@ -24,11 +25,11 @@ export default function MarketSymbolPicker({symbol,symbols,quotes,changes,summar
  const row=(s:string)=><li key={s}><button className={styles.row} aria-current={s===symbol} onClick={()=>{onSelect(s);setOpen(false);}}><span className={styles.name}>{stockDisplayName(s)}</span><span className={styles.nums}><span>{rowMicro(s)!=null?(isForexPair(s)?rate(rowMicro(s)!):price(rowMicro(s)!)):"Unavailable"}{isForexPair(s)&&forexMock?<small title="Demo data, not a real price"> MOCK</small>:null}</span><Change v={summary?summary[s]?.change:changes?.[s]}/></span></button></li>;
  return <>
   <button className={styles.trigger} aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}>{symbol?<>{isForexPair(symbol)?symbol:stockDisplayName(symbol)+" / USD"} <small>{q?(isForexPair(symbol)?rate(q.micro):price(q.micro)):""}{isForexPair(symbol)&&forexMock?" MOCK":""}</small></>:"No markets"}<span aria-hidden>▾</span></button>
-  {open?<><div className={styles.scrim} onClick={()=>setOpen(false)}/><aside className={styles.drawer} role="dialog" aria-label="Choose a market">
+  {open?createPortal(<><div className={styles.scrim} onClick={()=>setOpen(false)}/><aside className={styles.drawer} role="dialog" aria-label="Choose a market">
    <div className={styles.head}><h3>Markets</h3><button onClick={()=>setOpen(false)} aria-label="Close">×</button></div>
    <input className={styles.search} type="search" placeholder="Search symbols" aria-label="Search symbols" value={term} onChange={e=>setTerm(e.target.value)} autoFocus/>
    <ul className={styles.list}>{groups.map(([name,list])=>list.length?<li key={name}><div className={styles.group}>{name.toUpperCase()}</div><ul style={{listStyle:"none",margin:0,padding:0}}>{list.map(row)}</ul></li>:null)}
     {!groups.some(([,l])=>l.length)?<li className={styles.empty}>{symbols.stocks.length+symbols.crypto.length+(symbols.forex?.length??0)?"No matches.":"No markets are active."}</li>:null}</ul>
-  </aside></>:null}
+  </aside></>,document.body):null}
  </>;
 }
