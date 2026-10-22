@@ -47,7 +47,7 @@ export class OandaStream{
   if(!this.o.leader()){this.revoke();return;}
   const pairs=this.o.symbols(),signature=pairs.join(",");
   if(signature!==this.signature){this.signature=signature;this.revoke();this.next=0;}
-  if(this.task){if(this.o.mono()-this.lastByte>15000)this.revoke();return;}
+  if(this.task){if(this.o.mono()-this.lastByte>15000){diag({event:"watchdog_revoke",idleMs:this.o.mono()-this.lastByte});this.revoke();}return;}
   if(this.o.now()<this.next)return;
   if(!this.o.token||!this.o.account){this.state="unconfigured";await this.o.publish([],"unconfigured");this.next=this.o.now()+30000;return;}
   if(!pairs.length)return;
@@ -91,7 +91,7 @@ export class OandaStream{
       if(active()){const begin=this.o.mono();diag({event:"publish_begin",symbol:t.symbol});try{await this.o.publish(this.fresh(),"live",active);diag({event:"publish_end",elapsed:this.o.mono()-begin});}catch(error){diag({event:"publish_error",elapsed:this.o.mono()-begin,kind:error instanceof Error?error.name:"unknown"});throw error;}}
      }
     }
-   }catch{/* Only sanitized state is published, never provider errors or authenticated URLs. */}
+   }catch(error){diag({event:"stream_failure",kind:error instanceof Error?error.name:"unknown"});/* Never log authenticated URLs or provider bodies. */}
    finally{
     controller.abort();try{await reader?.cancel();}catch{}reader?.releaseLock();
     if(generation===this.generation){await this.invalidate().catch(()=>{});}
