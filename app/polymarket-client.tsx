@@ -30,7 +30,7 @@ const SORTS=[["trending","Trending"],["volume","Volume"],["new","New"],["ending"
 async function api<T>(path:string,init?:RequestInit):Promise<T>{
  const r=await fetch("/api/polymarket"+path,{cache:"no-store",...init,headers:{...(init?.method==="POST"?{"Content-Type":"application/json",...getTabHeaders()}:{}),...init?.headers}});
  const d=await r.json().catch(()=>({}));
- if(!r.ok)throw new Error(d.error||"Something went wrong.");
+ if(!r.ok)throw Object.assign(new Error(d.error||"Something went wrong."),{status:r.status});
  return d as T;
 }
 
@@ -172,7 +172,13 @@ function Ticket({ev,market,portfolio,settings,onTraded}:{ev:PEvent;market:Market
    const r=await api<{fill:{shares:number;price:number;cents:number}}>("/trade",{method:"POST",body:JSON.stringify(body)});
    reqId.current=rid();reqAt.current=Date.now();setConfirm(false);
    onTraded((action==="buy"?"Bought ":"Sold ")+r.fill.shares.toFixed(2)+" "+side.toUpperCase()+" at "+cents(r.fill.price)+" for "+money(r.fill.cents));
-  }catch(e){setErr(e instanceof Error?e.message:"Trade failed.");setConfirm(false);}
+  }catch(e){
+   const st=(e as {status?:number}).status;
+   // Network failure or ambiguous server error: keep requestId/requestAt so a retry replays the same trade. Definite rejection: next attempt is a fresh envelope.
+   const ambiguous=st==null||st>=500||st===408;
+   if(!ambiguous){reqId.current=rid();reqAt.current=Date.now();}
+   setErr(ambiguous?"No confirmed reply. Retrying is safe, it won't double trade.":e instanceof Error?e.message:"Trade failed.");setConfirm(false);
+  }
   finally{setBusy(false);}
  }
  const label=action==="buy"?"Amount ($)":"Shares to sell";
@@ -191,7 +197,7 @@ function Ticket({ev,market,portfolio,settings,onTraded}:{ev:PEvent;market:Market
   <button className={"primary "+styles.go} disabled={disabled} onClick={()=>setConfirm(true)}>{settings?.enabled===false?"Trading off":market.closed||ev.closed?"Market closed":valid&&!fresh?"Price unavailable":(action==="buy"?"Buy ":"Sell ")+side.toUpperCase()}</button>
   <dialog ref={dlg} className={styles.dialog} onCancel={e=>{e.preventDefault();if(!busy)setConfirm(false);}} onClose={()=>setConfirm(false)}>
    <h3>Confirm {action}</h3><p>{action==="buy"?"Spend "+money(costC)+" for about "+shares.toFixed(2)+" "+side.toUpperCase()+" at about "+cents(price):"Sell "+sellAmt+" "+side.toUpperCase()+" shares at about "+cents(price)}.</p><p className={styles.muted}>{market.question}</p>
-   <div className={styles.actions}><button onClick={()=>setConfirm(false)} disabled={busy}>Cancel</button><button className="primary" onClick={submit} disabled={busy}>{busy?"Placing…":"Confirm"}</button></div>
+   <div className={styles.actions}><button onClick={()=>setConfirm(false)} disabled={busy}>Cancel</button><button className="primary" onClick={submit} disabled={busy||!fresh}>{busy?"Placing…":"Confirm"}</button></div>
   </dialog>
  </aside>;
 }
