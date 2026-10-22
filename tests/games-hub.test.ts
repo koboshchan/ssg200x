@@ -8,7 +8,7 @@ test("hub contains every implemented game, with unique stable deep links",()=>{
 });
 test("disabled individual games and the minigame master switch hide banners",()=>{
  assert.ok(!visibleHubGames({poker:false}).some(g=>g.key==="poker"));
- assert.deepEqual(visibleHubGames({games:false}).map(g=>g.key),["poker","blackjack","doudizhu","roulette"]);
+ assert.equal(visibleHubGames({games:false}).length,0);
  assert.equal(visibleHubGames(Object.fromEntries(HUB_GAMES.map(g=>[g.key,false]))).length,0);
 });
 test("all game deep links select Games, unrelated sections never do",()=>{

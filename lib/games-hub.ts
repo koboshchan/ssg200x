@@ -4,13 +4,13 @@ export const HUB_GAMES=[
  {key:"blackjack",title:"Blackjack",detail:"Beat the dealer",href:"/blackjack",art:"blackjack"},
  {key:"doudizhu",title:"Dou Dizhu",detail:"Three players. One landlord.",href:"/doudizhu",art:"doudizhu"},
  {key:"roulette",title:"Roulette",detail:"Let it spin",href:"/roulette",art:"roulette"},
- {key:"plinko",title:"Plinko",detail:"Find your multiplier",href:"/games?game=plinko",art:"plinko"},
- {key:"hilo",title:"Hi-Lo",detail:"Higher or lower?",href:"/games?game=hilo",art:"hilo"},
- {key:"mines",title:"Mines",detail:"A little luck. A little nerve.",href:"/games?game=mines",art:"mines"},
- {key:"dice",title:"Dice",detail:"Pick your number",href:"/games?game=dice",art:"dice"},
- {key:"chicken",title:"Chicken Road",detail:"One more crossing",href:"/games?game=chicken",art:"chicken"}
+ {key:"plinko",title:"Plinko",detail:"Find your multiplier",href:"/games/plinko",art:"plinko"},
+ {key:"hilo",title:"Hi-Lo",detail:"Higher or lower?",href:"/games/hilo",art:"hilo"},
+ {key:"mines",title:"Mines",detail:"A little luck. A little nerve.",href:"/games/mines",art:"mines"},
+ {key:"dice",title:"Dice",detail:"Pick your number",href:"/games/dice",art:"dice"},
+ {key:"chicken",title:"Chicken Road",detail:"One more crossing",href:"/games/chicken",art:"chicken"}
 ] as const;
 export function visibleHubGames(flags:Partial<Record<FeatureKey,boolean>>){
- return HUB_GAMES.filter(g=>flags[g.key]!==false&&(!g.href.startsWith("/games?")||flags.games!==false));
+ return HUB_GAMES.filter(g=>flags.games!==false&&flags[g.key]!==false);
 }
 export function isGamePath(path:string){return ["/games","/poker","/blackjack","/doudizhu","/roulette"].some(p=>path===p||path.startsWith(p+"/"));}

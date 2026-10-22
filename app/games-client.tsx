@@ -46,7 +46,7 @@ async function reply(body:string,stale:()=>boolean){
  return null;
 }
 
-export default function GamesClient({initialKind="plinko"}:{initialKind?:Kind}){
+export default function GamesClient({initialKind="plinko",singleGame=false}:{initialKind?:Kind;singleGame?:boolean}){
  const {user}=useUser(),uid=user?.id;
  const {connection}=useLive();
  const [snap,setSnap]=useState<Snapshot|null>(null),[pickedKind,setKind]=useState<Kind>(initialKind),[error,setError]=useState(""),[working,setWorking]=useState(false),[pending,setPending]=useState<Pending|null>(null);
@@ -142,7 +142,7 @@ export default function GamesClient({initialKind="plinko"}:{initialKind?:Kind}){
  const byKind=useMemo(()=>{const m=new Map<Kind,GameView>();for(const g of snap?.games||[]){const c=m.get(g.kind);if(!c||(c.status!=="active"&&(g.status==="active"||g.createdAt>c.createdAt)))m.set(g.kind,g);}return m;},[snap]);
  const {features:ft}=useFeatures();
  const shown=KINDS.filter(k=>ft[k.kind]!==false||byKind.get(k.kind)?.status==="active");
- const kind:Kind=shown.some(k=>k.kind===pickedKind)?pickedKind:(shown[0]?.kind??pickedKind);
+ const kind:Kind=singleGame?initialKind:shown.some(k=>k.kind===pickedKind)?pickedKind:(shown[0]?.kind??pickedKind);
  const game=byKind.get(kind),active=game&&game.status==="active"?game:undefined;
  const blocked=connection!=="connected"||working||!!pending||!snap;
  const dropBlocked=connection!=="connected"||!snap||drops.length>=MAX_DROPS;
@@ -154,8 +154,8 @@ export default function GamesClient({initialKind="plinko"}:{initialKind?:Kind}){
  const betProps={mines,setMines,amount,setAmount,cents,betOk:betOk&&(kind!=="plinko"||cents!<=free),maxBet};
  return <main className={styles.games}>
   <Link href="/games" className={styles.back}>‹ All games</Link>
-  <header className={styles.head}><div><h1>Games</h1><p>{Math.round((snap?.houseEdge??0.02)*100)}% house edge, payouts round down to the cent.</p></div><div className={styles.wallet}><span>Wallet</span><strong>{snap?money(snap.wallet):"—"}</strong></div></header>
-  <div className={styles.tabs} role="tablist" aria-label="Games">{shown.map(k=>{const a=byKind.get(k.kind)?.status==="active";return <button key={k.kind} role="tab" aria-selected={kind===k.kind} className={styles.tab} onClick={()=>setKind(k.kind)}>{k.label}{a?<i className={styles.dot} aria-label="In progress"/>:null}</button>;})}</div>
+  <header className={styles.head}><div><h1>{singleGame?KINDS.find(k=>k.kind===initialKind)!.label:"Games"}</h1><p>{Math.round((snap?.houseEdge??0.02)*100)}% house edge, payouts round down to the cent.</p></div><div className={styles.wallet}><span>Wallet</span><strong>{snap?money(snap.wallet):"—"}</strong></div></header>
+  {!singleGame?<div className={styles.tabs} role="tablist" aria-label="Games">{shown.map(k=>{const a=byKind.get(k.kind)?.status==="active";return <button key={k.kind} role="tab" aria-selected={kind===k.kind} className={styles.tab} onClick={()=>setKind(k.kind)}>{k.label}{a?<i className={styles.dot} aria-label="In progress"/>:null}</button>;})}</div>:null}
   <p className={styles.blurb}>{KINDS.find(k=>k.kind===kind)!.blurb}</p>
   {kind!=="plinko"&&pending&&!working?<div className={styles.note+" "+styles.warn} role="alert"><span>{error||"Your last action is unconfirmed."} ({pending.label})</span><button className="primary" disabled={working||connection!=="connected"} onClick={()=>void run(pending,true)}>Retry</button></div>:kind!=="plinko"&&error?<p className={styles.note+" "+styles.warn} role="alert">{error}</p>:null}
   {kind==="plinko"&&plinkoError?<p className={styles.note+" "+styles.warn} role="alert">{plinkoError}</p>:null}
