@@ -55,8 +55,9 @@ test("poker switching retains all room clients on the same live transport",()=>{
  assert.match(ui,/chatRoom:room/);
  assert.match(ui,/for\(const c of retained.values\(\)\)c.close\(\)/);
 });
-test("dense poker tables centre the board in the felt and keep phone seats in flow with their bets",()=>{
+test("dense poker tables keep the stadium felt and ring seats, centred board, no grid on any width",()=>{
  assert.match(css,/\.felt-wrapper\.dense \.board\{inset:auto 0;top:50%;transform:translateY\(-50%\)\}/);
- assert.match(css,/\.felt-wrapper\.dense \.seat\{position:relative;inset:auto;transform:none/);
+ assert.match(css,/@media\(max-width:760px\)\{\.felt-wrapper\.dense\{height:var\(--mh\)\}/);
+ assert.doesNotMatch(css,/felt-wrapper\.dense\{[^}]*display:grid/);
  assert.doesNotMatch(css,/flow-grid|Keep complete player units in flow/);
 });

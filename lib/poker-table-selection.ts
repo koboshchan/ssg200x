@@ -40,3 +40,14 @@ export function slotsOverlap(count:number,width:number,seatW:number,seatH:number
  for(let i=0;i<s.length;i++)for(let j=i+1;j<s.length;j++)if(Math.abs((s[i].x-s[j].x)*width/100)<seatW&&Math.abs((s[i].y-s[j].y)*h/100)<seatH)return true;
  return false;
 }
+
+export type MobileDenseLayout={height:number;boardY:number;slots:{x:number;y:number}[]};
+/** Phone ring for 7-12 seats: one seat top and bottom centre, the rest in a left and right column with a gap at mid-height for the board, so hole cards and bets never reach it. x is percent of width, y/height/boardY px. Slot i is clockwise from the top, matching denseSeatSlots. */
+export function denseMobileLayout(count:number):MobileDenseLayout{
+ const P=118,TOP=58,BAND=170,rest=Math.max(0,count-2),R=Math.ceil(rest/2),L=Math.floor(rest/2),a=Math.max(1,Math.ceil(Math.max(R,L)/2));
+ const aboveY=(i:number)=>TOP+P*i,bandTop=aboveY(a-1)+78,bandBottom=bandTop+BAND,belowY=(j:number)=>bandBottom+60+P*j,lastY=belowY(a-1);
+ const col=(k:number)=>{const above=Math.ceil(k/2),below=k-above,ys:number[]=[];for(let i=0;i<above;i++)ys.push(aboveY(i));for(let j=0;j<below;j++)ys.push(belowY(a-below+j));return ys};
+ const right=col(R),left=col(L).reverse();
+ const slots=[{x:50,y:TOP},...right.map(y=>({x:83,y})),...(count>1?[{x:50,y:lastY}]:[]),...left.map(y=>({x:17,y}))].slice(0,count);
+ return {height:lastY+62,boardY:bandTop+BAND/2,slots};
+}
