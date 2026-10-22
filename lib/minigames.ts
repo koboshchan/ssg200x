@@ -28,8 +28,9 @@ function settle(r:Room,g:MiniGame,status:MiniGame["status"]){
  m.activity=[`${g.kind} · ${g.status} · $${(g.payout/100).toFixed(2)} returned`,...(m.activity??[])].slice(0,200);
 }
 function report(g:MiniGame){
- // Explicit allowlist. Bomb positions, owner, and rational internals NEVER reach a client.
- return {id:g.id,kind:g.kind,bet:g.bet,status:g.status,revision:g.revision,steps:g.steps,multiplier:g.num/g.den,payout:g.status==="active"?miniPayout(g):g.payout,createdAt:g.createdAt,...(g.card!==undefined?{card:g.card,cards:g.cards}:{}),...(g.revealed?{revealed:g.revealed,mines:g.mines}:{}),...(g.target?{target:g.target,direction:g.direction}:{}),...(g.result?{result:g.result}:{})};
+ // Explicit allowlist. Only a lost Mines round reveals its board to its owner.
+ // Active/cashed boards, owner IDs and rational internals stay private.
+ return {id:g.id,kind:g.kind,bet:g.bet,status:g.status,revision:g.revision,steps:g.steps,multiplier:g.num/g.den,payout:g.status==="active"?miniPayout(g):g.payout,createdAt:g.createdAt,...(g.card!==undefined?{card:g.card,cards:g.cards}:{}),...(g.revealed?{revealed:g.revealed,mines:g.mines}:{}),...(g.kind==="mines"&&g.status==="lost"?{bombs:[...(g.bombs??[])]}:{}),...(g.target?{target:g.target,direction:g.direction}:{}),...(g.result?{result:g.result}:{})};
 }
 export function miniSnapshot(r:Room,who:Identity){const m=r.members.find(m=>m.id===who.id);ensure(m&&!m.accessRevoked,"Room access revoked.",403);return {version:r.version,wallet:m.wallet,maxBet:casinoLimits(r).gamesMaxBet,serverNow:Date.now(),houseEdge:0.02,games:(r.miniGames??[]).filter(g=>g.owner===who.id).map(report)};}
 /** Called only inside the shared wallet/room CAS. RNG is server-only and retries
