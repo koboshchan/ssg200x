@@ -33,7 +33,7 @@
 .stats{display:flex;gap:32px;margin-bottom:16px}.stats span{display:block;font-size:12px;color:var(--muted)}.stats strong{font-size:22px}
 .scroll{overflow-x:auto}.table{min-width:600px;margin-top:0}.table th,.table td{padding:12px 8px 12px 0;font-size:14px}.table thead th{padding:10px 8px 10px 0}.table small{display:block;color:var(--muted);font-size:12px;font-weight:400}.table th[scope=row]{font-weight:500}.link{background:transparent;padding:0;text-align:left;color:var(--ink);font-weight:500}.link:hover{background:transparent;color:var(--blue)}.h3{margin:28px 0 8px;font-size:16px}
 @media(max-width:800px){.detail{grid-template-columns:1fr}.ticket{position:static}}
-@media(max-width:560px){.head h1,.page>h1{font-size:28px}.grid{grid-template-columns:1fr}.book{grid-template-columns:1fr}.chartHead b{font-size:24px}.cardTop h2{font-size:20px}.stats{gap:20px}.chart svg,.chartEmpty{height:180px}}
+@media(max-width:560px){.head h1,.page>h1{font-size:28px}.grid{grid-template-columns:minmax(0,1fr)}.book{grid-template-columns:1fr}.chartHead b{font-size:24px}.cardTop h2{font-size:20px}.stats{gap:20px}.chart svg,.chartEmpty{height:180px}}
 @media(prefers-reduced-motion:reduce){.card,.skel{animation:none;transition:none}}
 .admin{margin-bottom:12px;background:var(--surface-2);border-radius:10px;padding:10px 14px}.admin summary{cursor:pointer;font-weight:500}.adminRow{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:10px}.adminRow .field{width:140px}.adminRow .field input{font-size:15px;padding:9px}
 

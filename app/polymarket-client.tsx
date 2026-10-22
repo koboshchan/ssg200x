@@ -192,7 +192,8 @@ function Ticket({ev,market,portfolio,settings,onTraded,stream}:{stream:StreamPri
  const sellAmt=action==="sell"&&valid?Math.min(n,pos?.shares||0):0;
  const payoutC=action==="buy"?shares*100:(fresh?quote!.cents:0);
  const costC=action==="buy"?(valid?n*100:0):0;
- const buyOff=action==="buy"&&useFeatures().features.polymarket===false;
+ const pmFeatureOff=useFeatures().features.polymarket===false;
+ const buyOff=action==="buy"&&pmFeatureOff;
  const disabled=buyOff||busy||!valid||!fresh||settings==null||market.closed||ev.closed||settings?.enabled===false||(action==="buy"&&portfolio!=null&&costC>portfolio.wallet)||(action==="buy"&&max!=null&&costC>max)||(action==="sell"&&(!pos||n>pos.shares+1e-9));
  useEffect(()=>{const d=dlg.current;if(!d)return;if(confirm&&!d.open)d.showModal();if(!confirm&&d.open)d.close();},[confirm]);
  async function submit(){
