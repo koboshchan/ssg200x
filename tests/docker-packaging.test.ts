@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 test("release build avoids Turbopack's untraced MongoDB external alias",()=>{
  const pkg=JSON.parse(readFileSync(new URL("../package.json",import.meta.url),"utf8"));
- assert.equal(pkg.scripts.build,"next build --webpack");
+ assert.equal(pkg.scripts.build,"node scripts/build.mjs");
+ assert.match(readFileSync("scripts/build.mjs","utf8"),/next.dist.bin.next.*"build","--webpack"/);
 });
 test("standalone tracing wins over custom-server runtime dependencies",()=>{
  const file=readFileSync(new URL("../Dockerfile",import.meta.url),"utf8");
