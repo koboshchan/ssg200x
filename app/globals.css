@@ -182,8 +182,8 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
  .seat{width:calc((100% - 20px)/3);min-width:0;max-width:135px}
  .seat-0{top:130px;left:0;right:auto;transform:none}
  .seat-1{top:130px;right:0;left:auto;transform:none}
- .seat-2{top:450px;right:0}
- .seat-5{top:450px;left:0}
+ .seat-2{top:425px;right:0}
+ .seat-5{top:425px;left:0}
  .seat-3{bottom:130px;right:0;left:auto;transform:none}
  .seat-4{bottom:130px;left:0;right:auto;transform:none}
  .seat-6{top:0}
@@ -215,8 +215,8 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
 .felt-wrapper.dense .seat .hole{justify-content:center;padding-left:0}
 .felt-wrapper.dense .seat-bet{bottom:-19px;top:auto}
 .felt-wrapper.dense .seat>button{padding:12px 6px;font-size:9px}
-.felt-wrapper.dense .board{inset:45% 0 auto;top:auto;transform:translateY(-50%)}
-@media(max-width:760px){.felt-wrapper.dense{height:auto;display:grid;grid-template-columns:1fr 1fr;gap:10px 10px;margin-top:10px}.felt-wrapper.dense .felt{position:relative;inset:auto;grid-column:1/-1;height:230px;order:-1}.felt-wrapper.dense .seat{position:static;transform:none;width:auto;max-width:none;margin-bottom:14px}.felt-wrapper.dense .board{inset:auto;top:50%;left:0;right:0}}
+.felt-wrapper.dense .board{inset:auto 0;top:50%;transform:translateY(-50%)}
+@media(max-width:760px){.felt-wrapper.dense{height:auto;display:grid;grid-template-columns:1fr 1fr;gap:10px 10px;margin-top:10px}.felt-wrapper.dense .felt{position:relative;inset:auto;grid-column:1/-1;height:230px;order:-1}.felt-wrapper.dense .seat{position:relative;inset:auto;transform:none;width:auto;max-width:none;margin-bottom:14px}.felt-wrapper.dense .board{inset:auto;top:50%;left:0;right:0}}
 
 .bj-seat-who{display:flex;align-items:center;gap:6px;min-width:0}.bj-seat-who strong{min-width:0}
 
@@ -272,21 +272,3 @@ html:has(.chat-toggle) body{height:calc(100dvh - 46px - env(safe-area-inset-bott
 
 /* Keep reactions alongside the table caption without a separate hint band. */
 .table-caption{align-items:center;gap:8px;flex-wrap:wrap}.table-caption>span:nth-child(2){margin-left:auto}.poker-taunt-controls{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:0;letter-spacing:0}.poker-taunt-controls>button{padding:6px 0;min-height:32px;border:0;background:none;color:var(--muted);font-size:10px;font-weight:500;white-space:nowrap}.poker-taunt-controls>small{max-width:180px;margin:0;font-size:10px}
-
-
-/* Keep complete player units in flow. Absolute hole/bet offsets escaped the
-   seat box and put the centre-top player's cards over the community board.
-   Shared geometry covers legacy six-seat IDs and every expanded 7-12 layout. */
-.felt-wrapper,.felt-wrapper.dense{height:auto;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 14px;margin:24px 0}
-.felt-wrapper .felt,.felt-wrapper.dense .felt{position:relative;inset:auto;grid-column:1/-1;height:270px;order:-1;margin:0 16px 12px}
-.felt-wrapper .board,.felt-wrapper.dense .board{inset:auto;top:50%;left:0;right:0;transform:translateY(-50%)}
-.felt-wrapper .felt-mark{top:12px}
-.felt-wrapper .seat,.felt-wrapper.dense .seat{position:relative;inset:auto;left:auto;top:auto;right:auto;bottom:auto;transform:none;width:auto;min-width:0;max-width:none;margin:0;display:flex;flex-direction:column;align-items:stretch;gap:5px}
-.felt-wrapper .seat .hole{height:43px;margin:0;padding:0;justify-content:center}
-.felt-wrapper .seat .seat-bet{position:static;inset:auto;transform:none;align-self:center;max-width:100%;margin:0;white-space:normal;overflow-wrap:anywhere}
-.felt-wrapper .seat-top>div{min-width:0}
-.felt-wrapper .seat-top strong{max-width:100%}
-@media(max-width:760px){
- .felt-wrapper,.felt-wrapper.dense{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 10px}
- .felt-wrapper .felt,.felt-wrapper.dense .felt{height:240px;margin:0 10px 8px}
-}

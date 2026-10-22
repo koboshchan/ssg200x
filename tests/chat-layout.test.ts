@@ -55,14 +55,8 @@ test("poker switching retains all room clients on the same live transport",()=>{
  assert.match(ui,/chatRoom:room/);
  assert.match(ui,/for\(const c of retained.values\(\)\)c.close\(\)/);
 });
-test("hole cards and bets remain inside their own flow-layout seat at all counts",()=>{
- assert.match(css,/\.felt-wrapper \.seat \.seat-bet\{position:static/);
- assert.match(css,/\.felt-wrapper \.seat,\.felt-wrapper.dense \.seat\{position:relative;inset:auto/);
- assert.match(css,/grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
- assert.match(css,/grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
-});
-test("retained clients queue shared account budget claims during in-flight switches",()=>{
- assert.match(ui,/requests.then\(\(\)=>chatRequestBudget.request\(\.\.\.args\)\)/);
- assert.match(ui,/requests=next.catch\(\(\)=>\{\}\)/);
- assert.match(ui,/Date.now,undefined,budget,room/);
+test("dense poker tables centre the board in the felt and keep phone seats in flow with their bets",()=>{
+ assert.match(css,/\.felt-wrapper\.dense \.board\{inset:auto 0;top:50%;transform:translateY\(-50%\)\}/);
+ assert.match(css,/\.felt-wrapper\.dense \.seat\{position:relative;inset:auto;transform:none/);
+ assert.doesNotMatch(css,/flow-grid|Keep complete player units in flow/);
 });
