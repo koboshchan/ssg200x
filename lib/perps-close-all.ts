@@ -1,13 +1,15 @@
 import type {Room,Identity} from "./types";
-import {closePosition,legacyQuote} from "./finance";
+import {closePosition,legacyQuote,requireQuote,netPnl} from "./finance";
 import {AppError} from "./errors";
 import {audit} from "./audit";
 import {financeAuditSnapshot} from "./finance-audit";
-export type CloseAllResult={requestId:string;closed:string[];alreadyClosed:string[];failed:{id:string;symbol:string;error:string}[]};
+export type CloseAllMode="all"|"profiting"|"losing";
+export type CloseAllResult={requestId:string;closed:string[];skipped?:string[];alreadyClosed:string[];failed:{id:string;symbol:string;error:string}[]};
 /** Called within the room CAS. IDs are the confirmation snapshot, never future positions.
  * Failed expected validations occur before settlement. Unexpected errors abort the CAS. */
-export function closeAllPerps(room:Room,who:Identity,ids:string[],requestId:string,now=Date.now()):CloseAllResult{
- const result:CloseAllResult={requestId,closed:[],alreadyClosed:[],failed:[]};
+export function closeAllPerps(room:Room,who:Identity,ids:string[],requestId:string,now=Date.now(),mode:CloseAllMode="all"):CloseAllResult{
+ if(!["all","profiting","losing"].includes(mode))throw new AppError("Invalid close mode.",400);
+ const result:CloseAllResult={requestId,closed:[],skipped:[],alreadyClosed:[],failed:[]};
  for(const id of new Set(ids)){
   const member=room.members.find(m=>m.id===who.id),position=member?.positions?.find(p=>p.id===id);
   if(!member||!position){
@@ -16,7 +18,14 @@ export function closeAllPerps(room:Room,who:Identity,ids:string[],requestId:stri
    continue;
   }
   const old={...position},legacyValuation=legacyQuote(room,position.symbol,now);
-  try{closePosition(room,who,id,now);}
+  try{
+   if(mode!=="all"){
+    // Same fee-aware integer-cent P/L as publicRoom. Never classify a stale mark.
+    const pnl=netPnl(position,requireQuote(room,position.symbol,now));
+    if(mode==="profiting"?pnl<=0:pnl>=0){result.skipped!.push(id);continue;}
+   }
+   closePosition(room,who,id,now);
+  }
   catch(error){
    if(!(error instanceof AppError))throw error;
    result.failed.push({id,symbol:position.symbol,error:error.message});continue;

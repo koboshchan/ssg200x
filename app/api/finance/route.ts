@@ -25,7 +25,7 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
   audit(r,who,"finance-legacy-redeem",input.symbol,{requestId:input.requestId,...result.old},{requestId:input.requestId,units:0,returned:result.returned,quote:result.quote,wallet:result.wallet});
  }
  else if(input.type==="close-all"){
-  const result=closeAllPerps(r,who,input.positionIds,input.requestId);
+  const result=closeAllPerps(r,who,input.positionIds,input.requestId,Date.now(),input.mode);
   recordFinanceRequest(r,who.id,input,"committed");
   r.financeReceipts![0].closeAll=result;return;
  }

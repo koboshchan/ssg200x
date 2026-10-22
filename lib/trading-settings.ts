@@ -8,6 +8,12 @@ export function setTradingSettings(r:Room,who:Identity,mode:TriggerInputMode){
  ensure(mode==="price"||mode==="pnl","Invalid trigger input mode.");
  const member=register(r,who);member.settings={...member.settings,triggerInputMode:mode};
 }
+export const skipCloseConfirmation=(m:Member)=>m.settings?.skipCloseConfirmation===true;
+export function setCloseConfirmation(r:Room,who:Identity,skip:boolean){
+ ensure(typeof skip==="boolean","Invalid close confirmation setting.");
+ const member=register(r,who);
+ member.settings={triggerInputMode:triggerInputMode(member),...member.settings,skipCloseConfirmation:skip};
+}
 export type TriggerInput={triggerInputMode?:TriggerInputMode;takeProfit?:number|null;stopLoss?:number|null;takeProfitPnl?:number|null;stopLossPnl?:number|null};
 export function resolveTriggerInput(m:Member,basis:TriggerBasis,input:TriggerInput):TriggerPatch{
  const mode=triggerInputMode(m);
