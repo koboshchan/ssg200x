@@ -42,7 +42,7 @@ export async function seedVideoFixture(scenario:keyof typeof scenarios){
   const g=r.doudizhu![0];act(1,{type:"join",code:g.code});act(2,{type:"join",code:g.code});
   for(let i=0;i<(scenario==="deal"?2:3);i++)act(i,{type:"ready"});
   if(scenario==="deal"||scenario==="reveal"){audit(r,users[0],"doudizhu.test-fixture",g.handId,null,{scenario});return;}
-  act(0,{type:"bid",bid:3});
+  act(0,{type:"bid",bid:3});for(let i=0;i<3;i++)act(i,{type:"double",doubleMultiplier:1});
   const cards=[...scenarios[scenario]];
   // Sort the remaining deck for reproducible opponent cards. Exclude all played combinations.
   const rest=shuffled().filter(c=>!cards.includes(c as never)).sort();

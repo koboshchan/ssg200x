@@ -2,13 +2,15 @@ import {randomInt,randomUUID} from "node:crypto";
 import {wordlist} from "@scure/bip39/wordlists/english.js";
 import {classify,beats,rank,shuffled,type Combo} from "./doudizhu-rules";
 import {ensure} from "./errors";
+import {casinoLimits} from "./casino-limits";
+import {applyDoudizhuReaction,type DoudizhuReaction} from "./doudizhu-reactions";
 import {audit} from "./audit";
 import type {Room,Identity} from "./types";
-export type DoudizhuInput={type:"create"|"join"|"ready"|"bid"|"play"|"pass"|"leave"|"visibility";isPublic?:boolean;code?:string;beansPerDollar?:number;maxLoss?:number;cards?:string[];bid?:number;requestId:string;requestAt:number;version?:number};
-export type DoudizhuPlayer={userId:string;ready:boolean;auto:boolean;hand:string[];escrow:number;plays:number};
-export type DoudizhuRoom={code:string;ownerId?:string;isPublic?:boolean;base?:number;rate?:number;scoringMode?:"beans"|"legacy-rate";beansPerDollar?:number;baseBeans?:number;maxLoss:number;version:number;phase:"waiting"|"bidding"|"playing"|"finished";handId:string;players:DoudizhuPlayer[];kitty:string[];turn:number;deadline:number|null;landlord:number|null;bid:number;bidder:number|null;bids:number;multiplier:number;trick:{cards:string[];combo:Combo;seat:number}|null;passes:number;settled:boolean;result:null|{winner:number;spring:boolean;unit:number;unitBeans?:number;beanDeltas?:number[];beanDeltaExact?:string[];deltas:number[];settlementId:string}};
+export type DoudizhuInput={type:"create"|"join"|"ready"|"bid"|"play"|"pass"|"leave"|"visibility"|"double"|"reaction";doubleMultiplier?:number;kind?:"emote"|"throw";value?:string;target?:number;targetId?:string;expectedPrice?:number;isPublic?:boolean;code?:string;beansPerDollar?:number;maxLoss?:number;cards?:string[];bid?:number;requestId:string;requestAt:number;version?:number};
+export type DoudizhuPlayer={userId:string;ready:boolean;auto:boolean;hand:string[];escrow:number;plays:number;doubleMultiplier?:1|2|4;doubleChosen?:boolean};
+export type DoudizhuRoom={code:string;ownerId?:string;isPublic?:boolean;base?:number;rate?:number;scoringMode?:"beans"|"legacy-rate";beansPerDollar?:number;baseBeans?:number;maxLoss:number;reactions?:DoudizhuReaction[];version:number;phase:"waiting"|"bidding"|"doubling"|"playing"|"finished";handId:string;players:DoudizhuPlayer[];kitty:string[];turn:number;deadline:number|null;landlord:number|null;bid:number;bidder:number|null;bids:number;multiplier:number;trick:{cards:string[];combo:Combo;seat:number}|null;passes:number;settled:boolean;result:null|{winner:number;spring:boolean;unit:number;unitBeans?:number;beanDeltas?:number[];beanDeltaExact?:string[];deltas:number[];settlementId:string}};
 export const DOUDIZHU_TURN_MS=60_000;
-export const DOUDIZHU_RULES={turnMs:DOUDIZHU_TURN_MS,description:"Happy Beans: 1000 base beans times bid and multiplier. Convert beans to cents by flooring beans × 100 / beansPerDollar before caps. Result bean deltas are exact settled cents × beansPerDollar / 100, including fractional beans. Each player reserves the room maximum loss. Bids, bombs, rocket and spring multiply points. Loss cannot exceed reserved chips; a losing landlord pays at most their reserve, split equally between farmers with an odd cent to the lower seat."};
+export const DOUDIZHU_RULES={turnMs:DOUDIZHU_TURN_MS,description:"Happy Beans: 1000 base beans times bid and multiplier. Convert beans to cents by flooring beans × 100 / beansPerDollar before caps. Result bean deltas are exact settled cents × beansPerDollar / 100, including fractional beans. Each player reserves the room maximum loss. Bids, bombs, rocket and spring multiply points. Loss cannot exceed reserved chips; a losing landlord pays at most their reserve, split proportionally to farmer claims, with remainder cents ordered by largest fractional share then lower seat. After landlord selection everyone chooses No double x1, Double x2 or Super double x4. Each landlord-farmer claim multiplies both players’ choices before converting beans to cents. Unanswered choices time out to x1."};
 function ownerOf(g:DoudizhuRoom){return g.ownerId??g.players[0]?.userId;}
 export function doudizhuMaxRate(r:Room){return Number.isSafeInteger(r.doudizhuMaxRate)&&r.doudizhuMaxRate!>=1&&r.doudizhuMaxRate!<=1000000?r.doudizhuMaxRate!:1000;}
 export function doudizhuMaxBeansPerDollar(r:Room){return Number.isSafeInteger(r.doudizhuMaxBeansPerDollar)&&r.doudizhuMaxBeansPerDollar!>=1&&r.doudizhuMaxBeansPerDollar!<=1000000000?r.doudizhuMaxBeansPerDollar!:1000000;}
@@ -22,7 +24,7 @@ export function doudizhuAssets(r:Room,userId?:string){return (r.doudizhu??[]).re
 const system:Identity={id:"doudizhu-system",name:"Game timer",email:"",admin:false};
 function member(r:Room,id:string){const m=r.members.find(m=>m.id===id);ensure(m,"Account not found.",404);return m;}
 function escrow(r:Room,g:DoudizhuRoom,p:DoudizhuPlayer){const m=member(r,p.userId),amount=g.maxLoss;ensure(Number.isSafeInteger(amount)&&m.wallet>=amount,"Insufficient wallet for maximum-loss reserve.");m.wallet-=amount;p.escrow=amount;}
-function deal(g:DoudizhuRoom,now:number){const deck=shuffled();ensure(deck.length===54&&new Set(deck).size===54,"Invalid deck.",500);g.handId=randomUUID();g.players.forEach((p,i)=>{p.hand=deck.slice(i*17,i*17+17);p.plays=0;});g.kitty=deck.slice(51);g.phase="bidding";g.turn=0;g.deadline=now+DOUDIZHU_TURN_MS;g.bid=0;g.bidder=null;g.bids=0;g.multiplier=1;g.trick=null;g.passes=0;g.landlord=null;g.settled=false;g.result=null;}
+function deal(g:DoudizhuRoom,now:number){const deck=shuffled();ensure(deck.length===54&&new Set(deck).size===54,"Invalid deck.",500);g.handId=randomUUID();g.players.forEach((p,i)=>{p.hand=deck.slice(i*17,i*17+17);p.plays=0;p.doubleMultiplier=1;p.doubleChosen=false;});g.kitty=deck.slice(51);g.phase="bidding";g.turn=0;g.deadline=now+DOUDIZHU_TURN_MS;g.bid=0;g.bidder=null;g.bids=0;g.multiplier=1;g.trick=null;g.passes=0;g.landlord=null;g.settled=false;g.result=null;}
 function settle(r:Room,g:DoudizhuRoom,winner:number,now:number){
  if(g.settled)return;
  ensure(g.landlord!==null,"No landlord.",500);
@@ -33,8 +35,19 @@ function settle(r:Room,g:DoudizhuRoom,winner:number,now:number){
  const unitBeans=isBeans?g.baseBeans!*g.bid*g.multiplier:undefined;
  const unit=isBeans?Number(BigInt(unitBeans!)*100n/BigInt(g.beansPerDollar!)):g.rate!*100*g.bid*g.multiplier,deltas=[0,0,0];
  const farmers=[0,1,2].filter(i=>i!==landlord);
- if(landlordWon){for(const i of farmers){const loss=Math.min(unit,g.players[i].escrow);deltas[i]=-loss;deltas[landlord]+=loss;}}
- else{const total=Math.min(unit*2,g.players[landlord].escrow),share=Math.floor(total/2);deltas[landlord]=-total;farmers.forEach((i,n)=>deltas[i]=share+(n===0?total%2:0));}
+ const claims=farmers.map(i=>{
+  const factor=BigInt(g.players[landlord].doubleMultiplier??1)*BigInt(g.players[i].doubleMultiplier??1);
+  return isBeans?BigInt(unitBeans!)*factor*100n/BigInt(g.beansPerDollar!):BigInt(unit)*factor;
+ });
+ if(landlordWon){farmers.forEach((i,n)=>{const loss=Number(claims[n]<BigInt(g.players[i].escrow)?claims[n]:BigInt(g.players[i].escrow));deltas[i]=-loss;deltas[landlord]+=loss;});}
+ else{
+  const wanted=claims.reduce((a,b)=>a+b,0n),reserve=BigInt(g.players[landlord].escrow),total=wanted<reserve?wanted:reserve;
+  const shares=claims.map(c=>wanted?total*c/wanted:0n);
+  let remainder=total-shares.reduce((a,b)=>a+b,0n);
+  const order=farmers.map((seat,n)=>({seat,n,fraction:wanted?total*claims[n]%wanted:0n})).sort((a,b)=>a.fraction===b.fraction?a.seat-b.seat:a.fraction>b.fraction?-1:1);
+  for(const item of order){if(remainder===0n)break;shares[item.n]++;remainder--;}
+  deltas[landlord]=-Number(total);farmers.forEach((i,n)=>deltas[i]=Number(shares[n]));
+ }
  const settlementId=g.handId+":settlement";
  g.players.forEach((p,i)=>{ensure(Number.isSafeInteger(p.escrow+deltas[i])&&p.escrow+deltas[i]>=0,"Invalid settlement.",500);member(r,p.userId).wallet+=p.escrow+deltas[i];p.escrow=0;p.ready=false;});
  g.settled=true;g.phase="finished";g.deadline=null;g.result={winner,spring,unit,deltas,settlementId,...(isBeans?{unitBeans,beanDeltas:deltas.map(c=>Number(settledBeansExact(c,g.beansPerDollar!))),beanDeltaExact:deltas.map(c=>settledBeansExact(c,g.beansPerDollar!))}:{})};
@@ -46,7 +59,7 @@ function action(r:Room,g:DoudizhuRoom,seat:number,type:"bid"|"play"|"pass",input
   ensure(g.phase==="bidding","Not bidding.",409);const bid=input.bid;
   ensure(Number.isInteger(bid)&&bid!>=0&&bid!<=3&&(bid===0||bid!>g.bid),"Bid must pass or raise to 1, 2 or 3.");
   g.bids++;if(bid){g.bid=bid;g.bidder=seat;}
-  if(bid===3||g.bids===3){if(g.bidder===null){deal(g,now);return;}g.landlord=g.bidder;g.players[g.landlord].hand.push(...g.kitty);g.phase="playing";g.turn=g.landlord;}
+  if(bid===3||g.bids===3){if(g.bidder===null){deal(g,now);return;}g.landlord=g.bidder;g.players[g.landlord].hand.push(...g.kitty);g.phase="doubling";g.turn=g.landlord;}
   else g.turn=(seat+1)%3;
  }else{
   ensure(g.phase==="playing","Not playing.",409);const p=g.players[seat];
@@ -64,21 +77,23 @@ function action(r:Room,g:DoudizhuRoom,seat:number,type:"bid"|"play"|"pass",input
  }
  g.deadline=now+DOUDIZHU_TURN_MS;
 }
-export function doudizhuNeedsTick(r:Room,now:number){return (r.doudizhu??[]).some(g=>(g.phase==="bidding"||g.phase==="playing")&&g.deadline!==null&&now>=g.deadline);}
+export function doudizhuNeedsTick(r:Room,now:number){return (r.doudizhu??[]).some(g=>(g.phase==="bidding"||g.phase==="doubling"||g.phase==="playing")&&g.deadline!==null&&now>=g.deadline);}
 export function tickDoudizhu(r:Room,now:number){let changed=false;for(const g of r.doudizhu??[]){
- if((g.phase==="bidding"||g.phase==="playing")&&g.deadline!==null&&now>=g.deadline){
+ if((g.phase==="bidding"||g.phase==="doubling"||g.phase==="playing")&&g.deadline!==null&&now>=g.deadline){
+ if(g.phase==="doubling"){g.players.forEach(p=>{if(!p.doubleChosen){p.doubleMultiplier=1;p.doubleChosen=true;}});g.phase="playing";g.turn=g.landlord!;g.deadline=now+DOUDIZHU_TURN_MS;g.version++;changed=true;continue;}
  const p=g.players[g.turn];if(g.phase==="bidding")action(r,g,g.turn,"bid",{bid:0},now);
  else if(g.trick)action(r,g,g.turn,"pass",{},now);
  else action(r,g,g.turn,"play",{cards:[[...p.hand].sort((a,b)=>rank(a)-rank(b)||a.localeCompare(b))[0]]},now);
  g.version++;changed=true;
  }}return changed;}
+function doudizhuFingerprint(input:DoudizhuInput){return JSON.stringify([input.type,input.code,input.version,input.requestAt,input.isPublic,input.beansPerDollar,input.maxLoss,input.cards,input.bid,input.doubleMultiplier,input.kind,input.value,input.target,input.targetId,input.expectedPrice]);}
 export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.now()){
- ensure(input&&["create","join","ready","bid","play","pass","leave","visibility"].includes(input.type),"Unsupported game action.");
+ ensure(input&&["create","join","ready","bid","play","pass","leave","visibility","double","reaction"].includes(input.type),"Unsupported game action.");
  ensure(!("auto" in input)&&!("bot" in input)&&!("simulate" in input),"Autoplay is not supported.");
  ensure(input&&typeof input.requestId==="string"&&/^[a-zA-Z0-9_-]{8,128}$/.test(input.requestId),"Invalid request ID.");
  ensure(Number.isSafeInteger(input.requestAt)&&now-input.requestAt>=-10_000&&now-input.requestAt<=120_000,"Request expired.",409);
  const receipt=(r.doudizhuReceipts??[]).find(x=>x.id===input.requestId);
- if(receipt){ensure(receipt.userId===who.id,"Invalid request.",409);return;}
+ if(receipt){ensure(receipt.userId===who.id&&(!receipt.fingerprint||receipt.fingerprint===doudizhuFingerprint(input)),"Invalid request.",409);return;}
  const retained=(r.doudizhuReceipts??[]).filter(x=>now-x.at<300_000);ensure(retained.length<4096,"Too many recent moves. Try again shortly.",429);
  const m=member(r,who.id);ensure(m.approved&&!m.accessRevoked,"Access denied.",403);
  const games=r.doudizhu??=[];let own=games.find(g=>g.players.some(p=>p.userId===who.id));
@@ -95,7 +110,9 @@ export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.n
   if(input.type==="join"){ensure(!own,"Leave your existing room first.",409);ensure(g.phase==="waiting"&&g.players.length<3,"Room is full or started.",409);const p:DoudizhuPlayer={userId:who.id,ready:false,auto:false,hand:[],escrow:0,plays:0};escrow(r,g,p);g.players.push(p);
   }else{
    ensure(seat>=0,"Join this room first.",403);
-   if(input.type==="visibility"){
+   if(input.type==="reaction"){
+    applyDoudizhuReaction(r,g,who,input,now);
+   }else if(input.type==="visibility"){
     ensure(ownerOf(g)===who.id,"Only the room owner can change visibility.",403);
     ensure(g.phase==="waiting"||g.phase==="finished","Visibility can change only between hands.",409);
     ensure(input.version===g.version&&Number.isSafeInteger(input.version),"The room changed. Refresh first.",409);
@@ -106,7 +123,13 @@ export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.n
     {const departingOwner=ownerOf(g)===who.id;m.wallet+=g.players[seat].escrow;g.players.splice(seat,1);if(departingOwner&&g.players.length)g.ownerId=g.players[0].userId;if(!g.players.length)r.doudizhu=games.filter(x=>x!==g);}
    }else{
     ensure(Number.isSafeInteger(input.version)&&input.version===g.version,"The turn changed. Refresh first.",409);
-    if(input.type==="ready"){
+    if(input.type==="double"){
+     ensure(g.phase==="doubling"&&g.deadline!==null&&now<g.deadline,"Not choosing doubles.",409);
+     ensure([1,2,4].includes(input.doubleMultiplier!),"Choose x1, x2 or x4.");
+     const p=g.players[seat];ensure(!p.doubleChosen,"Double already chosen.",409);
+     p.doubleMultiplier=input.doubleMultiplier as 1|2|4;p.doubleChosen=true;
+     if(g.players.every(p=>p.doubleChosen)){g.phase="playing";g.turn=g.landlord!;g.deadline=now+DOUDIZHU_TURN_MS;}
+    }else if(input.type==="ready"){
      ensure(g.phase==="waiting"||g.phase==="finished","Hand already started.",409);
      if(g.phase==="finished"){g.phase="waiting";g.players.forEach(p=>{p.auto=false;p.hand=[];});}
      const p=g.players[seat];ensure(!p.ready,"Already ready.",409);if(!p.escrow)escrow(r,g,p);p.ready=true;
@@ -121,7 +144,7 @@ export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.n
  }
  g!.version++;
  audit(r,who,"doudizhu."+input.type,g!.handId,null,{code:g!.code,version:g!.version,requestId:input.requestId});
- r.doudizhuReceipts=[{id:input.requestId,userId:who.id,at:now},...retained];
+ r.doudizhuReceipts=[{id:input.requestId,userId:who.id,at:now,fingerprint:doudizhuFingerprint(input)},...retained];
 }
 export function publicDoudizhu(r:Room,who:Identity,code?:string){
  const own=(r.doudizhu??[]).find(g=>g.players.some(p=>p.userId===who.id));
@@ -129,6 +152,6 @@ export function publicDoudizhu(r:Room,who:Identity,code?:string){
  const g=own&&(!code||own.code===code.trim().toLowerCase().replace(/[\s-]+/g," "))?own:undefined;
  const preview=code?(r.doudizhu??[]).find(x=>x.code===code.trim().toLowerCase().replace(/[\s-]+/g," ")):undefined;
  const recruitingRooms=(r.doudizhu??[]).filter(x=>x.isPublic===true&&x.phase==="waiting"&&x.players.length>0&&x.players.length<3).map(x=>({code:x.code,count:x.players.length,scoringMode:x.scoringMode??"legacy-rate",beansPerDollar:x.beansPerDollar,baseBeans:x.baseBeans,rate:x.rate,maxLoss:x.maxLoss}));
- return {recruitingRooms,preview:preview?{code:preview.code,scoringMode:preview.scoringMode??"legacy-rate",beansPerDollar:preview.beansPerDollar,baseBeans:preview.baseBeans,rate:preview.rate,maxLoss:preview.maxLoss,count:preview.players.length,phase:preview.phase}:null,houseRules:DOUDIZHU_RULES,maxBeansPerDollar:doudizhuMaxBeansPerDollar(r),maxRate:doudizhuMaxRate(r),wallet:r.members.find(m=>m.id===who.id)?.wallet??0,room:g?{code:g.code,isPublic:g.isPublic===true,isOwner:ownerOf(g)===who.id,ownerSeat:g.players.findIndex(p=>p.userId===ownerOf(g)),scoringMode:g.scoringMode??"legacy-rate",beansPerDollar:g.beansPerDollar,baseBeans:g.baseBeans,base:g.base,rate:g.rate,maxLoss:g.maxLoss,version:g.version,phase:g.phase,handId:g.handId,players:g.players.map((p,seat)=>({seat,name:member(r,p.userId).name,self:p.userId===who.id,ready:p.ready,auto:false,count:p.hand.length,...(p.userId===who.id?{hand:[...p.hand]}:{}),escrow:p.escrow})),kitty:g.landlord!==null?[...g.kitty]:[],turn:g.turn,deadline:g.deadline,landlord:g.landlord,bid:g.bid,multiplier:g.multiplier,trick:g.trick?structuredClone(g.trick):null,settled:g.settled,result:g.result?structuredClone(g.result):null}:null};
+ return {reactionPrices:{egg:casinoLimits(r).pokerEggPrice,tomato:casinoLimits(r).pokerTomatoPrice},recruitingRooms,preview:preview?{code:preview.code,scoringMode:preview.scoringMode??"legacy-rate",beansPerDollar:preview.beansPerDollar,baseBeans:preview.baseBeans,rate:preview.rate,maxLoss:preview.maxLoss,count:preview.players.length,phase:preview.phase}:null,houseRules:DOUDIZHU_RULES,maxBeansPerDollar:doudizhuMaxBeansPerDollar(r),maxRate:doudizhuMaxRate(r),wallet:r.members.find(m=>m.id===who.id)?.wallet??0,room:g?{code:g.code,isPublic:g.isPublic===true,isOwner:ownerOf(g)===who.id,ownerSeat:g.players.findIndex(p=>p.userId===ownerOf(g)),scoringMode:g.scoringMode??"legacy-rate",beansPerDollar:g.beansPerDollar,baseBeans:g.baseBeans,base:g.base,rate:g.rate,maxLoss:g.maxLoss,version:g.version,phase:g.phase,handId:g.handId,reactions:(g.reactions??[]).filter(e=>Date.now()-e.at<4000),players:g.players.map((p,seat)=>({seat,publicId:member(r,p.userId).publicId,doubleMultiplier:p.doubleMultiplier??1,doubleChosen:p.doubleChosen??false,name:member(r,p.userId).name,self:p.userId===who.id,ready:p.ready,auto:false,count:p.hand.length,...(p.userId===who.id?{hand:[...p.hand]}:{}),escrow:p.escrow})),kitty:g.landlord!==null?[...g.kitty]:[],turn:g.turn,deadline:g.deadline,landlord:g.landlord,bid:g.bid,multiplier:g.multiplier,trick:g.trick?structuredClone(g.trick):null,settled:g.settled,result:g.result?structuredClone(g.result):null}:null};
 }
 export type PublicDoudizhu=ReturnType<typeof publicDoudizhu>;
