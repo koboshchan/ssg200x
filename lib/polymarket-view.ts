@@ -23,7 +23,7 @@ export function viewMarket(m:PolyMarket){
 }
 export function viewEvent(e:PolyEvent,extra:Record<string,unknown>={}){
  const markets=e.markets.filter(m=>m.outcomes.length===2&&m.version!=="unsupported");
- return{id:e.id,title:e.title,category:e.tags.find(t=>t.label&&!/^(all|featured|trending)$/i.test(t.label))?.label,volume:e.volume,volume24hr:e.volume24hr,liquidity:markets.reduce((s,m)=>s+m.liquidity,0),endDate:markets.map(m=>m.endDate).filter(Boolean).sort()[0]??null,closed:markets.length===0||markets.every(m=>m.closed||!m.acceptingOrders),description:e.description,markets:markets.map(viewMarket),...extra};
+ rememberEvents([e]);return{id:e.id,title:e.title,category:e.tags.find(t=>t.label&&!/^(all|featured|trending)$/i.test(t.label))?.label,volume:e.volume,volume24hr:e.volume24hr,liquidity:markets.reduce((s,m)=>s+m.liquidity,0),endDate:markets.map(m=>m.endDate).filter(Boolean).sort()[0]??null,closed:markets.length===0||markets.every(m=>m.closed||!m.acceptingOrders),description:e.description,markets:markets.map(viewMarket),...extra};
 }
 const tagIds=new Map<string,string>();
 export function rememberTags(events:PolyEvent[]){for(const e of events)for(const t of e.tags)if(t.label&&t.id&&tagIds.size<500)tagIds.set(t.label,t.id);}
@@ -52,32 +52,31 @@ export function viewHistory(h:PolyHistory,m?:{outcomes:{label:string;tokenId:str
  const shares=h.shareMicros/1e6;
  return{t:h.at,type:h.action==="void"?"settle":h.action,marketId:h.marketId,question:h.question,side:m?sideOf(m,h.tokenId):h.outcome,shares,price:shares>0?h.amount/100/shares:0,cents:h.amount};
 }
-const eventIds=new Map<string,string>();
-async function eventIdFor(marketId:string){
- const hit=eventIds.get(marketId);if(hit)return hit;
- try{
-  const res=await fetch("https://gamma-api.polymarket.com/markets/"+encodeURIComponent(marketId),{signal:AbortSignal.timeout(4000),cache:"no-store",redirect:"error"});
-  if(!res.ok)return undefined;const x=await res.json() as {events?:{id?:unknown;title?:unknown}[]};
-  const id=x.events?.[0]?.id;if(typeof id==="string"&&/^\d{1,24}$/.test(id)){if(eventIds.size>1000)eventIds.clear();eventIds.set(marketId,id);return id;}
- }catch{}
- return undefined;
-}
-/** Valuation uses a bounded, de-duplicated set of live books; the realisable sell fill is the mark. */
-export async function viewPortfolio(r:Room,userId:string,wallet:number,history:PolyHistory[],positions:PolyPosition[]){
- const open=positions.slice(0,40),tokens=[...new Set(open.map(p=>p.tokenId))],markets=[...new Set(open.map(p=>p.marketId))];
- const books=new Map<string,PolyBook|null>(),mk=new Map<string,PolyMarket|null>(),evs=new Map<string,string|undefined>();
- const pool=async<T,>(items:string[],fn:(x:string)=>Promise<void>)=>{for(let i=0;i<items.length;i+=6)await Promise.all(items.slice(i,i+6).map(x=>fn(x).catch(()=>{})));};
- await Promise.all([pool(tokens,async t=>{books.set(t,await polyBook(t).catch(()=>null));}),pool(markets,async id=>{mk.set(id,await polyMarket(id).catch(()=>null));evs.set(id,await eventIdFor(id));})]);
- const out=positions.map(p=>{
-  const m=mk.get(p.marketId),book=books.get(p.tokenId),shares=p.shareMicros/1e6,avg=p.cost/100/shares;
-  let valueCents=0,cur=0,live=false;
-  if(book&&Date.now()-book.fetchedAt<=QUOTE_TTL){
+const eventIds=new Map<string,{id:string;title:string}>();
+/** Market to event index, filled from event listings/detail already fetched through the shared cache. No extra upstream calls. */
+export function rememberEvents(events:PolyEvent[]){for(const e of events)for(const m of e.markets){if(eventIds.size>5000)eventIds.clear();eventIds.set(m.id,{id:e.id,title:e.title});}}
+/** Open positions are valued from live books (fresh by book.asOf AND fetchedAt). Anything not freshly priced
+ * (stale book, fetch failure, or beyond the 40-position cap) is valued at cost, with priceLive:false so the UI labels it stale.
+ * Settled/void rows are reconstructed from history with the actual payout and cost. */
+export const PORTFOLIO_LIVE_CAP=40;
+export async function viewPortfolio(r:Room,userId:string,wallet:number,history:PolyHistory[],positions:PolyPosition[],now=Date.now()){
+ const open=positions.slice(0,PORTFOLIO_LIVE_CAP),tokens=[...new Set(open.map(p=>p.tokenId))],markets=[...new Set(open.map(p=>p.marketId))];
+ const books=new Map<string,PolyBook|null>(),mk=new Map<string,PolyMarket|null>();
+ const pool=async(items:string[],fn:(x:string)=>Promise<void>)=>{for(let i=0;i<items.length;i+=6)await Promise.all(items.slice(i,i+6).map(x=>fn(x).catch(()=>{})));};
+ await Promise.all([pool(tokens,async t=>{books.set(t,await polyBook(t).catch(()=>null));}),pool(markets,async id=>{mk.set(id,await polyMarket(id).catch(()=>null));})]);
+ const out=positions.map((p,i)=>{
+  const m=mk.get(p.marketId),book=i<PORTFOLIO_LIVE_CAP?books.get(p.tokenId):null,shares=p.shareMicros/1e6,avg=p.cost/100/shares,ev=eventIds.get(p.marketId);
+  let valueCents=p.cost,cur=avg,live=false;
+  if(book&&now-book.asOf<=QUOTE_TTL&&now-book.fetchedAt<=QUOTE_TTL){
    try{const f=fillPolymarket(book,"sell",p.shareMicros,0.000001);valueCents=f.amount;cur=f.averagePrice;live=true;}
    catch{const bid=book.bids[0];if(bid){cur=bid.price;valueCents=Math.floor(shares*cur*100);live=true;}}
   }
-  if(!live){const o=m?.outcomes.find(o=>o.tokenId===p.tokenId);cur=o?.price??avg;valueCents=Math.floor(shares*cur*100);}
-  return{marketId:p.marketId,eventId:evs.get(p.marketId),eventTitle:undefined,question:p.question,side:m?sideOf(m,p.tokenId):(p.outcome as string),outcome:p.outcome,shares,avgPrice:avg,curPrice:cur,costCents:p.cost,valueCents,pnlCents:valueCents-p.cost,status:"open" as const,priceLive:live};
+  return{marketId:p.marketId,eventId:ev?.id,eventTitle:ev?.title,question:p.question,side:m?sideOf(m,p.tokenId):(isYes(p.outcome)?"yes":"no"),outcome:p.outcome,shares,avgPrice:avg,curPrice:cur,costCents:p.cost,valueCents,pnlCents:valueCents-p.cost,status:"open" as const,priceLive:live};
  });
- const ms=new Map([...mk].filter(([,v])=>v) as [string,PolyMarket][]);
- return{wallet,positions:out,activity:history.slice(0,60).map(h=>viewHistory(h,ms.get(h.marketId)))};
+ const settled=history.filter(h=>h.action==="settle"||h.action==="void").slice(0,60).map(h=>{
+  const shares=h.shareMicros/1e6,avg=shares>0?h.cost/100/shares:0,ev=eventIds.get(h.marketId);
+  return{marketId:h.marketId,eventId:ev?.id,eventTitle:ev?.title,question:h.question,side:isYes(h.outcome)?"yes" as const:"no" as const,outcome:h.outcome,shares,avgPrice:avg,curPrice:shares>0?h.amount/100/shares:0,costCents:h.cost,valueCents:h.amount,pnlCents:h.amount-h.cost,status:(h.action==="void"?"void":h.amount>0?"won":"lost") as "void"|"won"|"lost",priceLive:true,at:h.at};
+ });
+ const ms=new Map([...mk].filter(([,x])=>x) as [string,PolyMarket][]);
+ return{wallet,positions:[...out,...settled],activity:history.slice(0,60).map(h=>viewHistory(h,ms.get(h.marketId)))};
 }

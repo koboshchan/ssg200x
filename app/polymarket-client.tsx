@@ -9,7 +9,7 @@ import styles from "./polymarket.module.css";
 type Outcome={label:string;price:number};
 type Market={id:string;question:string;outcomes:Outcome[];volume?:number;closed?:boolean};
 type PEvent={enabled?:boolean;maxTradeCents?:number;id:string;title:string;category?:string;image?:string;volume?:number;liquidity?:number;endDate?:string;closed?:boolean;description?:string;resolutionSource?:string;markets:Market[]};
-type Position={marketId:string;eventId?:string;eventTitle?:string;question:string;side:"yes"|"no";shares:number;avgPrice:number;curPrice:number;costCents:number;valueCents:number;pnlCents:number;status:"open"|"won"|"lost"|"void"};
+type Position={marketId:string;eventId?:string;eventTitle?:string;question:string;side:"yes"|"no";shares:number;avgPrice:number;curPrice:number;costCents:number;valueCents:number;pnlCents:number;status:"open"|"won"|"lost"|"void";priceLive?:boolean};
 type Activity={t:number;type:string;marketId?:string;question?:string;side?:string;shares?:number;price?:number;cents?:number};
 type Portfolio={wallet:number;positions:Position[];activity:Activity[]};
 type Listing={enabled:boolean;maxTradeCents:number;wallet?:number;categories?:string[];events:PEvent[];total?:number};
@@ -206,7 +206,7 @@ function Positions({portfolio,onOpen}:{portfolio:Portfolio|null;onOpen:(id:strin
  if(!portfolio)return <p className={styles.empty}>Loading…</p>;
  const openP=portfolio.positions.filter(p=>p.status==="open"),closed=portfolio.positions.filter(p=>p.status!=="open");
  const val=openP.reduce((s,p)=>s+p.valueCents,0),pnl=openP.reduce((s,p)=>s+p.pnlCents,0);
- const row=(p:Position)=><tr key={p.marketId+p.side}><th scope="row"><button className={styles.link} onClick={()=>p.eventId&&onOpen(p.eventId)}>{p.question}</button><small>{p.eventTitle}</small></th><td><span className={p.side==="yes"?styles.yes:styles.no}>{p.side.toUpperCase()}</span></td><td>{p.shares.toFixed(2)}</td><td>{cents(p.avgPrice)}</td><td>{p.status==="open"?cents(p.curPrice):p.status}</td><td>{money(p.valueCents)}</td><td className={p.pnlCents>=0?styles.pos:styles.neg}>{p.pnlCents>=0?"+":""}{money(p.pnlCents)}</td></tr>;
+ const row=(p:Position)=><tr key={p.marketId+p.side}><th scope="row"><button className={styles.link} onClick={()=>p.eventId&&onOpen(p.eventId)}>{p.question}</button><small>{p.eventTitle}</small></th><td><span className={p.side==="yes"?styles.yes:styles.no}>{p.side.toUpperCase()}</span></td><td>{p.shares.toFixed(2)}</td><td>{cents(p.avgPrice)}</td><td>{p.status==="open"?cents(p.curPrice)+(p.priceLive===false?" (stale)":""):p.status}</td><td>{money(p.valueCents)}</td><td className={p.pnlCents>=0?styles.pos:styles.neg}>{p.pnlCents>=0?"+":""}{money(p.pnlCents)}</td></tr>;
  const tbl=(rows:Position[])=><div className={styles.scroll}><table className={styles.table}><thead><tr><th>Market</th><th>Side</th><th>Shares</th><th>Avg</th><th>Now</th><th>Value</th><th>P&amp;L</th></tr></thead><tbody>{rows.map(row)}</tbody></table></div>;
  return <section aria-label="Positions">
   <div className={styles.stats}><div><span>Open value</span><strong>{money(val)}</strong></div><div><span>Open P&amp;L</span><strong className={pnl>=0?styles.pos:styles.neg}>{pnl>=0?"+":""}{money(pnl)}</strong></div></div>
