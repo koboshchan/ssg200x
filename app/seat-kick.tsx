@@ -18,7 +18,7 @@ export function KickVotePopup({vote,now,myPublicId,names,busy,onVote}:KickPopupP
  const noIds=vote?.noPublicIds??[],voted=!!vote&&(vote.yesPublicIds.includes(myPublicId)||noIds.includes(myPublicId));
  const votedYes=!!vote&&vote.yesPublicIds.includes(myPublicId);
  const isTarget=!!vote&&vote.targetPublicId===myPublicId;
- const canAct=!!vote&&vote.status==="active"&&eligible&&!voted&&!busy;
+ const canAct=!!vote&&vote.status==="active"&&eligible&&!isTarget&&!voted&&!busy;
  useEffect(()=>{
   if(!canAct||!vote)return;
   const key=(e:globalThis.KeyboardEvent)=>{
