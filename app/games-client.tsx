@@ -1,5 +1,6 @@
 "use client";
 import {useCallback,useEffect,useMemo,useRef,useState} from "react";
+import Link from "next/link";
 import {useUser} from "@clerk/nextjs";
 import {useFeatures} from "./use-features";
 import {useLive} from "./live-provider";
@@ -45,10 +46,11 @@ async function reply(body:string,stale:()=>boolean){
  return null;
 }
 
-export default function GamesClient(){
+export default function GamesClient({initialKind="plinko"}:{initialKind?:Kind}){
  const {user}=useUser(),uid=user?.id;
  const {connection}=useLive();
- const [snap,setSnap]=useState<Snapshot|null>(null),[pickedKind,setKind]=useState<Kind>("plinko"),[error,setError]=useState(""),[working,setWorking]=useState(false),[pending,setPending]=useState<Pending|null>(null);
+ const [snap,setSnap]=useState<Snapshot|null>(null),[pickedKind,setKind]=useState<Kind>(initialKind),[error,setError]=useState(""),[working,setWorking]=useState(false),[pending,setPending]=useState<Pending|null>(null);
+ useEffect(()=>setKind(initialKind),[initialKind]);
  // Keep the owner alongside the preference so a new account never renders the previous choice.
  const [minePreference,setMinePreference]=useState<{uid:string;count:number}|null>(null);
  const mines=minePreference&&minePreference.uid===uid?minePreference.count:3;
@@ -151,6 +153,7 @@ export default function GamesClient(){
  const busy=!snap||connection!=="connected"||working||!!pending||(kind==="plinko"&&(drops.length>0||balls.length>0));
  const betProps={mines,setMines,amount,setAmount,cents,betOk:betOk&&(kind!=="plinko"||cents!<=free),maxBet};
  return <main className={styles.games}>
+  <Link href="/games" className={styles.back}>‹ All games</Link>
   <header className={styles.head}><div><h1>Games</h1><p>{Math.round((snap?.houseEdge??0.02)*100)}% house edge, payouts round down to the cent.</p></div><div className={styles.wallet}><span>Wallet</span><strong>{snap?money(snap.wallet):"—"}</strong></div></header>
   <div className={styles.tabs} role="tablist" aria-label="Games">{shown.map(k=>{const a=byKind.get(k.kind)?.status==="active";return <button key={k.kind} role="tab" aria-selected={kind===k.kind} className={styles.tab} onClick={()=>setKind(k.kind)}>{k.label}{a?<i className={styles.dot} aria-label="In progress"/>:null}</button>;})}</div>
   <p className={styles.blurb}>{KINDS.find(k=>k.kind===kind)!.blurb}</p>
