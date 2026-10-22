@@ -1,3 +1,4 @@
+import {PLINKO_RISKS} from "@/lib/plinko-risk";
 import {z} from "zod";
 import {endpoint,parse} from "@/lib/api";
 import {mutate,visit,rateLimit} from "@/lib/store";
@@ -7,7 +8,7 @@ import {CASINO_LIMIT_MAX_CENTS} from "@/lib/casino-limits";
 const base={requestId:z.string().uuid(),requestAt:z.number().int().safe()};
 const session={...base,id:z.string().uuid(),revision:z.number().int().nonnegative().safe()};
 const miniSchema=z.discriminatedUnion("type",[
- z.object({...base,type:z.literal("start"),game:z.enum(["plinko","hilo","mines","dice","chicken"]),amount:wholeCasinoCents.min(100).max(CASINO_LIMIT_MAX_CENTS),mines:z.number().int().min(1).max(10).optional(),target:z.number().int().min(2).max(98).optional(),direction:z.enum(["over","under"]).optional()}).strict(),
+ z.object({...base,type:z.literal("start"),game:z.enum(["plinko","hilo","mines","dice","chicken"]),amount:wholeCasinoCents.min(100).max(CASINO_LIMIT_MAX_CENTS),risk:z.enum(PLINKO_RISKS).optional(),mines:z.number().int().min(1).max(10).optional(),target:z.number().int().min(2).max(98).optional(),direction:z.enum(["over","under"]).optional()}).strict(),
  z.object({...session,type:z.literal("step"),cell:z.number().int().min(0).max(24).optional(),choice:z.enum(["high","low"]).optional()}).strict(),
  z.object({...session,type:z.literal("cashout")}).strict(),
 ]);

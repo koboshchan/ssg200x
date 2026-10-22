@@ -47,3 +47,23 @@ test('Chicken POST atomically charges and attempts lane one; duplicate and lost-
  assert.equal((await POST(request(input))).status,200);
  assert.equal(JSON.stringify(room.miniGames),saved);assert.equal(room.members[0].wallet,99500);assertRoom(room);
 });
+test('Plinko route risk allowlist rejects before mutation; concurrent risks keep their own tables',async()=>{
+ room=freshRoom();register(room,who);
+ const before=structuredClone(room);
+ for(const risk of ['invalid',null,42,{},'LOW']){
+  assert.equal((await POST(request({...wager(),risk}))).status,400);
+  assert.deepEqual(room,before);
+ }
+ const inputs=['low','medium','high'].map(risk=>({...wager(),risk}));
+ const replies=await Promise.all(inputs.map(body=>POST(request(body))));
+ assert.deepEqual(replies.map(x=>x.status),[200,200,200]);
+ for(let i=0;i<3;i++){
+  const body=await replies[i].json(),g=body.games.find((g:any)=>g.id===inputs[i].requestId);
+  assert.equal(g.risk,inputs[i].risk);assert.equal(g.plinkoTable.length,9);
+ }
+ const saved=structuredClone(room);
+ assert.equal((await POST(request({...inputs[0],risk:'high'}))).status,409);
+ assert.deepEqual(room,saved);
+ for(const input of [...inputs].reverse())assert.equal((await POST(request(input))).status,200);
+ assert.equal(room.members[0].wallet,saved.members[0].wallet);
+});

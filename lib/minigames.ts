@@ -1,3 +1,4 @@
+import {isPlinkoRisk,PLINKO_RISK_TABLES,LEGACY_PLINKO_TABLE,type PlinkoRisk,type PlinkoBucket} from "./plinko-risk";
 import {randomInt} from "node:crypto";
 import {audit} from "./audit";
 import {casinoLimits} from "./casino-limits";
@@ -7,8 +8,8 @@ import {register} from "./poker";
 import {ensure} from "./errors";
 import type {Room,Identity} from "./types";
 export type MiniKind="plinko"|"hilo"|"mines"|"dice"|"chicken";
-export type MiniGame={id:string;owner:string;kind:MiniKind;bet:number;status:"active"|"won"|"lost"|"cashed";revision:number;steps:number;payout:number;createdAt:number;num:number;den:number;card?:number;cards?:number[];revealed?:number[];mines?:number;bombs?:number[];target?:number;direction?:"over"|"under";result?:{path?:number[];slot?:number;roll?:number;hit?:number;card?:number}};
-export type MiniInput=FinanceInput&({type:"start";game:MiniKind;amount:number;mines?:number;target?:number;direction?:"over"|"under"}|{type:"step";id:string;revision:number;cell?:number;choice?:"high"|"low"}|{type:"cashout";id:string;revision:number});
+export type MiniGame={id:string;owner:string;kind:MiniKind;bet:number;risk?:PlinkoRisk;plinkoTable?:readonly PlinkoBucket[];status:"active"|"won"|"lost"|"cashed";revision:number;steps:number;payout:number;createdAt:number;num:number;den:number;card?:number;cards?:number[];revealed?:number[];mines?:number;bombs?:number[];target?:number;direction?:"over"|"under";result?:{path?:number[];slot?:number;roll?:number;hit?:number;card?:number}};
+export type MiniInput=FinanceInput&({type:"start";game:MiniKind;amount:number;risk?:PlinkoRisk;mines?:number;target?:number;direction?:"over"|"under"}|{type:"step";id:string;revision:number;cell?:number;choice?:"high"|"low"}|{type:"cashout";id:string;revision:number});
 export const CHICKEN_LANES=15;
 export const PLINKO_WEIGHTS=[16,4,2,1,0.5,1,2,4,16] as const;
 // Binomial weights sum to 256; weighted raw payout is 355/256. Scale to 98% RTP.
@@ -36,12 +37,14 @@ function chickenStep(r:Room,g:MiniGame,rng:(max:number)=>number){
 function report(g:MiniGame){
  // Explicit allowlist. Only a lost Mines round reveals its board to its owner.
  // Active/cashed boards, owner IDs and rational internals stay private.
- return {id:g.id,kind:g.kind,bet:g.bet,status:g.status,revision:g.revision,steps:g.steps,multiplier:g.num/g.den,payout:g.status==="active"?miniPayout(g):g.payout,createdAt:g.createdAt,...(g.card!==undefined?{card:g.card,cards:g.cards}:{}),...(g.revealed?{revealed:g.revealed,mines:g.mines}:{}),...(g.kind==="mines"&&g.status==="lost"?{bombs:[...(g.bombs??[])]}:{}),...(g.target?{target:g.target,direction:g.direction}:{}),...(g.result?{result:g.result}:{})};
+ return {id:g.id,kind:g.kind,bet:g.bet,status:g.status,revision:g.revision,steps:g.steps,multiplier:g.num/g.den,payout:g.status==="active"?miniPayout(g):g.payout,createdAt:g.createdAt,...(g.card!==undefined?{card:g.card,cards:g.cards}:{}),...(g.revealed?{revealed:g.revealed,mines:g.mines}:{}),...(g.kind==="mines"&&g.status==="lost"?{bombs:[...(g.bombs??[])]}:{}),...(g.target?{target:g.target,direction:g.direction}:{}),...(g.result?{result:g.result}:{}),...(g.kind==="plinko"?{...(g.risk?{risk:g.risk}:{}),plinkoTable:(g.plinkoTable??LEGACY_PLINKO_TABLE).map(b=>b.multiplier)}:{})};
 }
 export function miniSnapshot(r:Room,who:Identity){const m=r.members.find(m=>m.id===who.id);ensure(m&&!m.accessRevoked,"Room access revoked.",403);return {version:r.version,wallet:m.wallet,maxBet:casinoLimits(r).gamesMaxBet,serverNow:Date.now(),houseEdge:0.02,games:(r.miniGames??[]).filter(g=>g.owner===who.id).map(report)};}
 /** Called only inside the shared wallet/room CAS. RNG is server-only and retries
  * remain speculative until one complete room+wallet+receipt+audit CAS commits. */
 export function miniAction(r:Room,who:Identity,input:MiniInput,rng:(max:number)=>number=randomInt){
+ // Validate even internal callers before registration, receipts, debit or RNG.
+ ensure(input.risk===undefined||isPlinkoRisk(input.risk),"Choose low, medium or high risk.");
  const member=register(r,who);
  // The wager's stable ID survives concurrent CAS retries and response reordering.
  // Legacy starts used random IDs, so their acknowledged replay may have no retained result.
@@ -57,8 +60,8 @@ export function miniAction(r:Room,who:Identity,input:MiniInput,rng:(max:number)=
   let retained=0;r.miniGames=[g,...(r.miniGames??[]).filter(x=>x.owner!==who.id||x.status==="active"||retained++<30)];
   if(g.kind==="plinko"){
    const path=Array.from({length:8},()=>rng(2)),slot=path.reduce((a,b)=>a+b,0);g.result={path,slot};
-   // weights are half-integers. E[weight] = 355/256.
-   g.num=PLINKO_WEIGHTS[slot]*2*98*256;g.den=2*100*355;settle(r,g,"won");
+   g.risk=input.risk??"medium";g.plinkoTable=PLINKO_RISK_TABLES[g.risk].map(b=>({...b}));
+   const bucket=g.plinkoTable[slot];g.num=bucket.numerator;g.den=bucket.denominator;settle(r,g,"won");
   }else if(g.kind==="dice"){
    ensure(Number.isInteger(input.target)&&input.target!>=2&&input.target!<=98,"Choose a target from 2 to 98.");
    ensure(input.direction==="over"||input.direction==="under","Choose over or under.");
@@ -86,7 +89,7 @@ export function miniAction(r:Room,who:Identity,input:MiniInput,rng:(max:number)=
   }else ensure(false,"This game has already finished.",409);
   g.revision++;
  }
- audit(r,who,"minigame-"+input.type,g.id,{wallet:before},{requestId:input.requestId,kind:g.kind,bet:g.bet,status:g.status,steps:g.steps,revision:g.revision,payout:g.payout,wallet:member.wallet,result:g.result??null});
+ audit(r,who,"minigame-"+input.type,g.id,{wallet:before},{requestId:input.requestId,kind:g.kind,bet:g.bet,status:g.status,steps:g.steps,revision:g.revision,payout:g.payout,...(g.risk?{risk:g.risk}:{}),wallet:member.wallet,result:g.result??null});
  recordFinanceRequest(r,who.id,input,"committed");
  return g.id;
 }

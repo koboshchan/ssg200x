@@ -98,3 +98,22 @@ test('chicken fifteenth-lane duplicate settles once and step/cashout race has on
   assert.equal(await(await db()).collection('audit').countDocuments({who:player.id,what:{$in:['minigame-step','minigame-cashout']}}),14);
  }
 });
+
+test('concurrent Plinko risk tables persist immutably across reconnect and replay',async()=>{
+ const player={...who,id:'plinko-risk-persist'};
+ const inputs=(['low','medium','high'] as const).map(risk=>({...meta(),type:'start' as const,game:'plinko' as const,amount:100,risk}));
+ await Promise.all(inputs.map(input=>mutate(r=>miniAction(r,player,input,()=>0))));
+ await closeDatabase();let r=await readRoom();
+ const expected=structuredClone(r.miniGames!.filter(g=>g.owner===player.id));
+ for(const input of inputs){
+  const g=expected.find(g=>g.id===input.requestId)!;
+  assert.equal(g.risk,input.risk);assert.equal(g.plinkoTable!.length,9);
+  assert.equal(g.payout,Number(BigInt(g.bet)*BigInt(g.plinkoTable![0].numerator)/BigInt(g.plinkoTable![0].denominator)));
+ }
+ await assert.rejects(mutate(r=>miniAction(r,player,{...inputs[0],risk:'high'})),/different order/);
+ await Promise.all([...inputs].reverse().map(input=>mutate(r=>miniAction(r,player,input,()=>{throw Error('replay RNG');}))));
+ await closeDatabase();r=await readRoom();assertRoom(r);
+ assert.deepEqual(r.miniGames!.filter(g=>g.owner===player.id),expected);
+ const wallet=r.members.find(m=>m.id===player.id)!.wallet;
+ assert.equal(wallet,100000-300+expected.reduce((n,g)=>n+g.payout,0));
+});
