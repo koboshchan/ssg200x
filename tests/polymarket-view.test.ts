@@ -5,7 +5,7 @@ import {outcomeFor,sideOf,quoteFrom,viewEvent,viewMarket,viewPortfolio,rememberE
 import {freshRoom} from "../lib/poker";
 const cond="0x"+"b".repeat(64);
 const mkt=(now:number,labels='["No","Yes"]',ids='["222","111"]')=>normalizePolyMarket({id:"9",conditionId:cond,version:"v1",outcomes:labels,clobTokenIds:ids,outcomePrices:'["0.4","0.6"]',active:true,closed:false,acceptingOrders:true,image:"https://x.test/a.png",icon:"https://x.test/i.png"},now);
-const bk=(now:number,asOf=now,fetched=now)=>({...normalizePolyBook({asset_id:"111",market:cond,timestamp:String(asOf),hash:"h",bids:[{price:"0.59",size:"100"}],asks:[{price:"0.61",size:"100"}]},"111",fetched)});
+const bk=(now:number,asOf=now,fetched=now)=>({source:"stream" as const,...normalizePolyBook({asset_id:"111",market:cond,timestamp:String(asOf),hash:"h",bids:[{price:"0.59",size:"100"}],asks:[{price:"0.61",size:"100"}]},"111",fetched)});
 test("side mapping follows labels, not order",()=>{
  const m=mkt(Date.now());assert.equal(outcomeFor(m,"yes").tokenId,"111");assert.equal(outcomeFor(m,"no").tokenId,"222");
  assert.equal(sideOf(m,"111"),"yes");assert.equal(sideOf(m,"222"),"no");

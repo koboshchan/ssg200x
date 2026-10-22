@@ -8,7 +8,7 @@ import type {PolyTrade,PolyBook,PolyResolution} from "../lib/polymarket-types";
 const who={id:"poly-user",name:"Private",email:"secret@test",admin:false},other={...who,id:"other"};
 const condition="0x"+"a".repeat(64);
 function market(now=Date.now()){return normalizePolyMarket({id:"123",conditionId:condition,version:"v1",outcomes:'["Yes","No"]',clobTokenIds:'["111","222"]',outcomePrices:'["0.6","0.4"]',active:true,closed:false,acceptingOrders:true,question:"Real question"},now);}
-function book(now=Date.now()):PolyBook{return normalizePolyBook({asset_id:"111",market:condition,timestamp:String(now),hash:"abc",bids:[{price:"0.59",size:"1000000"}],asks:[{price:"0.6",size:"1000000"}]},"111",now);}
+function book(now=Date.now()):PolyBook{return {source:"stream",...normalizePolyBook({asset_id:"111",market:condition,timestamp:String(now),hash:"abc",bids:[{price:"0.59",size:"1000000"}],asks:[{price:"0.6",size:"1000000"}]},"111",now)};}
 function input(patch:Partial<PolyTrade>={}):PolyTrade{return{action:"buy",marketId:"123",tokenId:"111",amount:1000,limitPrice:.61,requestId:randomUUID(),requestAt:Date.now(),...patch};}
 function resolution(payout=1_000_000):PolyResolution{return{marketId:"123",conditionId:condition,version:"v1",payouts:{"111":payout,"222":1e6-payout},source:"data-v2-final",asOf:Date.now(),kind:"settle"};}
 test("v1/v2 normalize using explicit protocol discriminator, unknown versions never trade",()=>{
@@ -109,8 +109,7 @@ test("public data singleflight deduplicates, preserves cache copies and encodes 
   return Response.json({events:[],pagination:{hasMore:false}});
  };
  try{
-  const data=await Promise.all(Array.from({length:12},()=>polyBook("987654321")));assert.equal(calls,1);data[0].asks.length=0;
-  assert.equal((await polyBook("987654321")).asks.length,1);
+  await Promise.all(Array.from({length:12},()=>polyDiscover("dedup-stream-grid")));assert.equal(calls,1);
   await polyDiscover("a&url=https://evil.invalid");assert(paths[1].includes("q=a%26url%3Dhttps%3A%2F%2Fevil.invalid"));
   assert.deepEqual((await polyChart("999777")).history,[{t:1700000000,p:.5}]);
   await assert.rejects(()=>polyBook("../evil"));
@@ -120,4 +119,13 @@ test("void refunds the original position cost, never share payout",()=>{
  const r=freshRoom();applyPolymarketTrade(r,who,input(),market(),book());const cost=r.polymarket!.positions[0].cost,wallet=r.members[0].wallet;
  settlePolymarket(r,{...resolution(),kind:"void"});
  assert.equal(r.members[0].wallet,wallet+cost);assert.equal(r.polymarket!.history[who.id][0].action,"void");assert.equal(r.polymarket!.history[who.id][0].amount,cost);
+});
+
+test("REST-shaped book cannot execute even if timestamp is fresh",()=>{const b=book();delete b.source;assert.throws(()=>applyPolymarketTrade(freshRoom(),who,input(),market(),b),/stream/);});
+
+test('book adapter reads only authenticated local stream bridge, rejects REST-shaped/absent stream responses',async()=>{
+ const original=globalThis.fetch;const paths:string[]=[];let mode='valid';
+ globalThis.fetch=async(url,init)=>{paths.push(String(url));assert.equal(init?.method,'POST');assert.ok(new Headers(init?.headers).has('x-internal-live-secret'));const payload=JSON.parse(String(init?.body));return mode==='missing'?Response.json({error:'waiting'},{status:409}):Response.json({asset_id:payload.tokenId,market:condition,timestamp:Date.now(),bids:[],asks:[{price:'0.5',size:'1'}],...(mode==='valid'?{source:'stream'}:{})});};
+ try{assert.equal((await polyBook('7654321')).source,'stream');assert.ok(paths[0].startsWith('http://127.0.0.1:'));mode='rest';await assert.rejects(()=>polyBook('7654321'),/stream/);mode='missing';await assert.rejects(()=>polyBook('7654321'),/stream/);}
+ finally{globalThis.fetch=original;}
 });

@@ -55,6 +55,7 @@ export function applyPolymarketTrade(r:Room,who:Identity,input:PolyTrade,market:
  ensure(market.id===input.marketId&&market.version!=="unsupported"&&market.acceptingOrders&&!market.closed,"Market is not accepting trades.",409);
  ensure(market.asOf<=now+1000&&now-market.asOf<=QUOTE_TTL,"Market status is stale. Refresh and try again.",409);
  ensure(book.tokenId===input.tokenId&&book.conditionId===market.conditionId&&market.outcomes.some(o=>o.tokenId===input.tokenId),"Outcome does not belong to this market.",409);
+ ensure(book.source==="stream","Fresh live stream price required.",409);
  ensure(book.asOf<=now+1000&&now-book.asOf<=QUOTE_TTL&&book.fetchedAt<=now+1000&&now-book.fetchedAt<=QUOTE_TTL,"Live quote is stale. Refresh and try again.",409);
  ensure(!s.settlements[market.id],"Market already settled.",409);
  const fill=fillPolymarket(book,input.action,input.amount,input.limitPrice);

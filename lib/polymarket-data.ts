@@ -78,7 +78,18 @@ export function normalizePolyBook(value:unknown,tokenId:string,now=Date.now()):P
  const asOf=Number(x.timestamp);ensure(Number.isSafeInteger(asOf)&&asOf>0,"Invalid book timestamp.",503);
  return{tokenId,conditionId:text(x.market,100),bids:levels(x.bids,"sell"),asks:levels(x.asks,"buy"),asOf,fetchedAt:now,hash:text(x.hash,200)};
 }
-export async function polyBook(tokenId:string,fresh=false){polyToken.parse(tokenId);return normalizePolyBook(await get(CLOB+"/book?"+new URLSearchParams({token_id:tokenId}),750,fresh),tokenId);}
+/** Read only the server-owned, demand-subscribed stream. REST is never executable pricing. */
+export async function polyBook(tokenId:string,_fresh=false){
+ polyToken.parse(tokenId);
+ const response=await fetch(`http://127.0.0.1:${Number(process.env.PORT||3000)}/internal-polymarket`,{method:"POST",headers:{"content-type":"application/json","x-internal-live-secret":process.env.INTERNAL_LIVE_SECRET||""},body:JSON.stringify({tokenId}),signal:AbortSignal.timeout(3000),cache:"no-store"}).catch(()=>null);
+ ensure(response?.ok,"Waiting for fresh live stream price.",409);
+ const data=await response.json();ensure(data.source==="stream","Live stream unavailable.",409);
+ return {...normalizePolyBook(data,tokenId),source:"stream" as const};
+}
+export async function syncPolymarketPins(){
+ const response=await fetch(`http://127.0.0.1:${Number(process.env.PORT||3000)}/internal-polymarket`,{method:"POST",headers:{"content-type":"application/json","x-internal-live-secret":process.env.INTERNAL_LIVE_SECRET||""},body:JSON.stringify({sync:true}),signal:AbortSignal.timeout(3000)});
+ ensure(response.ok,"Prediction stream sync unavailable.",503);
+}
 export async function polyChart(tokenId:string,interval="1d"){
  polyToken.parse(tokenId);polyInterval.parse(interval);
  const x=record(await get(CLOB+"/prices-history?"+new URLSearchParams({market:tokenId,interval,fidelity:interval==="max"?"720":interval==="1w"||interval==="1m"?"60":"5"}),30_000));

@@ -19,7 +19,7 @@ export const sideOf=(m:{outcomes:{label:string;tokenId:string}[]},tokenId:string
 export function viewSettings(r:Room){const s=polySettings(r);return{enabled:s.enabled,maxTrade:s.maxTrade,maxTradeCents:s.maxTrade};}
 export function viewMarket(m:PolyMarket){
  const y=m.outcomes.length===2?outcomeFor(m,"yes"):m.outcomes[0],n=m.outcomes.length===2?outcomeFor(m,"no"):m.outcomes[1];
- return{id:m.id,question:m.groupItemTitle||m.question,fullQuestion:m.question,outcomes:[y,n].filter(Boolean).map(o=>({label:o.label,price:o.price??0})),volume:m.volume,liquidity:m.liquidity,closed:m.closed||!m.acceptingOrders,endDate:m.endDate};
+ return{id:m.id,question:m.groupItemTitle||m.question,fullQuestion:m.question,outcomes:[y,n].filter(Boolean).map(o=>({label:o.label,tokenId:o.tokenId,price:o.price??0})),volume:m.volume,liquidity:m.liquidity,closed:m.closed||!m.acceptingOrders,endDate:m.endDate};
 }
 export function viewEvent(e:PolyEvent,extra:Record<string,unknown>={}){
  const markets=e.markets.filter(m=>m.outcomes.length===2&&m.version!=="unsupported");
@@ -36,6 +36,7 @@ export function quoteFrom(book:PolyBook,market:PolyMarket,action:"buy"|"sell",am
  const fail=(reason:string):Quote=>({price:0,shares:0,cents:0,asOf,serverNow:now,tradable:false,reason});
  if(!enabled)return fail("Trading is off.");
  if(!market.acceptingOrders||market.closed||market.version==="unsupported")return fail("Market is not accepting trades.");
+ if(book.source!=="stream")return fail("Waiting for live stream price.");
  if(now-book.asOf>QUOTE_TTL||now-book.fetchedAt>QUOTE_TTL||now-market.asOf>QUOTE_TTL)return fail("Live price is stale.");
  try{
   const f=fillPolymarket(book,action,amount,action==="buy"?0.999999:0.000001);
@@ -43,7 +44,7 @@ export function quoteFrom(book:PolyBook,market:PolyMarket,action:"buy"|"sell",am
  }catch(e){return fail(e instanceof Error?e.message:"No liquidity.");}
 }
 export async function liveQuote(r:Room,marketId:string,side:Side,action:"buy"|"sell",amountCents?:number,shares?:number){
- const market=await polyMarket(marketId,true),token=outcomeFor(market,side).tokenId,book=await polyBook(token,true);
+ const market=await polyMarket(marketId),token=outcomeFor(market,side).tokenId,book=await polyBook(token,true);
  const amount=action==="buy"?amountCents:Math.round((shares??0)*1e6);
  ensure(Number.isSafeInteger(amount)&&(amount as number)>0,"Invalid amount.");
  return quoteFrom(book,market,action,amount as number,polySettings(r).enabled);
@@ -67,7 +68,7 @@ export async function viewPortfolio(r:Room,userId:string,wallet:number,history:P
  const out=positions.map((p,i)=>{
   const m=mk.get(p.marketId),book=i<PORTFOLIO_LIVE_CAP?books.get(p.tokenId):null,shares=p.shareMicros/1e6,avg=p.cost/100/shares,ev=eventIds.get(p.marketId);
   let valueCents=p.cost,cur=avg,live=false;
-  if(book&&now-book.asOf<=QUOTE_TTL&&now-book.fetchedAt<=QUOTE_TTL){
+  if(book?.source==="stream"&&now-book.asOf<=QUOTE_TTL&&now-book.fetchedAt<=QUOTE_TTL){
    try{const f=fillPolymarket(book,"sell",p.shareMicros,0.000001);valueCents=f.amount;cur=f.averagePrice;live=true;}
    catch{const bid=book.bids[0];if(bid){cur=bid.price;valueCents=Math.floor(shares*cur*100);live=true;}}
   }

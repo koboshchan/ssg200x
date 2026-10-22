@@ -1,4 +1,5 @@
 import {normalizeCommit,serveCommit} from "./runtime/git-commit.mjs";
+import {createPolymarketStream,attachPolymarketPresence} from "./runtime/polymarket-stream.mjs";
 import {createPokerTaunts} from "./runtime/poker-taunts.mjs";
 import {subscribeMarket} from "./runtime/market-subscription.mjs";
 import {attachSocketAuth} from "./runtime/socket-auth.mjs";
@@ -38,7 +39,7 @@ await app.prepare();
 const nextHandler=app.getRequestHandler();
 const server=createServer(async(request,response)=>{
  if(serveCommit(request,response,serverCommit))return;
- if(!["/internal-airdrop","/internal-tab-check","/internal-chat-reset"].includes(request.url)){nextHandler(request,response);return;}
+ if(!["/internal-airdrop","/internal-tab-check","/internal-chat-reset","/internal-polymarket"].includes(request.url)){nextHandler(request,response);return;}
  response.setHeader("Cache-Control","no-store");
  const supplied=request.headers["x-internal-live-secret"],secret=process.env.INTERNAL_LIVE_SECRET;
  const a=Buffer.from(typeof supplied==="string"?supplied:""),b=Buffer.from(secret);
@@ -46,6 +47,13 @@ const server=createServer(async(request,response)=>{
  let body="";
  try{
   for await(const chunk of request){body+=chunk;if(Buffer.byteLength(body)>1024){response.writeHead(413).end();return;}}
+  if(request.url==="/internal-polymarket"){
+   const {tokenId,sync}=JSON.parse(body);
+   if(sync===true){await syncPolyPositions();response.writeHead(200,{"Content-Type":"application/json"}).end('{"ok":true}');return;}
+   if(typeof tokenId!=="string"||!/^\d{1,80}$/.test(tokenId)){response.writeHead(400).end();return;}
+   const book=polyStream.read(tokenId);
+   response.writeHead(book?200:409,{"Content-Type":"application/json"}).end(JSON.stringify(book??{error:"Waiting for fresh live stream price."}));return;
+  }
   if(request.url==="/internal-chat-reset"){
    const {actor,payload}=JSON.parse(body);
    try{const result=await chatDmGate.adminReset(actor,payload);hintChatChanged();response.writeHead(200,{"Content-Type":"application/json"}).end(JSON.stringify(result));}
@@ -80,6 +88,37 @@ io.use(async(socket,next)=>{
 });
 const client=new MongoClient(process.env.MONGODB_URI,{serverSelectionTimeoutMS:5000});await client.connect();
 const collection=client.db(process.env.MONGODB_DB||"pokerroom").collection("rooms");
+// Demand and durable-position pins belong to this process, never route workers or browsers.
+const polyDirty=new Set();
+const polyStream=createPolymarketStream({onChange:id=>polyDirty.add(id)});
+const polyMetadata=new Map();
+async function resolvePolyMarket(id){
+ let old=polyMetadata.get(id);if(old?.until>Date.now())return old.value;if(old?.pending)return old.pending;
+ if([...polyMetadata.values()].filter(x=>x.pending).length>=32)throw new Error('Busy');
+ if(polyMetadata.size>=512)for(const [key,value]of polyMetadata)if(!value.pending){polyMetadata.delete(key);break;}
+ const slot={until:0};polyMetadata.set(id,slot);
+ slot.pending=(async()=>{
+  const response=await fetch('https://gamma-api.polymarket.com/markets/'+id,{signal:AbortSignal.timeout(6000),redirect:'error'});
+  if(!response.ok)throw new Error('Unavailable');const text=await response.text();if(text.length>200000)throw new Error('Oversized');const market=JSON.parse(text);if(String(market.id)!==id)throw new Error('Identity mismatch');
+  const value={tokens:typeof (market.version==='v2'?market.positionIds:market.clobTokenIds)==='string'?JSON.parse(market.version==='v2'?market.positionIds:market.clobTokenIds):(market.version==='v2'?market.positionIds:market.clobTokenIds)};
+  slot.value=value;slot.until=Date.now()+60000;return value;
+ })();try{return await slot.pending;}finally{slot.pending=null;}
+}
+let polyOwners=new Map(),polySyncBusy=false;
+async function syncPolyPositions(){
+ const r=await collection.findOne({_id:'main'},{projection:{'polymarket.positions':1}}),positions=r?.polymarket?.positions??[];
+ polyStream.syncPositions(positions);polyOwners=new Map();for(const p of positions){let ids=polyOwners.get(p.marketId);if(!ids){ids=new Set();polyOwners.set(p.marketId,ids);}ids.add(p.userId);}
+}
+await syncPolyPositions();
+const polySyncTimer=setInterval(async()=>{if(polySyncBusy)return;polySyncBusy=true;try{await syncPolyPositions();}catch{console.warn('Prediction pins refresh deferred');}finally{polySyncBusy=false;}},2000);polySyncTimer.unref();
+const polyStreamTimer=setInterval(()=>{
+ polyStream.sweep();
+ for(const id of polyDirty){const update=polyStream.status(id);update.books=update.books.map(book=>({...book,bids:book.bids.slice(0,12),asks:book.asks.slice(0,12)}));for(const socket of io.sockets.sockets.values()){
+  if(!socket.connected||socket.data.expires<=Date.now())continue;
+  if(socket.data.polyMarketId===id)socket.emit('polymarket:price',update);
+  if(polyOwners.get(id)?.has(socket.data.identity.id))socket.emit('polymarket:positions',{marketId:id});
+ }}polyDirty.clear();
+},500);polyStreamTimer.unref();
 const chat=createPokerChatService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
 const dm=createDmService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
 await Promise.all([chat.ready,dm.ready]);
@@ -123,6 +162,8 @@ async function pushState(socket,force=false,profiles){
 io.on("connection",socket=>{
  try{tabLeases.attach(socket.data.identity.id,socket,socket.handshake.auth);}catch(error){socket.emit("live:error",{error:error.message});socket.disconnect(true);return;}
  attachPokerTaunts(socket);
+ socket.data.marketRoute=socket.handshake.auth?.route;
+ attachPolymarketPresence(socket,{stream:{...polyStream,setViewer(viewer,id,tokens){polyStream.setViewer(viewer,id,tokens);socket.data.polyMarketId=id;}},resolveMarket:resolvePolyMarket,checkSession:checkChatSession});
  socket.on("state:resync",event=>{
   if(!STATE_STREAMS.includes(event)||Date.now()<(socket.data.resyncAt||0))return;
   socket.data.resyncAt=Date.now()+1000;socket.data.forceFull=true;socket.data.statusAt=0;
@@ -209,5 +250,5 @@ const timer=setInterval(async()=>{
  }catch{}finally{running=false;}
 },200);timer.unref();
 server.listen(port,hostname);
-async function stop(){clearInterval(tabSweep);clearInterval(timer);await io.close();await client.close();server.close();process.exit(0);}
+async function stop(){clearInterval(polySyncTimer);clearInterval(polyStreamTimer);polyStream.stop();clearInterval(tabSweep);clearInterval(timer);await io.close();await client.close();server.close();process.exit(0);}
 process.once("SIGTERM",stop);process.once("SIGINT",stop);

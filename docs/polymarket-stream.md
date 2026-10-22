@@ -1,0 +1,15 @@
+# Prediction pricing lifecycle
+
+The Node server owns one public Polymarket CLOB market websocket for the process. Browsers use the existing authenticated app socket, never an upstream websocket. Grid/search/event metadata and historical charts use bounded cached snapshots. Browsing the grid does not subscribe to outcome books.
+
+Opening a detail selects exactly one market per app socket. Verified session, route, numeric market ID, server-resolved outcome IDs and a 20 changes per 10 seconds limit fence presence. Multiple sockets are deduplicated into a market set. Leaving, switching routes, disconnecting, or an invalidated pending selection removes that socket's reference. Zero-demand markets retain a five-second grace period, cancelled by renewed demand. The final market expiry closes the upstream connection.
+
+Open shares restored from MongoDB pin their market tokens even with no viewers. The server reconciles durable pins every two seconds and receives a post-commit hint after trades and settlement. This implementation has immediate executions only, no resting orders. A future resting-order feature must extend durable pins before it can execute unattended. Settlement runs independently every 30 seconds and removes pins once committed. Position-price hints refresh the owner's live liquidation value and P/L without causing browser subscriptions.
+
+Executable books come exclusively from websocket snapshots plus depth deltas. Price frames must be received within ten seconds; heartbeat health alone never refreshes a book's price timestamp. A newly received authoritative websocket snapshot is timed at receipt, not the last exchange book mutation timestamp, which may predate a quiet market's subscription. The original provider timestamp is retained separately. Reconnect clears all books, resubscribes the deduplicated desired set, and requires fresh snapshots before execution. Heartbeats are sent every ten seconds, and 25 seconds without a valid response closes and retries the connection with bounded backoff. Trade CAS validation additionally rejects books not marked as stream-sourced. REST book responses are never a live fallback.
+
+The same-process route bridge is POST-only and authenticated by the runtime-generated internal secret, never a browser credential. Presence events do not accept token IDs or position claims from clients. Void settlement retains the original-cost refund, not half the number of shares.
+
+Reference checked October 22, 2026 at https://docs.polymarket.com/market-data/realtime-data. The official public wire contract uses the market endpoint, assets_ids, book and price_change messages, dynamic subscribe/unsubscribe operations, and text PING/PONG frames.
+
+Tests cover idle discovery, duplicate viewers, market switching, grace cancellation, final unsubscribe, offline position pins and release, price freshness independent of heartbeat, delta depth, reconnect snapshots, session/route/rate validation and pending-presence cleanup. Existing finance and settlement tests retain their once-only wallet and void-refund checks.

@@ -18,11 +18,11 @@ const marketData=(closed=false)=>({id:"123",conditionId:condition,version:"v2",o
 const bookData=()=>({asset_id:"111",market:condition,timestamp:Date.now(),hash:"real-hash",asks:[{price:"0.6",size:"10000000"}],bids:[{price:"0.59",size:"10000000"}]});
 const input=(patch:Partial<PolyTrade>={}):PolyTrade=>({action:"buy",marketId:"123",tokenId:"111",amount:1000,limitPrice:.61,requestId:randomUUID(),requestAt:Date.now(),...patch});
 let offline=false,closed=false;
-globalThis.fetch=async(url)=>{
+globalThis.fetch=async(url,init)=>{
  if(offline)throw new Error("offline");
  const path=new URL(String(url));
  if(path.pathname==="/markets/123")return Response.json(marketData(closed));
- if(path.pathname==="/book")return Response.json(bookData());
+ if(path.pathname==="/internal-polymarket"){const b=JSON.parse(String(init?.body));return Response.json(b.sync?{ok:true}:{...bookData(),source:"stream"});}
  if(path.pathname==="/v2/resolutions")return Response.json({data:[{condition_id:condition,status:"resolved",payouts:[1000000,0],extended_review:false}]});
  throw new Error("Unexpected upstream URL "+path.href);
 };
@@ -43,7 +43,7 @@ test("parallel partial sells cannot oversell; losing mutation and stale quotes n
  const sells=await Promise.allSettled([polymarketTrade(who,input({action:"sell",amount,limitPrice:.58})),polymarketTrade(who,input({action:"sell",amount,limitPrice:.58}))]);
  assert.equal(sells.filter(x=>x.status==="fulfilled").length,1);r=await readRoom();assertRoom(r);assert.equal(r.polymarket!.positions.length,0);
  const before=r.members[0].wallet;
- await assert.rejects(()=>mutate(r=>applyPolymarketTrade(r,who,input(),normalizePolyMarket(marketData()),normalizePolyBook({...bookData(),timestamp:Date.now()-20000},"111"))),/stale/);
+ await assert.rejects(()=>mutate(r=>applyPolymarketTrade(r,who,input(),normalizePolyMarket(marketData()),{...normalizePolyBook({...bookData(),timestamp:Date.now()-20000},"111"),source:"stream"})),/stale/);
  assert.equal((await readRoom()).members[0].wallet,before);
  await mutate(r=>changePolymarketSettings(r,{...who,admin:true},{enabled:false,maxTrade:100000}));
  await assert.rejects(()=>polymarketTrade(who,input()),/disabled/);
@@ -64,7 +64,7 @@ test("worker independently resolves both users from real final-payout envelope; 
  const balances=r.members.map(m=>m.wallet),chips=totalChips(r);await tickPolymarket();r=await readRoom();assert.deepEqual(r.members.map(m=>m.wallet),balances);assert.equal(totalChips(r),chips);
 });
 test("void refunds original cost once, racing settles safe; malformed identity cannot debit",async()=>{
- const m=normalizePolyMarket({...marketData(),id:"124",version:"v1",clobTokenIds:'["333","444"]'}),b=normalizePolyBook({...bookData(),asset_id:"333"},"333");
+ const m=normalizePolyMarket({...marketData(),id:"124",version:"v1",clobTokenIds:'["333","444"]'}),b={...normalizePolyBook({...bookData(),asset_id:"333"},"333"),source:"stream" as const};
  const i={...input(),marketId:"124",tokenId:"333"};
  await mutate(r=>{changePolymarketSettings(r,{...who,admin:true},{enabled:true,maxTrade:100000});applyPolymarketTrade(r,who,i,m,b);});
  const resolution:PolyResolution={marketId:"124",conditionId:condition,version:"v1",payouts:{"333":500000,"444":500000},source:"data-v2-final",kind:"void",asOf:Date.now()};
