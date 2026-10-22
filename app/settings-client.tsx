@@ -1,4 +1,5 @@
 "use client";
+import CommitVersions from "./commit-versions";
 import {getTabHeaders} from "@/lib/tab-identity";
 import {useEffect,useState} from "react";
 type Mode="price"|"pnl";
@@ -26,6 +27,7 @@ export default function SettingsClient(){
   <fieldset className="settings-group" disabled={!settings||saving}><legend>Privacy</legend>
    <label className="settings-row"><input type="checkbox" name="hideFromLeaderboard" checked={settings?.hideFromLeaderboard??false} onChange={e=>choose({hideFromLeaderboard:e.target.checked})}/><span><strong>Hide me from leaderboard</strong><small>Hide your name and net worth from the public leaderboard and signed-in standings. Administrators can still see your account.</small></span></label>
   </fieldset>
+  <fieldset className="settings-group"><legend>Other settings</legend><CommitVersions/></fieldset>
   {saving?<p role="status">Saving…</p>:null}
   {error?<div className="error" role="alert">{error}<button aria-label="Dismiss error" onClick={()=>setError("")}>×</button></div>:null}
  </main>;

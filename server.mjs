@@ -1,3 +1,4 @@
+import {normalizeCommit,serveCommit} from "./runtime/git-commit.mjs";
 import {createPokerTaunts} from "./runtime/poker-taunts.mjs";
 import {subscribeMarket} from "./runtime/market-subscription.mjs";
 import {attachSocketAuth} from "./runtime/socket-auth.mjs";
@@ -29,10 +30,14 @@ process.env.INTERNAL_LIVE_SECRET=randomBytes(32).toString("hex");
 const port=Number(process.env.PORT||3000),hostname=process.env.HOSTNAME||"0.0.0.0";
 const dev=process.argv.includes("--dev");
 const config=dev?undefined:JSON.parse(readFileSync(new URL("./.next/required-server-files.json",import.meta.url))).config;
+// Read the baked artifact, never mutable runtime environment or a git checkout.
+let serverCommit="unknown";
+try{serverCommit=normalizeCommit(readFileSync(new URL("./.next/GIT_COMMIT",import.meta.url),"utf8"));}catch{}
 const app=next({dev,hostname,port,conf:config,webpack:true});
 await app.prepare();
 const nextHandler=app.getRequestHandler();
 const server=createServer(async(request,response)=>{
+ if(serveCommit(request,response,serverCommit))return;
  if(!["/internal-airdrop","/internal-tab-check","/internal-chat-reset"].includes(request.url)){nextHandler(request,response);return;}
  response.setHeader("Cache-Control","no-store");
  const supplied=request.headers["x-internal-live-secret"],secret=process.env.INTERNAL_LIVE_SECRET;

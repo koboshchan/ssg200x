@@ -6,6 +6,8 @@ FROM deps AS builder
 WORKDIR /app
 # No Clerk keys exist at build time. Both keys are supplied only as container runtime environment.
 COPY . .
+ARG SSG_GIT_COMMIT=unknown
+ENV SSG_GIT_COMMIT=$SSG_GIT_COMMIT
 RUN npm run build
 FROM deps AS production-deps
 RUN npm prune --omit=dev --ignore-scripts
@@ -19,6 +21,7 @@ COPY --from=builder --chown=node:node /app/.next/standalone ./
 # SWC is build-only; source maps are unnecessary in the production runtime.
 RUN find node_modules -type f -name '*.map' -delete && rm -rf node_modules/@next/swc-*
 RUN node --input-type=module -e "await Promise.all(['next', 'socket.io', '@clerk/backend', 'mongodb'].map(name => import(name)))"
+COPY --from=builder --chown=node:node /app/.next/GIT_COMMIT ./.next/GIT_COMMIT
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --from=builder --chown=node:node /app/public ./public
 COPY --from=builder --chown=node:node /app/server.mjs ./server.mjs
