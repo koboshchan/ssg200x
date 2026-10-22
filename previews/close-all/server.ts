@@ -1,3 +1,4 @@
+import {adjustPerp} from "../../lib/perps-adjust";
 import {closeAllPerps} from "../../lib/perps-close-all";
 import {financeSchema} from "../../lib/finance-input";
 import {checkFinanceRequest,recordFinanceRequest} from "../../lib/finance-requests";
@@ -30,13 +31,14 @@ if(req.url==="/demo-reset"||req.url==="/demo-stale"){if(req.url==="/demo-reset")
 if(req.url==="/room"){room.quotes!.BTC!.at=Date.now();if(!staleEth)room.quotes!.ETH!.at=Date.now();res.setHeader("Content-Type","application/json");return res.end(JSON.stringify(publicRoom(room,who)));}
 if(req.url==="/api/admin"&&req.method==="POST"){res.setHeader("Content-Type","application/json");try{let body="";for await(const c of req){body+=c;if(body.length>2048)throw Error("Too large");}const input=JSON.parse(body);if(input.type!=="perp-fees")throw Error("Unsupported");const next=structuredClone(room);setPerpFees(next,who,input.openingPercent,input.closingPercent,input.closingFeeMode);room=next;return res.end(JSON.stringify(publicRoom(room,who)));}catch(e){res.statusCode=400;return res.end(JSON.stringify({error:String(e)}));}}
 if(req.url==="/api/finance"&&req.method==="POST"){let body="";for await(const c of req){body+=c;if(body.length>4096)throw Error("Too large");}res.setHeader("Content-Type","application/json");try{const input=financeSchema.parse(JSON.parse(body));if(!input.requestId||!input.requestAt)throw Error("Missing request identity");const next=structuredClone(room);next.quotes!.BTC!.at=Date.now();if(!staleEth)next.quotes!.ETH!.at=Date.now();if(checkFinanceRequest(next,who.id,input))return res.end(JSON.stringify(publicRoom(room,who)));if(input.type==="close-all"){const result=closeAllPerps(next,who,input.positionIds,input.requestId,Date.now(),input.mode);recordFinanceRequest(next,who.id,input,"committed");next.financeReceipts![0].closeAll=result;}
+else if(input.type==="increase"||input.type==="partial-close")adjustPerp(next,who,input);
 else if(input.type==="sell-all-spot")sellAllSpot(next,who,input.symbol);
 else if(input.type==="spot")spot(next,who,input.symbol,input.side,input.amount);
 else if(input.type==="open"){const rates=roomFeeRates(next);if(input.expectedOpeningFeePpm!==rates.openingFeePpm||input.expectedClosingFeePpm!==rates.closingFeePpm||(input.expectedClosingFeeMode??"notional")!==(next.perpClosingFeeMode??"notional"))throw Error("Trading fee changed");const patch=resolveTriggerInput(register(next,who),{entry:requireQuote(next,input.symbol),margin:input.margin-openingFeeCents(input.margin,input.leverage,rates.openingFeePpm),leverage:input.leverage,side:input.side},input);openPosition(next,who,input.symbol,input.side,input.margin,input.leverage,randomUUID(),Date.now(),{...(patch.takeProfit!=null?{takeProfit:patch.takeProfit}:{}),...(patch.stopLoss!=null?{stopLoss:patch.stopLoss}:{})});}
 else if(input.type==="close")closePosition(next,who,input.positionId);
 else if(input.type==="triggers"){const member=register(next,who),position=member.positions!.find(p=>p.id===input.positionId);if(!position)throw Error("Position not found");editPositionTriggers(next,who,input.positionId,resolveTriggerInput(member,position,input));}
 else throw Error("Unsupported fixture action");
-assertRoom(next);room=next;return res.end(JSON.stringify(publicRoom(room,who)));}catch(e){res.statusCode=400;return res.end(JSON.stringify({error:String(e)}));}}
+if(input.type!=="close-all")recordFinanceRequest(next,who.id,input,"committed");assertRoom(next);room=next;return res.end(JSON.stringify(publicRoom(room,who)));}catch(e){res.statusCode=400;return res.end(JSON.stringify({error:String(e)}));}}
 if(req.url!=="/"){res.statusCode=404;return res.end();}
 res.setHeader("Content-Type","text/html");res.end('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/client.css"></head><body><main style="padding:24px"><div id="root"></div></main><script src="/client.js"></script></body></html>');
 }).listen(Number(process.env.PORT||45827),"0.0.0.0");
