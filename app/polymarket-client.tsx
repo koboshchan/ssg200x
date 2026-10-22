@@ -2,6 +2,7 @@
 import {Suspense,useCallback,useEffect,useMemo,useRef,useState} from "react";
 import {useRouter,useSearchParams} from "next/navigation";
 import {useUser} from "@clerk/nextjs";
+import {matchingPositions,closeIndependently,type CloseMode} from "@/lib/polymarket-close";
 import {getTabHeaders} from "@/lib/tab-identity";
 import {useLive,useLiveEvent} from "./live-provider";
 import CasinoAmountInput from "./casino-amount-input";
@@ -258,7 +259,7 @@ function Positions({portfolio,onOpen,onTraded}:{portfolio:Portfolio|null;onOpen:
  const row=(p:Position)=><tr key={p.marketId+p.side}><th scope="row"><button className={styles.link} onClick={()=>p.eventId&&onOpen(p.eventId)}>{p.question}</button><small>{p.eventTitle}</small></th><td><span className={p.side==="yes"?styles.yes:styles.no}>{p.side.toUpperCase()}</span></td><td>{p.shares.toFixed(2)}</td><td>{cents(p.avgPrice)}</td><td>{p.status==="open"?cents(p.curPrice)+(p.priceLive===false?" (stale)":""):p.status}</td><td>{money(p.valueCents)}</td><td className={p.pnlCents>=0?styles.pos:styles.neg}>{p.pnlCents>=0?"+":""}{money(p.pnlCents)}</td><td className={styles.closeCell}>{p.status==="open"?<button disabled={busy||p.marketClosed} title={p.marketClosed?"Market closed, awaiting settlement":undefined} onClick={()=>{setErr("");envelope.current=null;setSelected(p);}}>Close</button>:<span className={styles.muted}>Settled</span>}</td></tr>;
  const tbl=(rows:Position[])=><div className={styles.scroll}><table className={styles.table}><thead><tr><th>Market</th><th>Side</th><th>Shares</th><th>Avg</th><th>Now</th><th>Value</th><th>P&amp;L</th><th className={styles.closeCell} aria-label="Action"/></tr></thead><tbody>{rows.map(row)}</tbody></table></div>;
  return <section aria-label="Positions">
-  <div className={styles.stats}><div><span>Open value</span><strong>{money(val)}</strong></div><div><span>Open P&amp;L</span><strong className={pnl>=0?styles.pos:styles.neg}>{pnl>=0?"+":""}{money(pnl)}</strong></div></div>
+  <div className={styles.summary}><div className={styles.stats}><div><span>Open value</span><strong>{money(val)}</strong></div><div><span>Open P&amp;L</span><strong className={pnl>=0?styles.pos:styles.neg}>{pnl>=0?"+":""}{money(pnl)}</strong></div></div><BulkClose positions={portfolio.positions} rowBusy={busy} onBusy={setBusy} onTraded={onTraded}/></div>
   {openP.length?tbl(openP):<p className={styles.empty}>No open positions.</p>}
   {closed.length>0&&<><h3 className={styles.h3}>Settled</h3>{tbl(closed)}</>}
   <dialog ref={dlg} aria-labelledby="close-position-title" className={styles.dialog} onCancel={e=>{e.preventDefault();if(!busy)setSelected(null);}} onClose={()=>{if(!busy)setSelected(null);}}>
@@ -274,6 +275,53 @@ function Positions({portfolio,onOpen,onTraded}:{portfolio:Portfolio|null;onOpen:
   <h3 className={styles.h3}>Activity</h3>
   {portfolio.activity.length?<ul className={styles.feed}>{portfolio.activity.slice(0,40).map((a,i)=><li key={i}><span>{a.type==="settle"?"Settled":a.type==="buy"?"Bought":"Sold"} {a.shares!=null?a.shares.toFixed(2)+" ":""}{a.side?.toUpperCase()} · {a.question}{a.cents!=null?" · "+money(a.cents):""}</span><span className={styles.muted}>{ago(a.t)}</span></li>)}</ul>:<p className={styles.empty}>Nothing yet.</p>}
  </section>;
+}
+
+function BulkClose({positions,rowBusy,onBusy,onTraded}:{positions:Position[];rowBusy:boolean;onBusy:(b:boolean)=>void;onTraded:(m:string)=>void}){
+ const [batch,setBatch]=useState<Position[]|null>(null),[label,setLabel]=useState(""),[est,setEst]=useState<{cents:number;ready:number;failed:number}|null>(null),[running,setRunning]=useState(false),[report,setReport]=useState<{question:string;error?:string;cents?:number}[]>([]);
+ const dlg=useRef<HTMLDialogElement>(null),lock=useRef(false);
+ useEffect(()=>{const d=dlg.current;if(!d)return;if(batch&&!d.open)d.showModal();if(!batch&&d.open)d.close();},[batch]);
+ const quote=async(p:Position)=>api<Quote>("/quote?marketId="+encodeURIComponent(p.marketId)+"&side="+p.side+"&action=sell&shares="+p.shares);
+ useEffect(()=>{
+  setEst(null);if(!batch)return;let active=true;
+  const refresh=async()=>{
+   let cents=0,ready=0,failed=0;
+   for(const p of batch){try{const q=await quote(p);if(!q.tradable||q.price<=0)throw Error("Unavailable");cents+=q.cents;ready++;}catch{failed++;}}
+   if(active)setEst({cents,ready,failed});
+  };
+  void refresh();const timer=setInterval(refresh,5000);return()=>{active=false;clearInterval(timer);};
+ },[batch]);
+ function begin(mode:CloseMode,title:string){setLabel(title);setReport([]);setBatch(matchingPositions(positions,mode));}
+ async function submit(){
+  if(lock.current||!batch)return;lock.current=true;setRunning(true);onBusy(true);
+  const results=await closeIndependently(batch,async p=>{
+   const q=await quote(p);
+   if(!q.tradable||q.price<=0)throw Error(q.reason||"Live price unavailable.");
+   const body={requestId:rid(),requestAt:Date.now(),marketId:p.marketId,side:p.side,action:"sell",shares:p.shares,limitPrice:Math.max(0.01,Math.floor((q.price-0.03)*1000)/1000)};
+   // Retrying the same envelope is safe after an ambiguous response.
+   let fill:{cents:number}|undefined;
+   for(let attempt=0;attempt<2;attempt++){
+    try{fill=(await api<{fill:{cents:number}}>("/trade",{method:"POST",body:JSON.stringify(body)})).fill;break;}
+    catch(e){const st=(e as {status?:number}).status;if(attempt||st!=null&&st<500&&st!==408)throw e;}
+   }
+   return fill!.cents;
+  });
+  const done=results.map(r=>({question:r.row.question,error:r.error,cents:r.cents}));
+  setReport(done);setBatch(null);setRunning(false);onBusy(false);lock.current=false;
+  const successes=done.filter(r=>!r.error);
+  onTraded("Closed "+successes.length+" of "+done.length+" positions for "+money(successes.reduce((n,r)=>n+(r.cents||0),0))+(done.some(r=>r.error)?". See failures below.":"."));
+ }
+ return <>
+  <div className={styles.bulkActions} aria-label="Close positions">{([["all","Close all"],["profitable","Close profitable"],["losing","Close losing"]] as const).map(([mode,title])=><button key={mode} disabled={rowBusy||running||!matchingPositions(positions,mode).length} onClick={()=>begin(mode,title)}>{title}</button>)}</div>
+  <dialog ref={dlg} aria-labelledby="bulk-close-title" className={styles.dialog} onCancel={e=>{e.preventDefault();if(!running)setBatch(null);}}>
+   <h3 id="bulk-close-title">{label}</h3><p>Sell all shares in {batch?.length||0} positions.</p>
+   <p>Estimated proceeds: <strong>{est?money(est.cents):"Getting live prices…"}</strong></p>
+   {est?.failed? <p className={styles.hint}>{est.failed} unavailable. Each position is attempted independently; failures will be reported.</p>:null}
+   <p className={styles.hint}>Each sale uses its current live price. Final proceeds may change.</p>
+   <div className={styles.actions}><button disabled={running} onClick={()=>setBatch(null)}>Cancel</button><button className="primary" disabled={running||!est||!batch?.length} onClick={()=>void submit()}>{running?"Closing…":"Confirm"}</button></div>
+  </dialog>
+  {report.some(r=>r.error)&&<div className={styles.bulkFailures} role="alert">{report.filter(r=>r.error).map((r,i)=><p key={i}>{r.question}: {r.error}</p>)}</div>}
+ </>;
 }
 
 function AdminControls({onSettings}:{onSettings:(s:{enabled:boolean;maxTradeCents:number})=>void}){
