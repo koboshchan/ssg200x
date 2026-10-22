@@ -1,0 +1,51 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {OandaStream} from '../lib/oanda-stream';
+import {forexDecision,FOREX_DEFAULTS} from '../lib/forex-policy';
+import {convertedForexQuotes} from '../lib/forex-feed';
+import {forexMonotonic,forexClockDomain} from '../lib/forex-config';
+import {freshRoom,register} from '../lib/poker';
+import {spot,openPosition,closePosition,requireQuote,liquidate} from '../lib/finance';
+import {applyMarketTick} from '../lib/market-tick';
+import {settleTriggers} from '../lib/position-triggers';
+import {adjustPerp} from '../lib/perps-adjust';
+import {quoteFresh} from '../lib/price-policy';
+const at=Date.parse('2026-10-22T15:00:00Z'),flush=()=>new Promise(r=>setImmediate(r));
+const raw=(time=at)=>({type:'PRICE',instrument:'EUR_USD',time:new Date(time).toISOString(),tradeable:true,bids:[{price:'1.1',liquidity:1}],asks:[{price:'1.1',liquidity:1}]});
+test('same-generation heartbeat/data restores silence health, actual watchdog disconnect cannot restore old cache',async()=>{
+ let now=at,mono=100;let wire!:ReadableStreamDefaultController<Uint8Array>;const publications:any[]=[];
+ const s=new OandaStream({symbols:()=>['EUR/USD'],token:'t',account:'a',leader:()=>true,now:()=>now,mono:()=>mono,request:async(_u,init)=>new Response(new ReadableStream({start(c){wire=c;init?.signal?.addEventListener('abort',()=>c.close(),{once:true})}})),publish:async(t,state,_v,h)=>{publications.push({t,state,h});}});
+ const send=async(x:unknown)=>{wire.enqueue(new TextEncoder().encode(JSON.stringify(x)+'\n'));await flush();};
+ await s.step();await flush();await send({type:'HEARTBEAT'});assert.equal(s.fresh().length,0);
+ await send(raw());const original=s.fresh()[0];now+=15000;mono+=15000;assert.equal(s.fresh().length,1);now++;mono++;assert.equal(s.fresh().length,0);
+ await send({type:'HEARTBEAT'});assert.equal(s.fresh().length,1);assert.deepEqual(s.fresh()[0],original);
+ now+=15001;mono+=15001;await send(raw(now));assert.equal(s.fresh().length,1);
+ now+=15001;mono+=15001;await s.step();await flush();assert.equal(s.fresh().length,0);
+ now+=2000;mono+=2000;await s.step();await flush();await send({type:'HEARTBEAT'});assert.equal(s.fresh().length,0);await send(raw(now));assert.equal(s.fresh().length,1);
+ assert.notEqual(s.fresh()[0].generation,original.generation);s.stop();
+});
+test('heartbeat cannot release a future frame early and nontradeable cancels pending',async()=>{
+ let now=at,mono=100;let wire!:ReadableStreamDefaultController<Uint8Array>;
+ const s=new OandaStream({symbols:()=>['EUR/USD'],token:'t',account:'a',leader:()=>true,now:()=>now,mono:()=>mono,request:async()=>new Response(new ReadableStream({start(c){wire=c}})),publish:async()=>{}});
+ const send=async(x:unknown)=>{wire.enqueue(new TextEncoder().encode(JSON.stringify(x)+'\n'));await flush();};
+ await s.step();await flush();await send(raw(at+300));await send({type:'HEARTBEAT'});assert.equal(s.fresh().length,0);
+ await send({...raw(),tradeable:false});assert.equal((s as any).quarantine.pending.size,0);s.stop();
+});
+test('FX old price valid on healthy shared generation; all conversion legs match, old generations fail',()=>{
+ const mono=100000,ts=FOREX_DEFAULTS.map(symbol=>({symbol,price:1,at,received:at,mono,generation:'g'}));
+ const qs=convertedForexQuotes(ts,FOREX_DEFAULTS),status={mode:'live' as const,stream:'streaming' as const,marketOpen:true,message:'',generation:'g',lastFrameWall:at+60000,lastFrameMono:mono+60000,leaseUntil:at+90000};
+ for(const symbol of FOREX_DEFAULTS)assert(forexDecision(symbol,qs[symbol],status,at+60000,mono+60000).executable);
+ qs['AUD/JPY'].legs![1].generation='old';assert(!forexDecision('AUD/JPY',qs['AUD/JPY'],status,at+60000,mono+60000).executable);
+ assert(!forexDecision('EUR/USD',undefined,status,at+60000,mono+60000).executable);
+ assert(quoteFresh(at,at+10000));assert(!quoteFresh(at,at+10001));assert(!quoteFresh(at,at+60000,true));
+});
+test('FX finance and triggers use central stream gate, not ten-second mark expiry',()=>{
+ process.env.OANDA_API_TOKEN='test';process.env.OANDA_ACCOUNT_ID='test';
+ const mono=forexMonotonic(),now=at+60000,r=freshRoom(),who={id:'health',name:'health',email:'health@test',admin:true};register(r,who);
+ r.forexStatus={mode:'live',stream:'streaming',marketOpen:true,message:'',generation:'g',lastFrameWall:now,lastFrameMono:mono,leaseUntil:now+30000,clockDomain:forexClockDomain};
+ r.forexQuotes=convertedForexQuotes([{symbol:'EUR/USD',price:1.1,at,received:at,mono:mono-60000,generation:'g'}],FOREX_DEFAULTS);
+ applyMarketTick(r,{'EUR/USD':{micro:1100000,at}},now);assert.equal(requireQuote(r,'EUR/USD',now),1100000);
+ spot(r,who,'EUR/USD','buy',100,now);openPosition(r,who,'EUR/USD','long',1000,1,'manual',now);adjustPerp(r,who,{type:'increase',positionId:'manual',expectedRevision:0,requestId:'inc',margin:100},now);adjustPerp(r,who,{type:'partial-close',positionId:'manual',expectedRevision:1,requestId:'part',percentBps:5000},now);closePosition(r,who,'manual',now);
+ openPosition(r,who,'EUR/USD','long',1000,1,'trigger',now);r.members[0].positions![0].takeProfit=1100000;settleTriggers(r,now);assert.equal(r.members[0].positions!.length,0);
+ r.forexStatus.stream='down';const before=JSON.stringify(r);assert.throws(()=>spot(r,who,'EUR/USD','buy',100,now));assert.throws(()=>requireQuote(r,'EUR/USD',now));liquidate(r,now);settleTriggers(r,now);assert.equal(JSON.stringify(r),before);
+});

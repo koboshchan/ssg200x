@@ -42,7 +42,7 @@ export async function candleUpdate(quotes: QuoteSnapshot | readonly QuoteSnapsho
  for(const snapshot of Array.isArray(quotes)?quotes:[quotes as QuoteSnapshot])for(const symbol of [...(stockSession?[...config.crypto,...config.stocks]:config.crypto),...config.forex]) {
   const q=snapshot[symbol];
   if(!q || !Number.isFinite(q.micro)||q.micro<=0||!Number.isSafeInteger(q.at)||q.at<0)continue;
-  if(forexSymbol(symbol,room)){const f=room.forexQuotes?.[symbol];if(!Number.isSafeInteger(q.micro)||!stockSession||!forexLiveConfigured()||room.forexStatus?.mode!=="live"||!f||f.source!=="oanda"||!forexDecision(symbol,f,room.forexStatus,Date.now(),forexMonotonic(),forexClockDomain).executable||f.micro!==q.micro||f.at!==q.at||!quoteFresh(q.at,Date.now())||!forexMarketOpen(Date.now()))continue;}
+  if(forexSymbol(symbol,room)){const f=room.forexQuotes?.[symbol];if(!Number.isSafeInteger(q.micro)||!stockSession||!forexLiveConfigured()||room.forexStatus?.mode!=="live"||!f||f.source!=="oanda"||!forexDecision(symbol,f,room.forexStatus,Date.now(),forexMonotonic(),forexClockDomain).executable||f.micro!==q.micro||f.at!==q.at||!forexMarketOpen(Date.now()))continue;}
   const price=q.micro/1e6;
   for(const [granularity,width] of Object.entries(GRANULARITIES)) {
    const time=Math.floor(q.at/width)*width;

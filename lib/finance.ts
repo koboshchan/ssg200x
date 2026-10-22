@@ -43,7 +43,7 @@ export function stockExecutable(r:Room,symbol:string,now=Date.now()){
 export function requireQuote(r:Room,symbol:Symbol,now=Date.now()){
  ensure(!forexSymbol(symbol,r)||stockExecutable(r,symbol,now),"Forex paused: fresh live stream and USD conversion required.",503);
  ensure(stockExecutable(r,symbol,now),"Stock market closed or verified live state unavailable.",503);
- const q=r.quotes?.[symbol];ensure(q&&Number.isSafeInteger(q.micro)&&q.micro>0&&quoteFresh(q.at,now,stockSymbol(symbol,r)),"Live price unavailable. Trading is paused.",503);return q.micro;
+ const q=r.quotes?.[symbol];ensure(q&&Number.isSafeInteger(q.micro)&&q.micro>0&&(forexSymbol(symbol,r)||quoteFresh(q.at,now,stockSymbol(symbol,r))),"Live price unavailable. Trading is paused.",503);return q.micro;
 }
 /** Only server-persisted USD quote cache is a settlement source, never USDT candles.
  * Missing/invalid cache retains the original claim without any financial mutation.
@@ -82,7 +82,7 @@ export function settle(r:Room,m:Member,p:Position,mark:number,reason:ClosedPosit
 }
 export function liquidate(r:Room,now=Date.now()){
  for(const m of r.members){for(const p of [...(m.positions||[])]){
- const q=r.quotes?.[p.symbol];if(stockExecutable(r,p.symbol,now)&&activeSymbol(p.symbol,r)&&q&&Number.isSafeInteger(q.micro)&&q.micro>0&&quoteFresh(q.at,now,stockSymbol(p.symbol,r))&&liquidatable(p,q.micro))settle(r,m,p,q.micro,"Liq",now);
+ const q=r.quotes?.[p.symbol];if(stockExecutable(r,p.symbol,now)&&activeSymbol(p.symbol,r)&&q&&Number.isSafeInteger(q.micro)&&q.micro>0&&(forexSymbol(p.symbol,r)||quoteFresh(q.at,now,stockSymbol(p.symbol,r)))&&liquidatable(p,q.micro))settle(r,m,p,q.micro,"Liq",now);
  }}
 }
 export function spotMark(r:Room,symbol:string){return forexSymbol(symbol,r)?r.forexQuotes?.[symbol]?.usdMicro:r.quotes?.[symbol]?.micro;}
