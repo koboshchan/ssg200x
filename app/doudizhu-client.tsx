@@ -6,6 +6,7 @@ import {moveWithDoubleRetry} from "@/lib/doudizhu-choice-retry";
 import type {PublicDoudizhu} from "@/lib/doudizhu";
 import {getTabHeaders} from "@/lib/tab-identity";
 import "./doudizhu.css";
+import PlayingCard from "./playing-card";
 import {PokerPlayerMenu} from "./poker-player-menu";
 import {ReactionEffectLayer,ReactionProvider,isValidReaction,useReactionControls,useReactionEffects,type ReactionAdapter} from "./poker-taunts";
 import {BeanAmount,BeanIcon,Crown,DealFlight,FxLayer,Settlement,TableArt,trickKey,useDoudizhuFx,type SettleRow} from "./doudizhu-fx";
@@ -26,8 +27,7 @@ function ReactionBar({muted,setMuted}:{muted:boolean;setMuted:(v:boolean)=>void}
 }
 const ranks="3456789TJQKA2";
 const order=(c:string)=>c==="X"?16:c==="Y"?17:ranks.indexOf(c[0])+3;
-const suits:Record<string,string>={s:"♠",h:"♥",d:"♦",c:"♣"};
-function Card({card}:{card:string}){return <span className={"card"+(["h","d"].includes(card[1])||card==="Y"?" red":"")}><b>{card==="X"?"☆":card==="Y"?"★":card[0]==="T"?"10":card[0]}</b><i>{suits[card[1]]??"J"}</i></span>;}
+const Card=({card}:{card:string})=><PlayingCard value={card}/>;
 type Transport={read:(code?:string)=>Promise<PublicDoudizhu>;move:(body:object)=>Promise<PublicDoudizhu>};
 const api:Transport={async read(code){const r=await fetch("/api/doudizhu"+(code?"?code="+encodeURIComponent(code):""),{cache:"no-store"}),d=await r.json();if(!r.ok)throw Error(d.error);return d;},async move(body){const r=await fetch("/api/doudizhu",{method:"POST",headers:{"content-type":"application/json",...getTabHeaders()},body:JSON.stringify(body)}),d=await r.json();if(!r.ok)throw Error(d.error);return d;}};
 export default function Doudizhu({transport=api,fxPreview=false}: {transport?:Transport;fxPreview?:boolean}){

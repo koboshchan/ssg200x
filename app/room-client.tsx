@@ -1,5 +1,6 @@
 "use client";
 import {safeGameDestination} from "@/lib/login-destination";
+import Card from "./playing-card";
 import {usePokerModeration} from "./use-poker-moderation";
 import {PokerPlayerMenu} from "./poker-player-menu";
 import {PokerTauntProvider,PokerTauntControls,PokerTauntEffects} from "./poker-taunts";
@@ -40,11 +41,6 @@ import {isGamePath} from "@/lib/games-hub";
 import type {Action} from "@/lib/types";
 const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:n%100===0?0:2}).format(n/100);
 const signed=(n:number)=>(n>=0?"+":"−")+money(Math.abs(n));
-const suits:Record<string,string>={s:"♠",h:"♥",c:"♣",d:"♦"};
-function Card({value,small=false}:{value:string;small?:boolean}){
- const back=value==="?";const red=!back&&["h","d"].includes(value.slice(-1));
- return <span aria-label={back?"Hidden card":value} className={"card"+(back?" back":"")+(red?" red":"")+(small?" small":"")}>{back?<span>♠</span>:<><b>{value[0]==="T"?"10":value[0]}</b><i>{suits[value.slice(-1)]}</i></>}</span>;
-}
 export const routes=[{href:"/games",label:"Games",tab:"games"},{href:"/markets",label:"Markets",tab:"markets"},{href:"/polymarket",label:"Predictions",tab:"polymarket"},{href:"/wallet",label:"Wallet",tab:"wallet"},{href:"/leaderboard",label:"Leaderboard",tab:"standings"},{href:"/advancements",label:"Advancements",tab:"advancements"},{href:"/players",label:"Admin",tab:"access",admin:true}] as const;
 export default function RoomClient({configured,children}:{configured:boolean;children?:React.ReactNode}){
  const path=usePathname();
