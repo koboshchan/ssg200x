@@ -1,3 +1,4 @@
+import {safeGameDestination} from "./lib/login-destination";
 import {currentClerkUser,currentClerkSession} from "./lib/clerk-reads";
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest, type NextFetchEvent } from "next/server";
@@ -10,7 +11,11 @@ const clerk = clerkMiddleware(async (auth, req) => {
   const { userId, sessionId } = await auth();
   if (!userId) return path.startsWith("/api/")
     ? NextResponse.json({ error: "Sign in with Google." }, { status: 401 })
-    : NextResponse.redirect(new URL("/", req.url));
+    : (()=>{
+      const login=new URL("/",req.url),next=safeGameDestination(path+req.nextUrl.search);
+      if(next)login.searchParams.set("next",next);
+      return NextResponse.redirect(login);
+    })();
   if (path === "/players" || path.startsWith("/players/") || path === "/admin" || path.startsWith("/admin/")) {
     // Middleware has not forwarded Clerk request headers yet. currentUser() calls the App Router
     // auth() helper, which cannot see this callback session. Use the verified callback ID instead.
