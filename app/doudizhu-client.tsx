@@ -52,7 +52,14 @@ export default function Doudizhu({transport=api,fxPreview=false}: {transport?:Tr
  async function move(type:string,extra:object={}){
   if(lock.current||!fresh)return;lock.current=true;epoch.current++;setBusy(true);setError("");
   const body={type,requestId:crypto.randomUUID(),requestAt:Date.now(),...(g?{code:g.code,version:g.version}:{}),...extra};
-  try{const next=await transport.move(body);setView(next);setChosen([]);setFresh(true);}catch(e){setError(e instanceof Error?e.message:"Move failed.");try{setView(await transport.read());}catch{setFresh(false);}}finally{epoch.current++;lock.current=false;setBusy(false);}
+  try{let next:PublicDoudizhu;try{next=await transport.move(body);}catch(e){
+   // Other players choose simultaneously. Retry only a rejected stale choice,
+   // never an ambiguous network result or a choice from a different hand.
+   if(type!=="double"||!(e instanceof Error)||e.message!=="The turn changed. Refresh first.")throw e;
+   const latest=await transport.read(),room=latest.room,own=room?.players.find(p=>p.self);
+   if(!room||room.code!==g?.code||room.handId!==g.handId||room.phase!=="doubling"||own?.doubleChosen)throw e;
+   next=await transport.move({...body,version:room.version,requestId:crypto.randomUUID(),requestAt:Date.now()});
+  }setView(next);setChosen([]);setFresh(true);}catch(e){setError(e instanceof Error?e.message:"Move failed.");try{setView(await transport.read());}catch{setFresh(false);}}finally{epoch.current++;lock.current=false;setBusy(false);}
  }
  const {fx,list:fxList,reduced}=useDoudizhuFx(g,mySeat,fxPreview);
  const disabled=busy||!fresh;
