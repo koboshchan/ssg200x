@@ -20,7 +20,7 @@ export type Quote={micro:number;at:number};
 export type Holding={symbol:Symbol;units:number;cost:number};
 /** New positions size notional on margin after opening fees; postedMargin records the wallet debit.
  * Absent collateral retains the pre-migration wallet-paid opening fee behavior. */
-export type Position={id:string;symbol:Symbol;side:"long"|"short";margin:number;postedMargin?:number;collateral?:number;leverage:number;entry:number;opened:number;feePpm?:number;openingFeePpm?:number;closingFeePpm?:number;closingFeeMode?:"notional"|"profit";openingFee?:number;maintenance?:number;liquidationOverride?:number;takeProfit?:number;stopLoss?:number};
+export type Position={id:string;symbol:Symbol;side:"long"|"short";margin:number;postedMargin?:number;collateral?:number;leverage:number;entry:number;opened:number;feePpm?:number;openingFeePpm?:number;closingFeePpm?:number;closingFeeMode?:"notional"|"profit";openingFee?:number;maintenance?:number;liquidationOverride?:number;takeProfit?:number;stopLoss?:number;revision?:number;closingFeeRoundUp?:boolean};
 export type ClosedPosition={id:string;symbol:Symbol;side:"long"|"short";leverage:number;entry:number;exit:number;margin:number;postedMargin?:number;collateral?:number;realizedPnl:number;openingFeePpm?:number;closingFeePpm?:number;closingFeeMode?:"notional"|"profit";openingFee?:number;closingFee?:number;assessedClosingFee?:number;waivedClosingFee?:number;reason:"TP"|"SL"|"Liq"|"Manual";closedAt:number};
 export type Spin={id:string;number:number;stake:number;returned:number;at:number};
 export function portfolio(m:Member){m.holdings??=[];m.positions??=[];m.spins??=[];m.closedPositions??=[];return m;}
@@ -67,7 +67,7 @@ export function redeemLegacyHolding(r:Room,who:Identity,symbol:Symbol,now=Date.n
  m.activity=[`Redeemed delisted ${symbol} · ${(returned/100).toFixed(2)} returned · cached USD quote ${q.micro} at ${q.at}`,...(m.activity||[])].slice(0,40);
  return {old,returned,quote:{...q},wallet:m.wallet};
 }
-function settle(r:Room,m:Member,p:Position,mark:number,reason:ClosedPosition["reason"],now:number){
+export function settle(r:Room,m:Member,p:Position,mark:number,reason:ClosedPosition["reason"],now:number){
  const isLiquidation=reason==="Liq"||liquidatable(p,mark);
  const assessedClosingFee=closingFeeCents(p,mark,pnl(p,mark),isLiquidation);
  const grossReturn=equity(p,mark);

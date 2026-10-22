@@ -15,5 +15,7 @@ export const financeSchema=z.discriminatedUnion("type",[
  z.object({...base,type:z.literal("open"),symbol,side:z.enum(["long","short"]),margin:money,leverage:z.number().int().min(1).max(200),expectedOpeningFeePpm:z.number().int().min(0).max(1000).optional(),expectedClosingFeePpm:z.number().int().min(0).max(1000000).optional(),expectedClosingFeeMode:z.enum(["notional","profit"]).optional(),expectedFeePpm:z.number().int().min(0).max(1000).optional(),...openTriggers}).strict(),
  z.object({...base,type:z.literal("triggers"),positionId:z.string().uuid(),...editTriggers}).strict(),
  z.object({...base,type:z.literal("close-all"),mode:z.enum(["all","profiting","losing"]).optional(),positionIds:z.array(z.string().uuid()).min(1).max(1000).refine(ids=>new Set(ids).size===ids.length,"Duplicate position.")}).strict(),
+ z.object({...base,type:z.literal("increase"),positionId:z.string().uuid(),margin:money,expectedRevision:z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)}).strict(),
+ z.object({...base,type:z.literal("partial-close"),positionId:z.string().uuid(),percentBps:z.number().int().min(1).max(10000),expectedRevision:z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)}).strict(),
  z.object({...base,type:z.literal("close"),positionId:z.string().uuid()}).strict(),
 ]);
