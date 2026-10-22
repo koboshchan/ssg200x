@@ -95,5 +95,5 @@ export function PokerEmoteMenuActions(){
 }
 export function PokerTauntControls({muted,setMuted}:{room?:unknown;muted:boolean;setMuted:(v:boolean)=>void}){
  const t=useTaunts();
- return <div className="poker-taunt-controls"><div className="poker-taunt-heading"><small>Click your seat for free emotes.</small><button type="button" aria-pressed={muted} onClick={()=>setMuted(!muted)}>{muted?"Show reactions":"Hide reactions"}</button></div>{t.unresolved?<button type="button" disabled={t.disabled} onClick={()=>void t.retry()}>Retry unconfirmed throw</button>:null}<small role="status">{t.error||(!t.seated?"Take a seat to react.":muted?"Reactions hidden on this device.":t.cooling?"One reaction every 4 seconds.":"Emotes are free. Throws charge your wallet and go to the house.")}</small></div>;
+ return <div className="poker-taunt-controls"><button type="button" aria-pressed={muted} onClick={()=>setMuted(!muted)}>{muted?"Show reactions":"Hide reactions"}</button>{t.unresolved?<button type="button" disabled={t.disabled} onClick={()=>void t.retry()}>Retry unconfirmed throw</button>:null}{t.error?<small role="status">{t.error}</small>:null}</div>;
 }
