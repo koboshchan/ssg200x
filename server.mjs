@@ -1,4 +1,6 @@
 import {normalizeCommit,serveCommit} from "./runtime/git-commit.mjs";
+import {createPolymarketPublic} from "./runtime/polymarket-public.mjs";
+const polyPublic=createPolymarketPublic();
 import {createPolymarketHistory,authorizePolymarketHistory} from "./runtime/polymarket-history.mjs";
 import {createPolymarketStream,attachPolymarketPresence} from "./runtime/polymarket-stream.mjs";
 import {createPokerTaunts} from "./runtime/poker-taunts.mjs";
@@ -47,9 +49,13 @@ const server=createServer(async(request,response)=>{
  if(request.method!=="POST"||a.length!==b.length||!timingSafeEqual(a,b)){response.writeHead(401).end();return;}
  let body="";
  try{
-  for await(const chunk of request){body+=chunk;if(Buffer.byteLength(body)>1024){response.writeHead(413).end();return;}}
+  for await(const chunk of request){body+=chunk;if(Buffer.byteLength(body)>8192){response.writeHead(413).end();return;}}
   if(request.url==="/internal-polymarket"){
-   const {tokenId,sync,history}=JSON.parse(body);
+   const {tokenId,sync,history,publicData}=JSON.parse(body);
+   if(publicData){
+    try{const result=await polyPublic.get(publicData.path,publicData.ttl,publicData.fresh===true);response.writeHead(200,{"Content-Type":"application/json"}).end(JSON.stringify(result));}
+    catch{response.writeHead(503,{"Content-Type":"application/json"}).end('{"error":"Prediction data unavailable."}');}return;
+   }
    if(history){
     try{const result=await polyHistory.read(history.marketId,history.range,history);response.writeHead(200,{"Content-Type":"application/json"}).end(JSON.stringify(result));}
     catch(error){response.writeHead(error.status||503,{"Content-Type":"application/json"}).end(JSON.stringify({error:error.status===403?error.message:'Price history unavailable.'}));}return;
@@ -103,8 +109,7 @@ async function resolvePolyMarket(id){
  if(polyMetadata.size>=512)for(const [key,value]of polyMetadata)if(!value.pending){polyMetadata.delete(key);break;}
  const slot={until:0};polyMetadata.set(id,slot);
  slot.pending=(async()=>{
-  const response=await fetch('https://gamma-api.polymarket.com/markets/'+id,{signal:AbortSignal.timeout(6000),redirect:'error'});
-  if(!response.ok)throw new Error('Unavailable');const text=await response.text();if(text.length>200000)throw new Error('Oversized');const market=JSON.parse(text);if(String(market.id)!==id)throw new Error('Identity mismatch');
+  const market=await polyPublic.get('https://gamma-api.polymarket.com/markets/'+id,3000);if(String(market.id)!==id)throw new Error('Identity mismatch');
   const value={tokens:typeof (market.version==='v2'?market.positionIds:market.clobTokenIds)==='string'?JSON.parse(market.version==='v2'?market.positionIds:market.clobTokenIds):(market.version==='v2'?market.positionIds:market.clobTokenIds)};
   const labels=typeof market.outcomes==='string'?JSON.parse(market.outcomes):market.outcomes;
   const yes=Array.isArray(labels)?labels.findIndex(label=>/^yes$/i.test(label)):-1;
@@ -121,7 +126,8 @@ await syncPolyPositions();
 const polyHistory=createPolymarketHistory({
  collection:client.db(process.env.MONGODB_DB||"pokerroom").collection('polymarket_history'),
  authorize:(marketId,demand)=>authorizePolymarketHistory({marketId,demand,collection,sockets:()=>io.sockets.sockets.values(),checkTab:tabLeases.check,checkSession:socket=>checkChatSession(socket)}),
- resolveToken:async id=>(await resolvePolyMarket(id)).historyToken
+ resolveToken:async id=>(await resolvePolyMarket(id)).historyToken,
+ fetchHistory:async tokenId=>(await polyPublic.get('https://clob.polymarket.com/prices-history?'+new URLSearchParams({market:tokenId,interval:'max',fidelity:'720'}),60000)).history
 });
 const polySyncTimer=setInterval(async()=>{if(polySyncBusy)return;polySyncBusy=true;try{await syncPolyPositions();}catch{console.warn('Prediction pins refresh deferred');}finally{polySyncBusy=false;}},2000);polySyncTimer.unref();
 const polyStreamTimer=setInterval(()=>{

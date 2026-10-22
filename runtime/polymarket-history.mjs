@@ -1,7 +1,7 @@
 // Only this server-owned service can cold-fetch history. No discovery/settlement sweep calls it.
 const idOK=x=>typeof x==='string'&&/^\d{1,24}$/.test(x);
 const ranges={'1d':86400,'1w':604800,'1m':2592000,all:Infinity};
-export function createPolymarketHistory({collection,authorize,resolveToken,fetchHistory=publicHistory,now=Date.now,maxPoints=5000,appendEveryMs=60000}){
+export function createPolymarketHistory({collection,authorize,resolveToken,fetchHistory,now=Date.now,maxPoints=5000,appendEveryMs=60000}){
  const pending=new Map(),appending=new Map(),lastAppend=new Map();
  const normalize=rows=>{
   if(!Array.isArray(rows))throw new Error('Invalid price history');
@@ -45,15 +45,6 @@ export function createPolymarketHistory({collection,authorize,resolveToken,fetch
  }
  return{read,append};
 }
-async function publicHistory(tokenId){
- if(typeof tokenId!=='string'||!/^\d{1,80}$/.test(tokenId))throw new Error('Invalid history token');
- const response=await fetch('https://clob.polymarket.com/prices-history?'+new URLSearchParams({market:tokenId,interval:'max',fidelity:'720'}),{signal:AbortSignal.timeout(6000),redirect:'error',headers:{Accept:'application/json'}});
- if(!response.ok)throw Object.assign(new Error('Price history unavailable'),{status:503});
- const reader=response.body?.getReader();if(!reader)throw new Error('Empty history');let bytes=0,body='';const decoder=new TextDecoder();
- try{while(true){const part=await reader.read();if(part.done)break;bytes+=part.value.byteLength;if(bytes>6_000_000)throw new Error('History too large');body+=decoder.decode(part.value,{stream:true});}body+=decoder.decode();}finally{await reader.cancel();}
- return JSON.parse(body).history;
-}
-
 // Caller identity comes from an authenticated API endpoint, never a browser-provided user ID.
 export async function authorizePolymarketHistory({marketId,demand,collection,sockets,checkTab,checkSession,now=Date.now}){
  if(!idOK(marketId)||typeof demand?.userId!=='string')return false;

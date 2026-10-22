@@ -101,18 +101,11 @@ test("resolution requires matching final evidence, not closed date, price=1, pen
 test("trade schema rejects unknown keys, noninteger cents/shares, invalid limit and UUID",()=>{
  for(const patch of [{amount:1.5},{amount:0},{amount:Infinity},{limitPrice:1},{limitPrice:-1},{requestId:"x"},{hacked:true}])assert.equal(polyTradeSchema.safeParse({...input(),...patch}).success,false);
 });
-test("public data singleflight deduplicates, preserves cache copies and encodes search instead of interpolating URLs",async()=>{
- const original=globalThis.fetch;let calls=0;const paths:string[]=[];
- globalThis.fetch=async(url)=>{calls++;paths.push(String(url));const u=new URL(String(url));
-  if(u.pathname==="/book")return Response.json({asset_id:u.searchParams.get("token_id"),market:condition,timestamp:Date.now(),bids:[],asks:[{price:"0.5",size:"1"}]});
-  if(u.pathname==="/prices-history")return Response.json({history:[{t:1700000000,p:.5},{t:-1,p:2}]});
-  return Response.json({events:[],pagination:{hasMore:false}});
- };
+test("public data routes use the authenticated local bridge and encode search instead of interpolating URLs",async()=>{
+ const original=globalThis.fetch;const paths:string[]=[];
+ globalThis.fetch=async(url,init)=>{assert.ok(String(url).startsWith('http://127.0.0.1:'));assert.ok(new Headers(init?.headers).has('x-internal-live-secret'));const {publicData}=JSON.parse(String(init?.body));paths.push(publicData.path);return Response.json({events:[],pagination:{hasMore:false}});};
  try{
-  await Promise.all(Array.from({length:12},()=>polyDiscover("dedup-stream-grid")));assert.equal(calls,1);
-  await polyDiscover("a&url=https://evil.invalid");assert(paths[1].includes("q=a%26url%3Dhttps%3A%2F%2Fevil.invalid"));
-
-  await assert.rejects(()=>polyBook("../evil"));
+  await polyDiscover("a&url=https://evil.invalid");assert(paths[0].includes("q=a%26url%3Dhttps%3A%2F%2Fevil.invalid"));await assert.rejects(()=>polyBook("../evil"));
  }finally{globalThis.fetch=original;}
 });
 test("void refunds the original position cost, never share payout",()=>{

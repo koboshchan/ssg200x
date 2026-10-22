@@ -1,11 +1,7 @@
 import {z} from "zod";
-import {AppError,ensure} from "./errors";
+import {ensure} from "./errors";
 import type {PolyMarket,PolyEvent,PolyBook,PolyLevel,PolyResolution} from "./polymarket-types";
 const GAMMA="https://gamma-api.polymarket.com",CLOB="https://clob.polymarket.com";
-type DataSlot={until:number;value?:unknown;error?:AppError;pending?:Promise<unknown>};
-// App Router bundles can each load this module, keep one process-wide cache.
-const shared=globalThis as typeof globalThis&{__polymarketDataSlots?:Map<string,DataSlot>};
-const slots=shared.__polymarketDataSlots??=new Map<string,DataSlot>();
 const raw=z.record(z.string(),z.unknown());
 export const polyId=z.string().regex(/^\d{1,24}$/);
 export const polyToken=z.string().regex(/^\d{1,80}$/);
@@ -24,24 +20,9 @@ export function polyFixed(x:unknown,places=6):number{
  ensure(n<=BigInt(Number.MAX_SAFE_INTEGER),"Upstream value is too large.",503);return Number(n);
 }
 async function get(path:string,ttl:number,fresh=false):Promise<unknown>{
- const now=Date.now(),old=slots.get(path);
- if(old?.pending)return structuredClone(await old.pending);
- if(!fresh&&old&&old.until>now){if(old.error)throw old.error;return structuredClone(old.value);}
- ensure([...slots.values()].filter(x=>x.pending).length<64,"Prediction data is busy. Try again.",503);
- if(slots.size>=512){for(const [key,value]of slots){if(!value.pending){slots.delete(key);break;}}}
- const entry:{until:number;value?:unknown;error?:AppError;pending?:Promise<unknown>}={until:0};
- const pending=(async()=>{
-  try{
-   const response=await fetch(path,{signal:AbortSignal.timeout(6000),cache:"no-store",redirect:"error",headers:{Accept:"application/json"}});
-   ensure(response.ok,"Prediction data unavailable. Try again.",503);
-   const reader=response.body?.getReader();ensure(reader,"Empty prediction response.",503);
-   let size=0,body="";const decoder=new TextDecoder();
-   try{while(true){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;ensure(size<=6_000_000,"Prediction response too large.",503);body+=decoder.decode(part.value,{stream:true});}body+=decoder.decode();}
-   finally{await reader.cancel();}
-   const value:unknown=JSON.parse(body);entry.value=value;entry.until=Date.now()+ttl;return value;
-  }catch{entry.error=new AppError("Prediction data unavailable. Try again.",503);entry.until=Date.now()+2000;throw entry.error;}
-  finally{entry.pending=undefined;}
- })();entry.pending=pending;slots.set(path,entry);return structuredClone(await pending);
+ // All route workers use the single server-owned public cache, budgets and retry gate.
+ const response=await fetch(`http://127.0.0.1:${Number(process.env.PORT||3000)}/internal-polymarket`,{method:"POST",headers:{"content-type":"application/json","x-internal-live-secret":process.env.INTERNAL_LIVE_SECRET||""},body:JSON.stringify({publicData:{path,ttl,fresh}}),signal:AbortSignal.timeout(15000),cache:"no-store"}).catch(()=>null);
+ ensure(response?.ok,"Prediction data unavailable. Try again.",503);return response.json();
 }
 export function normalizePolyMarket(value:unknown,now=Date.now()):PolyMarket{
  const x=record(value),version=x.version==="v2"?"v2":x.version==="v1"||x.version==null?"v1":"unsupported";
