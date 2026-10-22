@@ -1,7 +1,20 @@
 import {endpoint,parse} from '@/lib/api';
 import {rateLimit} from '@/lib/store';
-import {polyTradeSchema} from '@/lib/polymarket';
+import {z} from 'zod';
+import {polyId,polyMarket} from '@/lib/polymarket-data';
 import {polymarketTrade} from '@/lib/polymarket-store';
+import {outcomeFor} from '@/lib/polymarket-view';
+import {AppError} from '@/lib/errors';
+const body=z.object({marketId:polyId,side:z.enum(['yes','no']),action:z.enum(['buy','sell']),amountCents:z.number().int().positive().optional(),shares:z.number().positive().max(1e9).optional(),limitPrice:z.number().positive().lt(1),requestId:z.string().uuid(),requestAt:z.number().int()}).strict();
 export const POST=(request:Request)=>endpoint(request,async who=>{
- await rateLimit('polymarket.trade:'+who.id,40);return polymarketTrade(who,await parse(request,polyTradeSchema));
+ await rateLimit('polymarket.trade:'+who.id,40);
+ const b=await parse(request,body);
+ const amount=b.action==='buy'?b.amountCents:b.shares==null?undefined:Math.round(b.shares*1e6);
+ if(!amount||!Number.isSafeInteger(amount)||amount<=0)throw new AppError('Enter an amount.',400);
+ const market=await polyMarket(b.marketId);
+ const tokenId=outcomeFor(market,b.side).tokenId;
+ const pf=await polymarketTrade(who,{action:b.action,marketId:b.marketId,tokenId,amount,limitPrice:b.limitPrice,requestId:b.requestId,requestAt:b.requestAt});
+ const h=pf.history.find(x=>x.requestId===b.requestId);
+ const shares=(h?.shareMicros??0)/1e6,cents=h?.amount??0;
+ return{wallet:pf.wallet,fill:{shares,cents,price:shares>0?cents/100/shares:0}};
 });
