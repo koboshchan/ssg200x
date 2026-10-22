@@ -1,4 +1,5 @@
 /** Frontend-facing adapters over the prediction core. Cents/prices/decimal shares externally, micros internally. No image URLs are exposed. */
+import {polyImagePath} from "./polymarket-images";
 import {ensure} from "./errors";
 import {polyBook,polyMarket,QUOTE_TTL} from "./polymarket-data";
 import {fillPolymarket,polySettings} from "./polymarket";
@@ -19,11 +20,11 @@ export const sideOf=(m:{outcomes:{label:string;tokenId:string}[]},tokenId:string
 export function viewSettings(r:Room){const s=polySettings(r);return{enabled:s.enabled,maxTrade:s.maxTrade,maxTradeCents:s.maxTrade};}
 export function viewMarket(m:PolyMarket){
  const y=m.outcomes.length===2?outcomeFor(m,"yes"):m.outcomes[0],n=m.outcomes.length===2?outcomeFor(m,"no"):m.outcomes[1];
- return{id:m.id,question:m.groupItemTitle||m.question,fullQuestion:m.question,outcomes:[y,n].filter(Boolean).map(o=>({label:o.label,tokenId:o.tokenId,price:o.price??0})),volume:m.volume,liquidity:m.liquidity,closed:m.closed||!m.acceptingOrders,endDate:m.endDate};
+ return{id:m.id,question:m.groupItemTitle||m.question,fullQuestion:m.question,outcomes:[y,n].filter(Boolean).map(o=>({label:o.label,tokenId:o.tokenId,price:o.price??0})),volume:m.volume,liquidity:m.liquidity,closed:m.closed||!m.acceptingOrders,resolved:/^(resolved|finalized)$/i.test(m.resolutionStatus||""),image:polyImagePath(m.image),endDate:m.endDate};
 }
 export function viewEvent(e:PolyEvent,extra:Record<string,unknown>={}){
  const markets=e.markets.filter(m=>m.outcomes.length===2&&m.version!=="unsupported");
- rememberEvents([e]);return{id:e.id,title:e.title,category:e.tags.find(t=>t.label&&!/^(all|featured|trending)$/i.test(t.label))?.label,volume:e.volume,volume24hr:e.volume24hr,liquidity:markets.reduce((s,m)=>s+m.liquidity,0),endDate:markets.map(m=>m.endDate).filter(Boolean).sort()[0]??null,closed:markets.length===0||markets.every(m=>m.closed||!m.acceptingOrders),description:e.description,markets:markets.map(viewMarket),...extra};
+ rememberEvents([e]);return{id:e.id,title:e.title,image:polyImagePath(e.image||markets.find(m=>m.image)?.image),category:e.tags.find(t=>t.label&&!/^(all|featured|trending)$/i.test(t.label))?.label,volume:e.volume,volume24hr:e.volume24hr,liquidity:markets.reduce((s,m)=>s+m.liquidity,0),endDate:markets.map(m=>m.endDate).filter(Boolean).sort()[0]??null,closed:markets.length===0||markets.every(m=>m.closed||!m.acceptingOrders),description:e.description,markets:markets.map(viewMarket),...extra};
 }
 const tagIds=new Map<string,string>();
 export function rememberTags(events:PolyEvent[]){for(const e of events)for(const t of e.tags)if(t.label&&t.id&&tagIds.size<500)tagIds.set(t.label,t.id);}

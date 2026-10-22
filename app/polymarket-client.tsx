@@ -11,7 +11,7 @@ import styles from "./polymarket.module.css";
 
 type Outcome={label:string;tokenId:string;price:number};
 type StreamPrice={marketId:string;live:boolean;serverNow:number;rx?:number;books:{asset_id:string;timestamp:number;bids:{price:string;size:string}[];asks:{price:string;size:string}[]}[]};
-type Market={id:string;question:string;outcomes:Outcome[];volume?:number;closed?:boolean};
+type Market={id:string;question:string;outcomes:Outcome[];volume?:number;closed?:boolean;resolved?:boolean};
 type PEvent={enabled?:boolean;maxTradeCents?:number;id:string;title:string;category?:string;image?:string;volume?:number;liquidity?:number;endDate?:string;closed?:boolean;description?:string;resolutionSource?:string;markets:Market[]};
 type Position={marketId:string;eventId?:string;eventTitle?:string;question:string;side:"yes"|"no";shares:number;avgPrice:number;curPrice:number;costCents:number;valueCents:number;pnlCents:number;status:"open"|"won"|"lost"|"void";priceLive?:boolean;marketClosed?:boolean};
 type Activity={t:number;type:string;marketId?:string;question?:string;side?:string;shares?:number;price?:number;cents?:number};
@@ -81,11 +81,17 @@ function Browse({onOpen,onSettings}:{onOpen:(id:string)=>void;onSettings:(s:{ena
  </section>;
 }
 
+function MarketImage({src,size}:{src?:string;size:number}){
+ const [failed,setFailed]=useState(false);
+ useEffect(()=>setFailed(false),[src]);
+ return src&&!failed?<img className={styles.thumb} src={src} alt="" width={size} height={size} loading="lazy" onError={()=>setFailed(true)}/>:<span className={styles.thumb} aria-hidden="true"/>;
+}
+
 function EventCard({e,onOpen}:{e:PEvent;onOpen:(id:string)=>void}){
- const multi=e.markets.length>1,top=[...e.markets].sort((a,b)=>yes(b)-yes(a));
+ const live=e.markets.filter(m=>!m.closed&&!m.resolved),multi=live.length>1,top=[...live].sort((a,b)=>yes(b)-yes(a));
  return <button className={styles.card} onClick={()=>onOpen(e.id)}>
-  <div className={styles.cardTop}>{e.image?<img className={styles.thumb} src={e.image} alt="" width={40} height={40} loading="lazy"/>:<span className={styles.thumb} aria-hidden="true"/>}<h3>{e.title}</h3>{!multi&&e.markets[0]&&<span className={styles.big}>{pct(yes(e.markets[0]))}<small>chance</small></span>}</div>
-  {multi?<ul className={styles.rows}>{top.slice(0,3).map(m=><li key={m.id}><span>{m.question}</span><b>{pct(yes(m))}</b></li>)}{top.length>3&&<li className={styles.muted}>+{top.length-3} more</li>}</ul>:e.markets[0]&&<div className={styles.yn}><span className={styles.yes}>Yes {cents(yes(e.markets[0]))}</span><span className={styles.no}>No {cents(1-yes(e.markets[0]))}</span></div>}
+  <div className={styles.cardTop}><MarketImage src={e.image} size={40}/><h3>{e.title}</h3>{!multi&&top[0]&&<span className={styles.big}>{pct(yes(top[0]))}<small>chance</small></span>}</div>
+  {!top.length?<p className={styles.muted}>No live outcomes</p>:multi?<ul className={styles.rows}>{top.slice(0,3).map(m=><li key={m.id}><span>{m.question}</span><b>{pct(yes(m))}</b></li>)}{top.length>3&&<li className={styles.muted}>+{top.length-3} more</li>}</ul>:top[0]&&<div className={styles.yn}><span className={styles.yes}>Yes {cents(yes(top[0]))}</span><span className={styles.no}>No {cents(1-yes(top[0]))}</span></div>}
   <div className={styles.meta}><span>{compact(e.volume)} Vol.</span>{e.category&&<span>{e.category}</span>}{e.closed&&<span>Closed</span>}</div>
  </button>;
 }
@@ -128,7 +134,7 @@ function EventView({id,portfolio,settings,onBack,onTraded}:{id:string;portfolio:
   {!ev&&!err&&<div className={styles.skel} style={{height:300}}/>}
   {ev&&<div className={styles.detail}>
    <div className={styles.main}>
-    <div className={styles.cardTop}>{ev.image?<img className={styles.thumb} src={ev.image} alt="" width={56} height={56}/>:<span className={styles.thumb} aria-hidden="true"/>}<div><h2>{ev.title}</h2><div className={styles.meta}><span>{compact(ev.volume)} Vol.</span>{ev.endDate&&<span>Ends {new Date(ev.endDate).toLocaleDateString([],{month:"short",day:"numeric",year:"numeric"})}</span>}{ev.category&&<span>{ev.category}</span>}{ev.closed&&<span>Closed</span>}</div></div></div>
+    <div className={styles.cardTop}><MarketImage src={ev.image} size={56}/><div><h2>{ev.title}</h2><div className={styles.meta}><span>{compact(ev.volume)} Vol.</span>{ev.endDate&&<span>Ends {new Date(ev.endDate).toLocaleDateString([],{month:"short",day:"numeric",year:"numeric"})}</span>}{ev.category&&<span>{ev.category}</span>}{ev.closed&&<span>Closed</span>}</div></div></div>
     {market&&<Chart marketId={market.id} ready={liveStream?.marketId===market.id}/>}
     {ev.markets.length>1&&<ul className={styles.outcomes} aria-label="Outcomes">{ev.markets.map(m=><li key={m.id}><button aria-pressed={m.id===mid} onClick={()=>setMid(m.id)}><span>{m.question}</span><b>{pct(yes(m))}</b></button></li>)}</ul>}
     {market&&<><div className={styles.tabs2} role="tablist">{(["book","activity","about"] as const).map(t=><button key={t} role="tab" aria-selected={tab===t} onClick={()=>setTab(t)}>{t==="book"?"Order book":t==="activity"?"Activity":"About"}</button>)}</div>
