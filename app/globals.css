@@ -206,7 +206,8 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
 
 /* dense 7-12 seat tables: ring on desktop, stacked grid on small screens */
 .felt-wrapper.dense{height:var(--dense-h)}
-.felt-wrapper.dense .felt{inset:21% 20%}
+@media(min-width:761px){.felt-wrapper.dense .felt{inset:19% 12px;border-radius:999px}.felt-wrapper.dense .felt:before{border-radius:999px}}
+.felt-wrapper.dense .felt{inset:19% 12px}
 .felt-wrapper.dense .seat{left:var(--x);top:var(--y);right:auto;bottom:auto;transform:translate(-50%,-50%);width:120px;min-width:0;max-width:120px}
 .felt-wrapper.dense .seat-top{padding:6px;gap:5px}
 .felt-wrapper.dense .seat-top strong{max-width:68px;font-size:10px}

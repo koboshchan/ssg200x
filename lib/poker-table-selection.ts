@@ -26,8 +26,8 @@ export const isDenseTable=(count:number)=>count>POKER_BASE_SEATS;
 export const denseTableHeight=(count:number)=>560+(count-POKER_BASE_SEATS)*30;
 /** Seat centres in percent of the wrapper, clockwise from the top; index i keeps its slot identity (no remap of occupied seats). */
 export function denseSeatSlots(count:number):SeatSlot[]{
- if(count>=11){
-  // Eleven or twelve seats cannot sit on an ellipse without neighbours colliding near the top and bottom, so spread them evenly along a rounded rectangle, clockwise from the top.
+ if(count>POKER_BASE_SEATS){
+  // Seven or more seats follow the long stadium felt: spread them evenly along a rounded rectangle, clockwise from the top.
   const X0=11,X1=89,Y0=9,Y1=91,w=X1-X0,h=Y1-Y0,per=2*(w+h);
   return Array.from({length:count},(_,i)=>{let d=((i+.5)*per/count+w/2)%per,x:number,y:number;
    if(d<w){x=X0+d;y=Y0}else if((d-=w)<h){x=X1;y=Y0+d}else if((d-=h)<w){x=X1-d;y=Y1}else{d-=w;x=X0;y=Y1-d}
