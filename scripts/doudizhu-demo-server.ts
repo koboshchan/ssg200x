@@ -1,5 +1,6 @@
 import {createServer} from "node:http";
 import {readFileSync} from "node:fs";
+import {execFileSync} from "node:child_process";
 import {resolve} from "node:path";
 import {doudizhuRead,doudizhuMove} from "../lib/doudizhu-store";
 import {mutate} from "../lib/store";
@@ -19,7 +20,9 @@ z.object({...stamp,type:z.literal("bid"),bid:z.number().int().min(0).max(3)}).st
 z.object({...stamp,type:z.literal("play"),cards:z.array(z.string().max(2)).min(1).max(20)}).strict()
 ]);
 const root=resolve("demo-public");
-createServer(async(req,res)=>{res.setHeader("Cache-Control","no-store");try{
+const servedSha=execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim();
+const server=createServer(async(req,res)=>{res.setHeader("Cache-Control","no-store");res.setHeader("X-Demo-Commit",servedSha);res.setHeader("X-Content-Type-Options","nosniff");try{
+ if(req.url==="/__version"){res.setHeader("Content-Type","application/json");res.end(JSON.stringify({sha:servedSha,database:"isolated-demo",engine:"production-doudizhu"}));return;}
  if(req.url?.startsWith("/api/doudizhu")){
   res.setHeader("Content-Type","application/json");
   const i=Number(req.headers["x-demo-seat"]||0),who=users[i];if(!who)throw Error("Unknown demo player");
@@ -32,4 +35,5 @@ createServer(async(req,res)=>{res.setHeader("Cache-Control","no-store");try{
  if(!path){res.writeHead(404).end();return;}res.setHeader("Content-Type",path.endsWith(".js")?"text/javascript":path.endsWith(".css")?"text/css":"text/html");res.end(readFileSync(resolve(root,path)));
 }catch(e){res.writeHead((e as any).status||400,{"Content-Type":"application/json"});res.end(JSON.stringify({error:e instanceof Error?e.message:"Error"}));}
 }).listen(39761,"0.0.0.0");
+server.on("error",error=>{console.error(error);process.exit(1);});
 setInterval(async()=>{try{const r=await readRoom();if(doudizhuNeedsTick(r,Date.now()))await mutate(r=>tickDoudizhu(r,Date.now()));}catch{}},1000);
