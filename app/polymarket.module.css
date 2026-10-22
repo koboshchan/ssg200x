@@ -41,3 +41,5 @@
 .page{min-width:0;box-sizing:border-box;width:100%}.page>section{min-width:0;max-width:100%}.scroll{width:100%;max-width:100%;min-width:0}
 
 .summary{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}.summary .stats{margin-bottom:0}.bulkActions{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}.bulkActions button{padding:8px 12px;min-height:36px}.bulkFailures{flex-basis:100%;color:var(--red);font-size:13px}.bulkFailures p{margin:6px 0}
+
+.sellSlider{display:flex;flex-direction:column;gap:6px;min-width:0}.sellSlider label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted)}.sellSlider input{width:100%;min-width:0;padding:0;accent-color:var(--blue)}.sellSnaps{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}.sellSnaps button{padding:6px 4px;font-size:12px}.sellSnaps button[aria-pressed=true]{background:var(--blue);color:var(--surface)}

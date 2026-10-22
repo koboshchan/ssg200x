@@ -2,6 +2,7 @@
 import {Suspense,useCallback,useEffect,useMemo,useRef,useState} from "react";
 import {useRouter,useSearchParams} from "next/navigation";
 import {useUser} from "@clerk/nextjs";
+import {sharesAtPercent,percentOfShares} from "@/lib/polymarket-sell-slider";
 import {matchingPositions,closeIndependently,type CloseMode} from "@/lib/polymarket-close";
 import {getTabHeaders} from "@/lib/tab-identity";
 import {useLive,useLiveEvent} from "./live-provider";
@@ -161,6 +162,8 @@ function Ticket({ev,market,portfolio,settings,onTraded,stream}:{stream:StreamPri
  const [quote,setQuote]=useState<Quote|null>(null),[quoteErr,setQuoteErr]=useState(false),[tick,setTick]=useState(Date.now());
  useEffect(()=>{const t=setInterval(()=>setTick(Date.now()),1000);return()=>clearInterval(t);},[]);
  const pos=portfolio?.positions.find(p=>p.marketId===market.id&&p.side===side&&p.status==="open");
+ const sellPercent=percentOfShares(pos?.shares||0,Number(amount));
+ function chooseSellPercent(percent:number){setAmount(String(sharesAtPercent(pos?.shares||0,percent)));reqId.current=rid();reqAt.current=Date.now();}
  const n=Number(amount),valid=action==="buy"?Number.isInteger(n)&&n>0:Number.isFinite(n)&&n>=0.000001&&/^\d*\.?\d{0,6}$/.test(amount);
  const qs="/quote?marketId="+encodeURIComponent(market.id)+"&side="+side+"&action="+action+(valid?(action==="buy"?"&amountCents="+n*100:"&shares="+n):"");
  useEffect(()=>{
@@ -206,9 +209,15 @@ function Ticket({ev,market,portfolio,settings,onTraded,stream}:{stream:StreamPri
   <p role="status" data-stream-state={streamLive?"live":"waiting"} className={styles.hint}>{streamLive?"LIVE · Shared market stream":"Connecting to live market stream…"}</p>
   <p className={styles.tq}>{market.question}</p>
   <div className={styles.seg} role="group" aria-label="Action">{(["buy","sell"] as const).map(a=><button key={a} aria-pressed={action===a} onClick={()=>{setAction(a);setErr("");setAmount(a==="buy"?"10":"");reqId.current=rid();reqAt.current=Date.now();}}>{a==="buy"?"Buy":"Sell"}</button>)}</div>
-  <div className={styles.sides} role="group" aria-label="Outcome"><button className={styles.yesBtn} aria-pressed={side==="yes"} onClick={()=>{setSide("yes");reqId.current=rid();reqAt.current=Date.now();}}>Yes {cents(py)}</button><button className={styles.noBtn} aria-pressed={side==="no"} onClick={()=>{setSide("no");reqId.current=rid();reqAt.current=Date.now();}}>No {cents(1-py)}</button></div>
+  <div className={styles.sides} role="group" aria-label="Outcome"><button className={styles.yesBtn} aria-pressed={side==="yes"} onClick={()=>{setSide("yes");if(action==="sell")setAmount("");reqId.current=rid();reqAt.current=Date.now();}}>Yes {cents(py)}</button><button className={styles.noBtn} aria-pressed={side==="no"} onClick={()=>{setSide("no");if(action==="sell")setAmount("");reqId.current=rid();reqAt.current=Date.now();}}>No {cents(1-py)}</button></div>
   <label className={styles.field}><span>{label}</span>{action==="buy"?<CasinoAmountInput value={amount} onChange={v=>{setAmount(v);reqId.current=rid();reqAt.current=Date.now();}} min={1}/>:<input type="text" inputMode="decimal" autoComplete="off" value={amount} onChange={e=>{if(/^\d*\.?\d{0,6}$/.test(e.target.value)){setAmount(e.target.value);reqId.current=rid();reqAt.current=Date.now();}}}/>}</label>
-  {action==="sell"&&<div className={styles.quick}><span className={styles.muted}>{pos?"You hold "+(Math.floor(pos.shares*1e6)/1e6)+" "+side.toUpperCase():"No "+side.toUpperCase()+" shares held"}</span>{pos&&<button onClick={()=>{setAmount(String(Math.floor(pos.shares*1e6)/1e6));reqId.current=rid();reqAt.current=Date.now();}}>Max</button>}</div>}
+  {action==="sell"&&<div className={styles.sellSlider}>
+   <label>Position to sell · {Number(sellPercent.toFixed(2))}%
+    <input aria-label={"Sell percentage of "+side.toUpperCase()+" shares"} aria-valuetext={Number(sellPercent.toFixed(2))+"% of held shares"} type="range" min="0" max="100" step="1" value={sellPercent} disabled={busy||!pos?.shares} onChange={e=>chooseSellPercent(Number(e.target.value))}/>
+   </label>
+   <div className={styles.sellSnaps}>{[25,50,75,100].map(p=><button key={p} disabled={busy||!pos?.shares} aria-pressed={sellPercent===p} onClick={()=>chooseSellPercent(p)}>{p}%</button>)}</div>
+   <small className={styles.hint}>{pos?.shares?"You hold "+pos.shares+" "+side.toUpperCase()+" shares. 100% sells the exact holding.":"No "+side.toUpperCase()+" shares held."}</small>
+  </div>}
   {action==="buy"&&<div className={styles.quick}>{[5,10,25,100].map(v=><button key={v} onClick={()=>{setAmount(String(v));reqId.current=rid();reqAt.current=Date.now();}}>${v}</button>)}</div>}
   <dl className={styles.sum}><div><dt>{action==="buy"?"Buy price":"Sell price"}</dt><dd>{fresh?cents(price):valid?(quoteErr?"Unavailable":"Quoting…"):"-"}</dd></div><div><dt>{action==="buy"?"Est. shares":"Shares"}</dt><dd>{action==="buy"?(fresh?shares.toFixed(2):"-"):(valid?(Math.min(n,pos?.shares||0)).toString():"-")}</dd></div><div><dt>{action==="buy"?"Payout if "+side.toUpperCase():"You receive"}</dt><dd className={styles.pos}>{payoutC>0?money(Math.round(payoutC)):"-"}</dd></div></dl>
   {valid&&!fresh&&<p className={styles.hint} role="status">{quoteErr||(quote&&qAge>QUOTE_MAX_AGE)?"Live price unavailable, trading paused for this market.":"Getting live price…"}</p>}
