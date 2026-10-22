@@ -64,10 +64,13 @@ test('hydrated Games UI reconciles identical receipts, restoration, concurrent d
  await r.waitForFunction(()=>sessionStorage.getItem('ssg-games-v1:userA')===null);await quiet(r);await r.close();
  // Out-of-order Plinko results retain both identities despite snapshot version ordering.
  const d=await mount();const drop=d.getByRole('button',{name:'Drop',exact:true});await drop.click();await drop.click();await count(d,2);
+ assert.equal(await d.getByRole('status',{name:'Plinko in progress'}).count(),1);
+ assert.equal(await d.getByText(/Dropping/i).count(),0);
  const ids=[JSON.parse(await body(d,0)).requestId,JSON.parse(await body(d,1)).requestId];assert.notEqual(ids[0],ids[1]);
  await reply(d,1,200,snap(5,[plinko(ids[1],0,11.31)],{actionGameId:ids[1]}));
  await reply(d,0,200,snap(4,[plinko(ids[0],4,.35)],{actionGameId:ids[0]}));
  await d.waitForFunction(()=>document.querySelectorAll('[aria-label="Recent drops"] li').length===2);
+ await d.waitForFunction(()=>!document.querySelector('[aria-label="Plinko in progress"]'));
  const trail=await d.locator('[aria-label="Recent drops"]').innerText();assert.match(trail,/11\.31×/);assert.match(trail,/0\.35×/);
  assert.equal(await storage(d,'ssg-games-plinko-v1:userA'),null);await quiet(d);
  // Plinko retries exactly once and leaves an identical manual receipt after repeated loss.

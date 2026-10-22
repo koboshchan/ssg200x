@@ -194,14 +194,16 @@ function Plinko({balls,drops,trail,onDone,onRetry,blocked}:{balls:Ball[];drops:D
  const [flash,setFlash]=useState<number|null>(null);
  useEffect(()=>{if(slot===undefined||!last)return;setFlash(slot);const t=setTimeout(()=>setFlash(null),900);return()=>clearTimeout(t);},[last?.id,slot]);
  const idle=!balls.length&&!drops.length&&!trail.length;
+ const busy=balls.length>0||drops.length>0,unconfirmed=drops.filter(d=>d.state==="unconfirmed");
  return <div>
   <div className={styles.plinko} role="img" aria-label={last?"Last ball landed in slot "+((slot??0)+1)+", "+mult(PLINKO[slot??0]):"Plinko board"}>
+   {busy?<span className={styles.plinkoSpinner} role="status" aria-label="Plinko in progress"/>:null}
    {Array.from({length:rows},(_,r)=>Array.from({length:r+1},(_,c)=><i key={r+"-"+c} className={styles.peg} style={{left:50+(c-r/2)*(100/9)+"%",top:(r+1)*(88/rows)-4+"%"}}/>))}
    {balls.map(b=><PlinkoBall key={b.id} game={b.game} onDone={onDone}/>)}
    <div className={styles.slots}>{Array.from({length:rows+1},(_,i)=><b key={i} className={flash===i?styles.hit:""} aria-label={"Slot "+(i+1)+", "+mult(PLINKO[i])}>{PLINKO[i].toFixed(2)}×</b>)}</div>
    {idle?<p className={styles.empty}>Place a bet and drop the ball. You can drop several at once.</p>:null}
   </div>
-  {drops.length?<ul className={styles.drops} aria-label="Drops awaiting a result">{drops.map(d=><li key={d.rid} className={d.state==="unconfirmed"?styles.warn:""}>{d.state==="sending"?<span>Dropping…</span>:<><span>Unconfirmed</span><button disabled={blocked} onClick={()=>onRetry(d.rid)}>Retry</button></>}</li>)}</ul>:null}
+  {unconfirmed.length?<ul className={styles.drops} aria-label="Drops awaiting a result">{unconfirmed.map(d=><li key={d.rid} className={styles.warn}><span>Unconfirmed</span><button disabled={blocked} onClick={()=>onRetry(d.rid)}>Retry</button></li>)}</ul>:null}
   {trail.length?<ul className={styles.trail} aria-label="Recent drops">{trail.map(g=>{const win=g.payout>=g.bet;return <li key={g.id} className={win?styles.win:styles.lose}><b>{mult(g.multiplier)}</b><span>{win?"+":"-"}{money(Math.abs(g.payout-g.bet))}</span></li>;})}</ul>:null}
  </div>;
 }

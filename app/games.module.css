@@ -53,3 +53,7 @@
 .chick{position:absolute;top:26px;font-size:30px;color:var(--ink);line-height:1;transition:left .35s var(--ease);pointer-events:none}.dead{color:var(--red);font-weight:700;opacity:.85}.safeEnd{filter:drop-shadow(0 0 4px var(--ok))}.hop{animation:hop .35s var(--ease)}
 @keyframes hop{50%{transform:translateY(-14px)}}
 @media(max-width:560px){.lanes{height:92px}.lane{font-size:8.5px}.curb{font-size:8.5px}.chick{font-size:22px;top:24px}.roadStats strong{font-size:14px}.choices{flex-wrap:wrap}.choices button{flex:1}.drops li,.trail li{font-size:11px}.trail li{min-width:54px}}
+
+.plinkoSpinner{position:absolute;top:8px;left:8px;width:14px;height:14px;box-sizing:border-box;border:2px solid var(--line);border-top-color:var(--muted);border-radius:50%;animation:plinkoSpin .8s linear infinite;pointer-events:none}
+@keyframes plinkoSpin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.plinkoSpinner{animation:none}}
