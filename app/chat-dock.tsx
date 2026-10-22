@@ -4,6 +4,7 @@ import {usePathname} from "next/navigation";
 import {useUser} from "@clerk/nextjs";
 import {useLive,useLiveEvent} from "./live-provider";
 import {ChatClient,type ChatMessage,type Snapshot} from "@/lib/chat-client";
+import {chatRequestBudget} from "@/lib/chat-request-budget";
 import {indexedDbStore} from "@/lib/chat-store";
 import WordEntry from "./word-entry";
 import {MAX_TEXT_BYTES} from "@/lib/chat-crypto";
@@ -31,7 +32,15 @@ export default function ChatDock(){
   if(!isLoaded||!userId)return;
   // Table changes select a retained room client, not a new identity/key lifecycle.
   // All three rooms share LiveProvider's one authenticated socket.
-  const retained=new Map(["main","poker-02","poker-03"].map(room=>[room,new ChatClient(userId,(event,payload)=>live.request("chat:"+event,{...(payload as object),chatRoom:room}),indexedDbStore(room),Date.now,undefined,undefined,room)]));
+  let requests:Promise<unknown>=Promise.resolve();
+  // A previously viewed room can still be finishing sync. Queue budget claims
+  // across retained clients instead of rejecting the next room as busy.
+  const budget={...chatRequestBudget,request:(...args:Parameters<typeof chatRequestBudget.request>)=>{
+   const next=requests.then(()=>chatRequestBudget.request(...args));
+   requests=next.catch(()=>{});
+   return next;
+  }};
+  const retained=new Map(["main","poker-02","poker-03"].map(room=>[room,new ChatClient(userId,(event,payload)=>live.request("chat:"+event,{...(payload as object),chatRoom:room}),indexedDbStore(room),Date.now,undefined,budget,room)]));
   setBinding({user:userId,clients:retained});
   return()=>{for(const c of retained.values())c.close();};
  },[isLoaded,userId,live.request]);

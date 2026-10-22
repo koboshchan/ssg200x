@@ -61,3 +61,8 @@ test("hole cards and bets remain inside their own flow-layout seat at all counts
  assert.match(css,/grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
  assert.match(css,/grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
 });
+test("retained clients queue shared account budget claims during in-flight switches",()=>{
+ assert.match(ui,/requests.then\(\(\)=>chatRequestBudget.request\(\.\.\.args\)\)/);
+ assert.match(ui,/requests=next.catch\(\(\)=>\{\}\)/);
+ assert.match(ui,/Date.now,undefined,budget,room/);
+});
