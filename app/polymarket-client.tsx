@@ -14,7 +14,7 @@ type Activity={t:number;type:string;marketId?:string;question?:string;side?:stri
 type Portfolio={wallet:number;positions:Position[];activity:Activity[]};
 type Listing={enabled:boolean;maxTradeCents:number;wallet?:number;categories?:string[];events:PEvent[];total?:number};
 type Book={bids:{price:number;size:number}[];asks:{price:number;size:number}[]};
-type Quote={price:number;shares:number;cents:number;asOf:number;serverNow?:number;rx?:number};
+type Quote={price:number;shares:number;cents:number;asOf:number;tradable?:boolean;serverNow?:number;rx?:number};
 const QUOTE_MAX_AGE=15000;
 type Trade={t:number;side?:string;price:number;size:number;user?:string};
 
@@ -154,7 +154,7 @@ function Ticket({ev,market,portfolio,settings,onTraded}:{ev:PEvent;market:Market
   const d=setTimeout(go,250),t=setInterval(go,3000);return()=>{live=false;clearTimeout(d);clearInterval(t);};
  },[qs,valid,settings?.enabled]);
  const qAge=quote?((quote.serverNow??quote.rx??tick)-quote.asOf)+(tick-(quote.rx??tick)):Infinity;
- const fresh=!!quote&&Number.isFinite(quote.asOf)&&qAge<=QUOTE_MAX_AGE&&quote.price>0;
+ const fresh=!!quote&&Number.isFinite(quote.asOf)&&quote.tradable!==false&&qAge<=QUOTE_MAX_AGE&&quote.price>0;
  const price=fresh?quote!.price:(side==="yes"?py:1-py);
  const max=settings?.maxTradeCents;
  const shares=action==="buy"?(fresh?quote!.shares:0):(valid?Math.min(n,pos?.shares||0):0);
