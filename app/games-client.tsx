@@ -7,10 +7,11 @@ import CasinoAmountInput from "./casino-amount-input";
 import {casinoInputCents} from "@/lib/casino-amount";
 import styles from "./games.module.css";
 import {PLINKO_RISKS,PLINKO_RISK_TABLES,LEGACY_PLINKO_TABLE,isPlinkoRisk,type PlinkoRisk,type PlinkoBucket} from "@/lib/plinko-risk";
+import {createPlinkoAnimation,samplePlinkoAnimation} from "@/lib/plinko-animation";
 
 type Kind="plinko"|"hilo"|"mines"|"dice"|"chicken";
 type Status="active"|"won"|"lost"|"cashed";
-type GameView={id:string;kind:Kind;bet:number;status:Status;revision:number;steps:number;multiplier:number;payout:number;createdAt:number;risk?:PlinkoRisk;plinkoTable?:readonly PlinkoBucket[];card?:number;cards?:number[];revealed?:number[];bombs?:number[];mines?:number;result?:{path?:number[];slot?:number;roll?:number;hit?:number;card?:number};target?:number;direction?:"over"|"under"};
+type GameView={id:string;kind:Kind;bet:number;status:Status;revision:number;steps:number;multiplier:number;payout:number;createdAt:number;risk?:PlinkoRisk;plinkoTable?:readonly (number|PlinkoBucket)[];card?:number;cards?:number[];revealed?:number[];bombs?:number[];mines?:number;result?:{path?:number[];slot?:number;roll?:number;hit?:number;card?:number};target?:number;direction?:"over"|"under"};
 type Snapshot={version:number;wallet:number;maxBet:number;serverNow:number;games:GameView[];houseEdge:number};
 type Pending={body:string;label:string};
 type Drop={rid:string;body:string;label:string;state:"sending"|"unconfirmed"};
@@ -21,7 +22,7 @@ const dkey=(u:string)=>"ssg-games-plinko-v1:"+u;
 const KINDS:{kind:Kind;label:string;blurb:string}[]=[{kind:"plinko",label:"Plinko",blurb:"Drop the ball, land a multiplier."},{kind:"hilo",label:"Hi-Lo",blurb:"Guess higher or lower, cash out any time."},{kind:"mines",label:"Mines",blurb:"Reveal gems, avoid the mines."},{kind:"dice",label:"Dice",blurb:"Roll over or under your target."},{kind:"chicken",label:"Chicken Road",blurb:"Cross lane after lane. Don't get hit."}];
 const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:n%100===0?0:2}).format(n/100);
 const mult=(n:number)=>(Math.round(n*100)/100).toFixed(2)+"×";
-const roundTable=(g:GameView)=>g.plinkoTable||(g.risk?PLINKO_RISK_TABLES[g.risk]:LEGACY_PLINKO_TABLE);
+const roundTable=(g:GameView)=>(g.plinkoTable||(g.risk?PLINKO_RISK_TABLES[g.risk]:LEGACY_PLINKO_TABLE)).map(b=>typeof b==="number"?b:b.multiplier);
 const rank=(c:number)=>c===11?"J":c===12?"Q":c===13?"K":c===14?"A":String(c);
 const done=(g:GameView)=>g.status!=="active";
 const key=(u:string)=>"ssg-games-v1:"+u;
@@ -189,23 +190,34 @@ function StartPanel({kind,game,blocked,send,drop,mines,setMines,amount,setAmount
 }
 function PlinkoBall({game,onDone}:{game:GameView;onDone:(g:GameView)=>void}){
  const el=useRef<HTMLSpanElement>(null),done_=useRef(onDone);done_.current=onDone;
- const path=game.result?.path;
  useEffect(()=>{
-  const e=el.current;if(!e||!path){done_.current(game);return;}
-  let x=0;const frames=[{left:"50%",top:"-4%"}];
-  path.forEach((b,i)=>{x+=b?1:0;frames.push({left:50+(x-(i+1)/2)*(100/9)+"%",top:(i+1)*(88/path.length)+"%"});});
-  if(matchMedia("(prefers-reduced-motion: reduce)").matches){done_.current(game);return;}
-  const an=e.animate(frames,{duration:path.length*260,easing:"cubic-bezier(.3,.1,.5,1)",fill:"forwards"});
-  an.onfinish=()=>done_.current(game);
-  return()=>an.cancel();
+  const e=el.current,board=e?.parentElement,path=game.result?.path,slot=game.result?.slot;
+  if(!e||!board||!path||slot===undefined){done_.current(game);return;}
+  const motion=matchMedia("(prefers-reduced-motion: reduce)");
+  if(motion.matches){done_.current(game);return;}
+  let frame=0,finished=false,start:number|undefined;
+  const rect=board.getBoundingClientRect(),bucket=board.querySelectorAll("b")[slot]?.getBoundingClientRect();
+  const trajectory=createPlinkoAnimation(path,slot,{width:rect.width,height:rect.height,landingX:bucket?bucket.left-rect.left+bucket.width/2:undefined,landingY:bucket?bucket.top-rect.top-8:undefined},game.id);
+  let sx=1,sy=1;
+  const observer=new ResizeObserver(entries=>{const box=entries[0]?.contentRect;if(box){sx=box.width/rect.width;sy=box.height/rect.height;}});observer.observe(board);
+  const finish=()=>{if(finished)return;finished=true;cancelAnimationFrame(frame);observer.disconnect();done_.current(game);};
+  const reduce=()=>{if(motion.matches)finish();};motion.addEventListener("change",reduce);
+  const tick=(now:number)=>{
+   if(finished)return;if(start===undefined)start=now;
+   const elapsed=(now-start)/1000,p=samplePlinkoAnimation(trajectory,elapsed);
+   e.style.transform=`translate3d(${p.x*sx}px,${p.y*sy}px,0)`;
+   if(elapsed>=trajectory.duration){finish();return;}frame=requestAnimationFrame(tick);
+  };
+  frame=requestAnimationFrame(tick);
+  return()=>{finished=true;cancelAnimationFrame(frame);observer.disconnect();motion.removeEventListener("change",reduce);};
   // eslint-disable-next-line react-hooks/exhaustive-deps
  },[]);
- return <span ref={el} className={styles.ball}/>;
+ return <span ref={el} className={styles.ball} style={{left:0,top:0,willChange:"transform"}}/>;
 }
 function Plinko({risk,setRisk,balls,drops,trail,onDone,onRetry,blocked}:{risk:PlinkoRisk;setRisk:(risk:PlinkoRisk)=>void;balls:Ball[];drops:Drop[];trail:GameView[];onDone:(g:GameView)=>void;onRetry:(rid:string)=>void;blocked:boolean}){
  const rows=8,last=trail[0],slot=last?.result?.slot,table=PLINKO_RISK_TABLES[risk];
  const [flash,setFlash]=useState<number|null>(null);
- useEffect(()=>{if(slot===undefined||!last||roundTable(last).some((b,i)=>b.multiplier!==table[i].multiplier)){setFlash(null);return;}setFlash(slot);const t=setTimeout(()=>setFlash(null),900);return()=>clearTimeout(t);},[last?.id,slot,table]);
+ useEffect(()=>{if(slot===undefined||!last||roundTable(last).some((b,i)=>b!==table[i].multiplier)){setFlash(null);return;}setFlash(slot);const t=setTimeout(()=>setFlash(null),900);return()=>clearTimeout(t);},[last?.id,slot,table]);
  const idle=!balls.length&&!drops.length&&!trail.length;
  const unconfirmed=drops.filter(d=>d.state==="unconfirmed");
  return <div>
