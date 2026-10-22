@@ -1,3 +1,4 @@
+import {randomUUID} from "node:crypto";
 import {AlpacaIexFeed, type StockSocket} from "./stock-feed";
 import {STOCK_SYMBOLS, type StockEnvironment, type StockSymbol} from "./stock-config";
 import {parseStockCalendar, parseStockClock, type StockClock, type StockSession} from "./stock-session";
@@ -12,14 +13,16 @@ export type StockRuntimeOptions = {
   fetch: typeof fetch;
   now: () => number;
   /** Persist state/tick under the caller's existing lease and room CAS fence. */
-  publish: (states: Record<StockSymbol, StockExecutionState>, tick?: StockTick) => Promise<void>;
+  publish: (states: () => Record<StockSymbol, StockExecutionState>, ticks: readonly StockTick[]) => Promise<void>;
   random?: () => number;
+  log?: (message:string) => void;
 };
 /** Lease-owned single upstream. No networking at import or construction.
  * Caller drives step() from its existing timer and calls stop() on lease loss.
  */
 export class StockRuntime {
   private connected=false;
+  private feedEpoch=randomUUID();
   private clock: StockClock|null=null;
   private sessions: StockSession[]=[];
   private ticks=new Map<StockSymbol,StockTick>();
@@ -29,6 +32,14 @@ export class StockRuntime {
   private stopped=false;
   private revision=0;
   private writes:Promise<void>=Promise.resolve();
+  private publishing=false;
+  private dirty=false;
+  private pending:StockTick[]=[];
+  private nextHeartbeat=0;
+  /** One in-flight batch plus at most 512 queued prints. Never coalesce prints:
+   * intermediate TP/SL/liquidation crossings must run in accepted arrival order.
+   * Only redundant metadata/heartbeat publications are coalesced. */
+  private readonly maxPending=512;
   private readonly feed:AlpacaIexFeed;
   constructor(private readonly o:StockRuntimeOptions) {
     this.feed=new AlpacaIexFeed({
@@ -36,7 +47,13 @@ export class StockRuntime {
       socket:o.socket,now:o.now,
       onState:state=>{
         this.connected=state==="subscribed";
-        if(!this.connected)this.ticks.clear();
+        if(this.connected)this.feedEpoch=randomUUID();
+        if(!this.connected){
+          this.ticks.clear();
+          // Fence batches from the old socket even if reconnect and subscribe
+          // complete while the database is blocked.
+          this.revision++;this.pending=[];
+        }
         if(state==="disconnected")this.nextConnect=o.now()+this.feed.retryDelay()*(0.8+0.4*(o.random??Math.random)());
         this.enqueue();
       },
@@ -47,22 +64,43 @@ export class StockRuntime {
     const authorized=!!this.o.env.ALPACA_KEY_ID?.trim()&&!!this.o.env.ALPACA_SECRET?.trim();
     const result={} as Record<StockSymbol,StockExecutionState>;
     for(const symbol of this.o.symbols?.()??STOCK_SYMBOLS)result[symbol]={
-      symbol,leaseUntil:this.o.leaseUntil?.()??this.o.now(),connected:this.connected,leader:!this.stopped&&this.o.isLeader(),authorized,
+      symbol,feedEpoch:this.feedEpoch,leaseUntil:this.o.leaseUntil?.()??this.o.now(),connected:this.connected,leader:!this.stopped&&this.o.isLeader(),authorized,
       tick:this.ticks.get(symbol)??null,
       clock:this.clock,sessions:this.sessions,
     };
     return result;
   }
   private enqueue(tick?:StockTick) {
-    const revision=this.revision,states=this.snapshot();
-    this.writes=this.writes.then(async()=>{
-      if(revision!==this.revision||this.stopped||!this.o.isLeader())return;
-      await this.o.publish(states,tick);
-    }).catch(()=>{
-      if(revision!==this.revision||this.stopped)return;
-      // A failed persistence must not leave a locally executable cached mark.
-      this.connected=false;this.ticks.clear();
-    });
+    if(this.stopped||!this.o.isLeader())return;
+    if(tick){
+      if(this.pending.length>=this.maxPending){
+        // Backpressure must not silently skip a trigger crossing. Fence the
+        // in-flight batch, quarantine marks and require a fresh connection.
+        this.o.log?.("stock_publication_backpressure queued="+this.pending.length);
+        this.revoke();return;
+      }
+      this.pending.push(tick);
+    }
+    this.dirty=true;
+    if(this.publishing)return;
+    this.publishing=true;
+    this.writes=Promise.resolve().then(async()=>{
+      while(this.dirty&&!this.stopped&&this.o.isLeader()){
+        this.dirty=false;
+        const revision=this.revision,ticks=this.pending.splice(0);
+        const current=()=>{
+          if(revision!==this.revision||this.stopped||!this.o.isLeader())throw new Error("Stock publication revoked");
+          return this.snapshot();
+        };
+        try{await this.o.publish(current,ticks);}
+        catch{
+          if(revision===this.revision&&!this.stopped){this.o.log?.("stock_publication_failed");this.revoke();}
+          // A reconnect may already have queued fresh metadata/prints while
+          // the obsolete attempt was blocked. Drain that epoch next.
+          continue;
+        }
+      }
+    }).finally(()=>{this.publishing=false;});
   }
   async step() {
     if(this.stopped)return;
@@ -71,6 +109,9 @@ export class StockRuntime {
     const revision=this.revision;
     try{
       this.feed.sync();
+      // Renew persisted execution ownership even when no new trade arrives.
+      // Tick/clock freshness still expires independently under stock policy.
+      if(this.o.now()>=this.nextHeartbeat){this.nextHeartbeat=this.o.now()+1000;this.enqueue();}
       const now=this.o.now();
       if(now>=this.nextMetadata){
         this.nextMetadata=now+30_000;
@@ -95,7 +136,7 @@ export class StockRuntime {
     }finally{this.busy=false;}
   }
   /** Revocation fences in-flight callbacks/metadata but permits later reacquisition. */
-  revoke(){this.revision++;this.connected=false;this.clock=null;this.sessions=[];this.ticks.clear();this.feed.stop();this.nextMetadata=0;}
+  revoke(){this.revision++;this.pending=[];this.dirty=false;this.nextHeartbeat=0;this.connected=false;this.clock=null;this.sessions=[];this.ticks.clear();this.feed.stop();this.nextMetadata=0;}
   stop(){this.stopped=true;this.revoke();}
   async drained(){await this.writes;}
 }

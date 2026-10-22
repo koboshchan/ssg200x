@@ -5,6 +5,8 @@ export type StockExecutionState = {
   symbol: StockSymbol;
   /** Persisted ownership expiry is required at execution time across workers. */
   leaseUntil?: number;
+  /** Connection identity prevents coalesced disconnect/reconnect from reviving old ticks. */
+  feedEpoch?: string;
   connected: boolean; leader: boolean; authorized: boolean;
   /** Diagnostic metadata only, never an execution gate for play money. */
   halt?: "clear" | "halted" | "unknown"; corporateActionsReconciled?: boolean;

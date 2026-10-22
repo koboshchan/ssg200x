@@ -3,6 +3,7 @@ import {forexObserver} from "./forex-observation";
 import {createForexStream} from "./forex-feed";
 import {quoteFresh} from "./price-policy";
 import {marketSymbols} from "./symbol-registry";
+import {applyStockPublication} from "./stock-publication";
 import {StockRuntime} from "./stock-runtime";
 import type {StockSocket} from "./stock-feed";
 import {candleUpdate} from "./candles";
@@ -48,16 +49,16 @@ export function startPriceWorker(){
   await mutateStockPublication(owner,room=>{room.forexQuotes={};if(room.forexStatus)room.forexStatus={...room.forexStatus,stream:"down",leaseUntil:0,message:"FX stream disabled or lease revoked."};},undefined,id).catch(()=>{});
   await (await db()).collection<{_id:string;owner:string;until:number}>("workers").updateOne({_id:id,owner},{$set:{until:0}});}});
  const stocks=new StockRuntime({
+  log:message=>console.warn(message),
   symbols:()=>symbols.stocks,env:process.env,leaseUntil:()=>leaseUntil-1000,isLeader:()=>!stopped&&Date.now()<leaseUntil-1000,
   socket:url=>new WebSocket(url) as unknown as StockSocket,fetch,now:Date.now,
-  publish:async(states,tick)=>{
+  publish:async(current,ticks)=>{
    if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Stock lease unavailable");
-   if(tick)await candleUpdate({});
+   if(ticks.length)await candleUpdate({});
    await mutateStockPublication(owner,room=>{
     if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Stock lease revoked");
-    const quotes=tick?{[tick.symbol]:{micro:Math.round(tick.price*1e6),at:tick.timestamp}}:{};
-    applyMarketTick(room,quotes,Date.now(),states);
-   },tick?session=>candleUpdate({[tick.symbol]:{micro:Math.round(tick.price*1e6),at:tick.timestamp}},session):undefined);
+    applyStockPublication(room,current,ticks);
+   },ticks.length?session=>candleUpdate(ticks.map(tick=>({[tick.symbol]:{micro:Math.round(tick.price*1e6),at:tick.timestamp}})),session):undefined);
   },
  });
  async function step(){

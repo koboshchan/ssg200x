@@ -27,7 +27,7 @@ export default function PerpsAdjust({position,room,busy,disabled,post}:Props){
   if(busy||lock.current||disabled)return;setSelected({...position});setKind(kind);setAmount("100");setBps(5000);setError("");dialog.current?.showModal();cancel.current?.focus();
  }
  async function execute(){
-  if(busy||lock.current||!valid)return;lock.current=true;setWorking(true);setError("");
+  if(busy||disabled||lock.current||!valid)return;lock.current=true;setWorking(true);setError("");
   try{await post("/api/finance",{type:kind,positionId:p.id,expectedRevision:p.revision??0,...(kind==="increase"?{margin:cents}:{percentBps:bps})});dialog.current?.close();}
   catch(e){setError(e instanceof Error?e.message:"Could not confirm the outcome. Refresh before trying again.");}
   finally{lock.current=false;setWorking(false);}
@@ -38,6 +38,6 @@ export default function PerpsAdjust({position,room,busy,disabled,post}:Props){
  <p id={description}>{kind==="increase"?"Add margin increases your position, not just its collateral. It buys more exposure at the fresh server price with the same leverage and locked fees. Average entry and liquidation are recalculated. Entry rounds by less than $0.000001 against your side, never in your favor. TP/SL prices stay unchanged.":"Closes the selected fraction at the fresh server price. Profit or loss and fees are realized proportionally. The remainder keeps its entry, leverage and TP/SL. 100% closes the full position."}</p>
  {kind==="increase"?<label>Additional margin ($)<input aria-label={"Additional margin for "+p.symbol} type="number" min="1" max={Math.min(1000000,room.me.wallet/100)} step="0.01" value={amount} disabled={working} onChange={e=>setAmount(e.target.value)}/></label>:<label>Portion to close · {bps/100}%<input aria-label={"Close percentage of "+p.symbol} aria-valuetext={bps/100+"%"} type="range" min="0" max="10000" step="1" value={bps} disabled={working} onChange={e=>setBps(Number(e.target.value))}/></label>}
  <p role="status">{preview??"Enter a valid amount. No order has been placed."}</p><small>Estimates only. The server rechecks the quote, wallet and position when you confirm. Cent dust stays in the remainder; partial closing fees round up to the next cent to prevent splitting away fees.</small>
- {error?<p role="alert">{error}</p>:null}<div className={styles.actions}><button type="button" disabled={busy||working||!valid||!mark} onClick={()=>void execute()}>{working?"Working…":"Confirm"}</button><button type="button" ref={cancel} className="primary" disabled={working} onClick={()=>dialog.current?.close()}>Cancel</button></div>
+ {error?<p role="alert">{error}</p>:null}<div className={styles.actions}><button type="button" disabled={busy||working||disabled||!valid||!mark} onClick={()=>void execute()}>{working?"Working…":"Confirm"}</button><button type="button" ref={cancel} className="primary" disabled={working} onClick={()=>dialog.current?.close()}>Cancel</button></div>
  </dialog></div>;
 }
