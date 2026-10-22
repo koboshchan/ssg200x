@@ -57,3 +57,10 @@
 .gameSpinner{position:absolute;top:8px;left:8px;width:14px;height:14px;box-sizing:border-box;border:2px solid var(--line);border-top-color:var(--muted);border-radius:50%;animation:gameSpin .8s linear infinite;pointer-events:none}
 @keyframes gameSpin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.gameSpinner{animation:none}}
+
+/* Explicit states override shared button hover/positional styles, never the first tab. */
+.games .tabs .tab[aria-selected=false]{background:transparent;box-shadow:none;color:var(--muted);border-color:transparent}
+.games .tabs .tab[aria-selected=true]{background:var(--surface);box-shadow:0 1px 3px #0002;color:var(--ink);border-color:var(--line)}
+.outcome{height:52px;min-height:52px;max-height:52px;flex:0 0 52px;line-height:24px;overflow:auto;overflow-wrap:anywhere}
+.mine{background:color-mix(in srgb,var(--red) 18%,var(--surface));color:var(--red)}
+.mine.boom{background:var(--red);color:#fff;outline:2px solid var(--red);outline-offset:2px}

@@ -9,7 +9,7 @@ import styles from "./games.module.css";
 
 type Kind="plinko"|"hilo"|"mines"|"dice"|"chicken";
 type Status="active"|"won"|"lost"|"cashed";
-type GameView={id:string;kind:Kind;bet:number;status:Status;revision:number;steps:number;multiplier:number;payout:number;createdAt:number;card?:number;cards?:number[];revealed?:number[];mines?:number;result?:{path?:number[];slot?:number;roll?:number;hit?:number;card?:number};target?:number;direction?:"over"|"under"};
+type GameView={id:string;kind:Kind;bet:number;status:Status;revision:number;steps:number;multiplier:number;payout:number;createdAt:number;card?:number;cards?:number[];revealed?:number[];bombs?:number[];mines?:number;result?:{path?:number[];slot?:number;roll?:number;hit?:number;card?:number};target?:number;direction?:"over"|"under"};
 type Snapshot={version:number;wallet:number;maxBet:number;serverNow:number;games:GameView[];houseEdge:number};
 type Pending={body:string;label:string};
 type Drop={rid:string;body:string;label:string;state:"sending"|"unconfirmed"};
@@ -46,6 +46,11 @@ export default function GamesClient(){
  const {user}=useUser(),uid=user?.id;
  const {connection}=useLive();
  const [snap,setSnap]=useState<Snapshot|null>(null),[kind,setKind]=useState<Kind>("plinko"),[error,setError]=useState(""),[working,setWorking]=useState(false),[pending,setPending]=useState<Pending|null>(null);
+ // Keep the owner alongside the preference so a new account never renders the previous choice.
+ const [minePreference,setMinePreference]=useState<{uid:string;count:number}|null>(null);
+ const mines=minePreference&&minePreference.uid===uid?minePreference.count:3;
+ useEffect(()=>{if(!uid){setMinePreference(null);return;}let count=3;try{const saved=Number(localStorage.getItem("ssg-games-mines-v1:"+uid));if(Number.isInteger(saved)&&saved>=1&&saved<=10)count=saved;}catch{}setMinePreference({uid,count});},[uid]);
+ const setMines=(count:number)=>{if(!uid||!Number.isInteger(count)||count<1||count>10)return;setMinePreference({uid,count});try{localStorage.setItem("ssg-games-mines-v1:"+uid,String(count));}catch{}};
  const [animId,setAnimId]=useState<string|null>(null),[amount,setAmount]=useState("5");
  const [drops,setDropsState]=useState<Drop[]>([]),[balls,setBalls]=useState<Ball[]>([]),[results,setResults]=useState<GameView[]>([]),[plinkoError,setPlinkoError]=useState("");
  const dropsRef=useRef<Drop[]>([]),fetching=useRef(new Set<string>());
@@ -134,7 +139,7 @@ export default function GamesClient(){
  const cents=casinoInputCents(amount),maxBet=snap?.maxBet??0;
  const betOk=cents!==null&&cents>0&&cents<=maxBet&&cents<=(snap?.wallet??0);
  const busy=!snap||connection!=="connected"||working||!!pending||(kind==="plinko"&&(drops.length>0||balls.length>0));
- const betProps={amount,setAmount,cents,betOk:betOk&&(kind!=="plinko"||cents!<=free),maxBet};
+ const betProps={mines,setMines,amount,setAmount,cents,betOk:betOk&&(kind!=="plinko"||cents!<=free),maxBet};
  return <main className={styles.games}>
   <header className={styles.head}><div><h1>Games</h1><p>{Math.round((snap?.houseEdge??0.02)*100)}% house edge, payouts round down to the cent.</p></div><div className={styles.wallet}><span>Wallet</span><strong>{snap?money(snap.wallet):"—"}</strong></div></header>
   <div className={styles.tabs} role="tablist" aria-label="Games">{KINDS.map(k=>{const a=byKind.get(k.kind)?.status==="active";return <button key={k.kind} role="tab" aria-selected={kind===k.kind} className={styles.tab} onClick={()=>setKind(k.kind)}>{k.label}{a?<i className={styles.dot} aria-label="In progress"/>:null}</button>;})}</div>
@@ -145,10 +150,10 @@ export default function GamesClient(){
    {busy?<span className={styles.gameSpinner} role="status" aria-label="Game in progress"/>:null}
    {kind==="plinko"?<Plinko balls={balls} drops={drops} trail={trail} onDone={ballDone} onRetry={runDrop} blocked={connection!=="connected"}/>:null}
    {kind==="hilo"?<HiLo game={game} blocked={blocked} send={send}/>:null}
-   {kind==="mines"?<Mines game={game} blocked={blocked} send={send}/>:null}
+   {kind==="mines"?<Mines game={game} nextMines={mines} blocked={blocked} send={send}/>:null}
    {kind==="dice"?<DiceView game={game} animKey={animId}/>:null}
    {kind==="chicken"?<Chicken game={game} blocked={blocked} send={send} animKey={animId}/>:null}
-   {kind!=="plinko"&&game&&done(game)?<p className={styles.outcome+" "+(game.status==="lost"?styles.lose:styles.win)} role="status">{game.status==="lost"?"Lost "+money(game.bet):(game.status==="cashed"?"Cashed out ":"Won ")+money(game.payout)+" at "+mult(game.multiplier)}</p>:null}
+   <p className={styles.outcome+" "+(game?.status==="lost"?styles.lose:styles.win)} role="status" aria-label="Round result">{game&&done(game)&&kind!=="plinko"?(game.status==="lost"?"Lost "+money(game.bet):(game.status==="cashed"?"Cashed out ":"Won ")+money(game.payout)+" at "+mult(game.multiplier)):kind==="plinko"&&trail[0]?(trail[0].status==="lost"?"Lost ":"Payout ")+money(trail[0].payout):" "}</p>
   </section>
   {kind==="plinko"?<StartPanel kind={kind} blocked={dropBlocked} send={send} drop={drop} {...betProps}/>:active?<ActiveBar game={active} blocked={blocked} send={send}/>:<StartPanel kind={kind} blocked={blocked} send={send} {...betProps}/>}
  </main>;
@@ -159,14 +164,14 @@ function ActiveBar({game,blocked,send}:{game:GameView;blocked:boolean;send:Send}
  return <div className={styles.panel}><div className={styles.stat}><span>Bet</span><strong>{money(game.bet)}</strong></div><div className={styles.stat}><span>Multiplier</span><strong>{mult(game.multiplier)}</strong></div><div className={styles.stat}><span>Cash out</span><strong>{money(game.payout)}</strong></div>
   <button className={"primary "+styles.go} disabled={blocked||!can} onClick={()=>send("Cash out",{type:"cashout",id:game.id,revision:game.revision})}>{can?"Cash out":"Take a step first"}</button></div>;
 }
-function StartPanel({kind,blocked,send,drop,amount,setAmount,cents,betOk,maxBet}:{drop?:(amount:number)=>void;kind:Kind;blocked:boolean;send:Send;amount:string;setAmount:(v:string)=>void;cents:number|null;betOk:boolean;maxBet:number}){
- const [mines,setMines]=useState(3),[target,setTarget]=useState(50),[dir,setDir]=useState<"over"|"under">("over");
+function StartPanel({kind,blocked,send,drop,mines,setMines,amount,setAmount,cents,betOk,maxBet}:{mines:number;setMines:(n:number)=>void;drop?:(amount:number)=>void;kind:Kind;blocked:boolean;send:Send;amount:string;setAmount:(v:string)=>void;cents:number|null;betOk:boolean;maxBet:number}){
+ const [target,setTarget]=useState(50),[dir,setDir]=useState<"over"|"under">("over");
  const extra:object=kind==="mines"?{mines}:kind==="dice"?{target,direction:dir}:{};
  const chance=dir==="over"?100-target:target-1;
  return <div className={styles.panel}>
   <label className={styles.field}><span>Bet</span><div className="input-wrap"><span>$</span><CasinoAmountInput aria-label="Bet in dollars" min="1" value={amount} onChange={setAmount}/></div></label>
   <div className={styles.quick} role="group" aria-label="Quick bets">{[1,5,25,100].map(n=><button key={n} disabled={blocked} onClick={()=>setAmount(String(n))}>{n}</button>)}</div>
-  {kind==="mines"?<label className={styles.field}><span>Mines {mines}</span><input type="range" min={1} max={10} value={mines} onChange={e=>setMines(Number(e.target.value))} aria-label="Number of mines"/></label>:null}
+  {kind==="mines"?<label className={styles.field}><span>Next bet · {mines} mines</span><input type="range" min={1} max={10} value={mines} onChange={e=>setMines(Number(e.target.value))} aria-label="Number of mines"/></label>:null}
   {kind==="dice"?<><div className={styles.seg} role="group" aria-label="Direction">{(["over","under"] as const).map(d=><button key={d} aria-pressed={dir===d} onClick={()=>setDir(d)}>Roll {d}</button>)}</div>
    <label className={styles.field}><span>Target {target} · about {chance}% to win · ≈{(98/chance).toFixed(2)}×</span><input type="range" min={2} max={98} value={target} onChange={e=>setTarget(Number(e.target.value))} aria-label="Target number"/></label></>:null}
   <button className={"primary "+styles.go} disabled={blocked||!betOk} onClick={()=>kind==="plinko"&&drop?drop(cents!):send("Start "+kind,{type:"start",game:kind,amount:cents,...extra})}>{kind==="dice"?"Roll":kind==="plinko"?"Drop":"Start"}</button>
@@ -212,10 +217,11 @@ function HiLo({game,blocked,send}:{game?:GameView;blocked:boolean;send:Send}){
   <p className={styles.rule}>Ace is high, 2 is low. Ties lose. Auto cash-out after 6 correct guesses.</p>{act&&game?<div className={styles.choices}><button disabled={blocked||game.card===14} onClick={()=>send("Higher",{type:"step",id:game.id,revision:game.revision,choice:"high"})}>Higher ↑</button><button disabled={blocked||game.card===2} onClick={()=>send("Lower",{type:"step",id:game.id,revision:game.revision,choice:"low"})}>Lower ↓</button></div>:<p className={styles.empty}>{game?"Round over.":"Start to draw your first card."}</p>}
  </div>;
 }
-function Mines({game,blocked,send}:{game?:GameView;blocked:boolean;send:Send}){
- const rev=new Set(game?.revealed||[]),act=game?.status==="active",hit=game?.result?.hit;
- return <div><div className={styles.minesInfo}>{game?.mines?<span>{game.mines} mines · {rev.size} safe</span>:<span>5 × 5 grid</span>}</div>
-  <div className={styles.grid}>{Array.from({length:25},(_,i)=>{const safe=rev.has(i),bomb=hit===i;return <button key={i} aria-label={"Cell "+(i+1)+(safe?", safe":bomb?", mine":"")} disabled={!act||blocked||safe||!game} className={styles.cell+(safe?" "+styles.safe:"")+(bomb?" "+styles.boom:"")} onClick={()=>game&&send("Reveal cell",{type:"step",id:game.id,revision:game.revision,cell:i})}>{safe?<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3l7 7-7 11L5 10z" fill="currentColor"/></svg>:bomb?<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="11" cy="14" r="7" fill="currentColor"/><path d="M15 8l3-3M18 3v3M16 5h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>:null}</button>;})}</div></div>;
+function Mines({game,nextMines,blocked,send}:{game?:GameView;nextMines:number;blocked:boolean;send:Send}){
+ const rev=new Set(game?.revealed||[]),act=game?.status==="active",hit=game?.status==="lost"?game.result?.hit:undefined;
+ const bombs=new Set(game?.status==="lost"?game.bombs||[hit]:[]);
+ return <div><div className={styles.minesInfo}>{game?.mines?<span>{act?"Current round":"Finished round"} · {game.mines} mines · {rev.size} safe</span>:<span>Next bet · {nextMines} mines · 5 × 5 grid</span>}</div>
+  <div className={styles.grid}>{Array.from({length:25},(_,i)=>{const safe=rev.has(i),bomb=bombs.has(i);return <button key={i} aria-label={"Cell "+(i+1)+(safe?", safe":bomb?(hit===i?", mine, hit":", mine"):"")} disabled={!act||blocked||safe||!game} className={styles.cell+(safe?" "+styles.safe:"")+(bomb?" "+styles.mine:"")+(hit===i?" "+styles.boom:"")} onClick={()=>game&&send("Reveal cell",{type:"step",id:game.id,revision:game.revision,cell:i})}>{safe?<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3l7 7-7 11L5 10z" fill="currentColor"/></svg>:bomb?<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="11" cy="14" r="7" fill="currentColor"/><path d="M15 8l3-3M18 3v3M16 5h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>:null}</button>;})}</div></div>;
 }
 function DiceView({game,animKey}:{game?:GameView;animKey:string|null}){
  const roll=game?.result?.roll,play=!!game&&animKey===game.id+":"+game.revision;

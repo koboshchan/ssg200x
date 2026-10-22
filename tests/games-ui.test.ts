@@ -126,3 +126,56 @@ test('hydrated Games UI reconciles identical receipts, restoration, concurrent d
  }
  }finally{await browser.close();}
 });
+
+test('Mines preferences are account scoped; lost boards reveal bombs and all result lines reserve space',async()=>{
+ const {readFile}=await import('node:fs/promises');
+ const css=(await readFile('app/globals.css','utf8'))+'\n'+await readFile('app/games.module.css','utf8');
+ const js=await bundle(),browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--no-sandbox']});
+ try{for(const width of [1280,390]){
+  const page=await browser.newPage({viewport:{width,height:1000},reducedMotion:'reduce'});
+  await page.addInitScript(INIT);
+  await page.route('https://games.test/**',(r:any)=>r.fulfill({contentType:'text/html',body:'<!doctype html><meta charset="utf-8"><div id="root"></div>'}));
+  const hydrate=async()=>{await page.addStyleTag({content:css});await page.addScriptTag({content:js});await page.getByRole('tab',{name:'Mines',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('[aria-label="Game in progress"]'));};
+  await page.goto('https://games.test');await hydrate();
+  const slider=()=>page.getByRole('slider',{name:'Number of mines'});
+  const change=async(n:number)=>{await slider().fill(String(n));};
+  await change(8);
+  assert.equal(await slider().inputValue(),'8');
+  await page.getByText('Next bet · 8 mines · 5 × 5 grid',{exact:true}).waitFor();
+  await page.getByRole('tab',{name:'Dice',exact:true}).click();await page.getByRole('tab',{name:'Mines',exact:true}).click();assert.equal(await slider().inputValue(),'8');
+  await page.reload();await hydrate();assert.equal(await slider().inputValue(),'8');
+  await page.evaluate(()=>(window as any).__setUid('userB'));await page.getByText('Next bet · 3 mines · 5 × 5 grid',{exact:true}).waitFor();assert.equal(await slider().inputValue(),'3');
+  await change(5);await page.evaluate(()=>(window as any).__setUid('userA'));await page.getByText('Next bet · 8 mines · 5 × 5 grid',{exact:true}).waitFor();assert.equal(await slider().inputValue(),'8');
+  const tabs=page.getByRole('tablist',{name:'Games'});assert.equal(await tabs.locator('[aria-selected=true]').count(),1);
+  assert.equal(await tabs.locator('[aria-selected=true]').innerText(),'Mines');
+  const colors=await page.evaluate(()=>['Plinko','Mines'].map(name=>getComputedStyle(Array.from(document.querySelectorAll('[role=tab]')).find(e=>e.textContent===name)!).backgroundColor));
+  assert.notEqual(colors[0],colors[1]);
+  // No round is needed to test empty vs very long result geometry for every game.
+  for(const name of ['Plinko','Hi-Lo','Mines','Dice','Chicken Road']){
+   await page.getByRole('tab',{name,exact:true}).click();
+   const result=page.getByRole('status',{name:'Round result'}),before=await result.boundingBox();
+   const panelBefore=await page.locator('.panel').boundingBox();
+   await result.evaluate((el:any)=>{el.textContent='Won $999,999,999,999,999.99 at 999999999999.99×';});
+   const after=await result.boundingBox(),panelAfter=await page.locator('.panel').boundingBox();
+   assert.equal(before!.height,52);assert.equal(after!.height,before!.height);assert.equal(after!.y,before!.y);assert.equal(panelAfter!.y,panelBefore!.y);
+  }
+  await page.getByRole('tab',{name:'Mines',exact:true}).click();
+  await page.getByRole('button',{name:'Start',exact:true}).click();
+  await page.waitForFunction(()=>(window as any).__reqs.length===1);
+  const request=await page.evaluate(()=>JSON.parse((window as any).__reqs[0].body));assert.equal(request.mines,8);
+  const active={id:request.requestId,kind:'mines',status:'active',bet:500,mines:8,revision:0,steps:0,multiplier:.98,payout:490,createdAt:Date.now(),revealed:[],bombs:[0,2,4,6,8,10,12,14],result:{hit:0}};
+  await page.evaluate((game:any)=>(window as any).__reqs[0].resolve(200,{version:2,wallet:99500,maxBet:100000,serverNow:Date.now(),games:[game],houseEdge:.02}),active);
+  await page.getByText('Current round · 8 mines · 0 safe',{exact:true}).waitFor();
+  assert.equal(await slider().count(),0);assert.equal(await page.getByRole('button',{name:/mine/}).count(),0);
+  await page.getByRole('button',{name:'Cell 1',exact:true}).click();
+  await page.waitForFunction(()=>(window as any).__reqs.length===2);
+  await page.evaluate((game:any)=>(window as any).__reqs[1].resolve(200,{version:3,wallet:99500,maxBet:100000,serverNow:Date.now(),games:[{...game,status:'lost',revision:1,payout:0}],houseEdge:.02}),active);
+  await page.getByText('Finished round · 8 mines · 0 safe',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:/, mine/}).count(),8);
+  assert.equal(await page.getByRole('button',{name:/, mine, hit/}).count(),1);
+  await change(4);
+  await page.getByText('Finished round · 8 mines · 0 safe',{exact:true}).waitFor();assert.equal(await slider().inputValue(),'4');
+  await page.getByText('Next bet · 4 mines',{exact:true}).waitFor();
+  await page.close();
+ }}finally{await browser.close();}
+});
