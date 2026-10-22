@@ -56,3 +56,16 @@ test('concurrent full-wallet Plinko bets fail closed rather than overspending',a
  assert.equal(await(await db()).collection('audit').countDocuments({who:player.id,what:'minigame-start'}),1);
 });
 test('admin limit authorization, old clients preserve games cap, existing games remain payable',async()=>{await mutate(r=>changeCasinoLimits(r,admin,{...casinoLimits(r),gamesMaxBet:100,expectedVersion:casinoLimits(r).revision}));await assert.rejects(mutate(r=>changeCasinoLimits(r,who,{rouletteMaxTotal:100,blackjackMaxHand:100,expectedVersion:casinoLimits(r).revision})));await mutate(r=>changeCasinoLimits(r,admin,{rouletteMaxTotal:1000,blackjackMaxHand:1000,expectedVersion:casinoLimits(r).revision}));let r=await readRoom();assert.equal(casinoLimits(r).gamesMaxBet,100);await assert.rejects(mutate(r=>miniAction(r,who,{...meta(),type:'start',game:'dice',amount:200,target:50,direction:'over'})));r=await readRoom();const g=r.miniGames!.find(g=>g.owner==='b'&&g.status==='active')!;await mutate(r=>miniAction(r,other,{...meta(),type:'step',id:g.id,revision:0,...(g.kind==='hilo'?{choice:'high' as const}:{})},()=>2));assertRoom(await readRoom());assert.ok(!JSON.stringify(miniSnapshot(await readRoom(),who)).includes('bombs'));});
+
+test('lost Mines reveal survives restart while active boards remain private',async()=>{
+ const player={...who,id:'mines-disclosure'};
+ const input={...meta(),type:'start' as const,game:'mines' as const,amount:100,mines:10};
+ await mutate(r=>miniAction(r,player,input,()=>0));await closeDatabase();
+ let r=await readRoom();const g=r.miniGames!.find(x=>x.owner===player.id)!;
+ assert.ok(!('bombs' in miniSnapshot(r,player).games[0]));
+ const expected=[...g.bombs!];
+ await mutate(r=>miniAction(r,player,{...meta(),type:'step',id:g.id,revision:0,cell:expected[0]}));
+ await closeDatabase();r=await readRoom();const snapshot=miniSnapshot(r,player);
+ assert.equal(snapshot.games[0].status,'lost');assert.deepEqual(snapshot.games[0].bombs,expected);
+ assert.ok(!miniSnapshot(r,who).games.some(x=>x.id===g.id));assertRoom(r);
+});
