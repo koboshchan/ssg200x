@@ -4,7 +4,7 @@ import type {PublicDoudizhu} from "@/lib/doudizhu";
 import {getTabHeaders} from "@/lib/tab-identity";
 import "./doudizhu.css";
 import {PokerPlayerMenu} from "./poker-player-menu";
-import {ReactionEffectLayer,ReactionProvider,isValidReaction,useReactionControls,useReactionEffects,type ReactionAdapter,type ReactionEffect} from "./poker-taunts";
+import {ReactionEffectLayer,ReactionProvider,isValidReaction,useReactionControls,useReactionEffects,type ReactionAdapter} from "./poker-taunts";
 import {BeanAmount,BeanIcon,Crown,DealFlight,FxLayer,Settlement,TableArt,trickKey,useDoudizhuFx,type SettleRow} from "./doudizhu-fx";
 const money=(c:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:2}).format(c/100);
 const beansFmt=(n:number)=>new Intl.NumberFormat("en-US",{maximumFractionDigits:2}).format(Math.round(n*100)/100);
@@ -13,9 +13,8 @@ const B=({n}:{n:number})=><BeanAmount v={beansFmt(n)}/>;
 const signed=(n:number)=>(n>=0?"+":"−")+beansFmt(Math.abs(n));
 const exactSigned=(v:string)=>{const m=/^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(v.trim());if(!m)return v;const frac=(m[3]??"").replace(/0+$/,"");const zero=/^0+$/.test(m[2])&&!frac;return (m[1]&&!zero?"−":"+")+BigInt(m[2]).toLocaleString("en-US")+(frac?"."+frac:"");};
 const PRESETS=[1000,2000,3000];
-// Fields the backend adds for doubling and reactions. Read through these so older snapshots still render.
-type SeatExt={publicId?:string;doubleMultiplier?:number;doubleChosen?:boolean};
-type RoomExt={reactions?:(ReactionEffect&{at:number})[]};
+// Backend reaction errors are English text; the shared controls speak machine codes.
+const reactionCode=(m:string)=>/4 seconds/i.test(m)?"cooldown":/price changed/i.test(m)?"price_changed":/player left|invalid target/i.test(m)?"target":/not enough money/i.test(m)?"insufficient_funds":/expired/i.test(m)?"expired":/service unavailable|room is busy|unavailable|\b50[234]\b|bad gateway|timed? ?out/i.test(m)?"unavailable":m;
 const DOUBLES:{m:1|2|4;label:string}[]=[{m:1,label:"No double ×1"},{m:2,label:"Double ×2"},{m:4,label:"Super double ×4"}];
 const HIDE_KEY="dd-hide-reactions";
 function ReactionBar({muted,setMuted}:{muted:boolean;setMuted:(v:boolean)=>void}){
@@ -37,11 +36,13 @@ export default function Doudizhu({transport=api,fxPreview=false}: {transport?:Tr
  const {effects:reactionFx,add:addReactionFx}=useReactionEffects(muted);
  useEffect(()=>{let stopped=false,poll:ReturnType<typeof setTimeout>;async function load(){const generation=epoch.current;try{const next=await transport.read();if(!stopped&&generation===epoch.current){setView(next);setFresh(true);}}catch(e){if(!stopped){setFresh(false);setError(e instanceof Error?e.message:"Connection lost.");}}if(!stopped)poll=setTimeout(load,1200);}void load();const clock=setInterval(()=>setNow(Date.now()),500);return()=>{stopped=true;clearTimeout(poll);clearInterval(clock);};},[transport]);
  const g=view?.room,me=g?.players.find(p=>p.self),mySeat=g?.players.findIndex(p=>p.self)??-1;
- const phase=(g?.phase??"") as string,seatsExt=(g?.players??[]) as (NonNullable<typeof g>["players"][number]&SeatExt)[];
+ const phase=g?.phase,seatsExt=g?.players??[];
  useEffect(()=>{
-  const list=(g as unknown as RoomExt|undefined)?.reactions;if(!g||!list)return;
+  const list=g?.reactions;if(!g||!list)return;
   if(!seenReactions.current||seenReactions.current.code!==g.code){seenReactions.current={code:g.code,ids:new Set(list.map(r=>r.id))};return;}
-  for(const r of list){if(seenReactions.current.ids.has(r.id))continue;seenReactions.current.ids.add(r.id);if(!muted&&isValidReaction(r,3))addReactionFx(r);}
+  const seen=seenReactions.current.ids;
+  for(const r of list){if(seen.has(r.id))continue;seen.add(r.id);if(!muted&&isValidReaction(r,3))addReactionFx(r);}
+  const live=new Set(list.map(r=>r.id));for(const id of seen)if(!live.has(id))seen.delete(id);
  },[g,muted,addReactionFx]);
  const hand=[...(me?.hand??[])].sort((a,b)=>order(a)-order(b)||a.localeCompare(b));
  const selected=chosen.filter(c=>hand.includes(c)),turn=!!g&&g.turn===mySeat,playing=g?.phase==="playing",active=g?.phase==="playing"||g?.phase==="bidding"||phase==="doubling";
@@ -57,9 +58,14 @@ export default function Doudizhu({transport=api,fxPreview=false}: {transport?:Tr
  const legacy=!!g&&g.scoringMode!=="beans",bpd=g?.beansPerDollar??1000,base=g?.baseBeans??1000;
  const toBeans=(cents:number)=>cents/100*bpd;
  const reactionSeats=seatsExt.map(p=>p.publicId?{publicId:p.publicId,name:p.name,isYou:p.self}:null);
- const adapter:ReactionAdapter={tableId:g?.code??"",seats:reactionSeats,connected:fresh,seated:mySeat>=0&&!!g,wallet:view?.wallet??0,
-  price:kind=>(view as unknown as {reactionPrices?:Record<string,number>}|null)?.reactionPrices?.[kind]??5000,
-  async request(payload){const {tableId:_t,...rest}=payload;try{const next=await transport.move({type:"reaction",code:g?.code,requestId:crypto.randomUUID(),requestAt:Date.now(),...rest});setView(next);return next;}catch(e){if(e instanceof TypeError)throw Error("disconnected");throw e;}}};
+ const adapter:ReactionAdapter={tableId:g?.code??"",seats:reactionSeats,connected:fresh&&!busy,seated:mySeat>=0&&!!g,wallet:view?.wallet??0,
+  price:kind=>view?.reactionPrices[kind as "egg"|"tomato"]??5000,
+  async request(payload){
+   if(lock.current)throw Error("unavailable");
+   const {tableId:_t,...rest}=payload;lock.current=true;epoch.current++;setBusy(true);
+   try{const next=await transport.move({type:"reaction",code:g?.code,requestId:crypto.randomUUID(),requestAt:Date.now(),...rest});setView(next);setFresh(true);return next;}
+   catch(e){if(e instanceof TypeError||(e instanceof Error&&/network|fetch|failed to load|abort/i.test(e.message)))throw Error("disconnected");throw e instanceof Error?Error(reactionCode(e.message)):e;}
+   finally{epoch.current++;lock.current=false;setBusy(false);}}};
  const menuRoom={seats:reactionSeats,pokerTableId:g?.code,me:{admin:false}};
  const myDouble=(seatsExt[mySeat]?.doubleMultiplier??1),landlordMult=g&&g.landlord!==null?(seatsExt[g.landlord]?.doubleMultiplier??1):1;
  return <ReactionProvider adapter={adapter} muted={muted}><main className="game-main dd-main">
