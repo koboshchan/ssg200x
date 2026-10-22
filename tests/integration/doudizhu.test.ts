@@ -27,6 +27,7 @@ test("fresh Mongo CAS makes duplicate debit and concurrent last seat safe; persi
  for(const u of active){const view=await doudizhuRead(u);await doudizhuMove(u,request({type:"ready",version:view.room!.version}));}
  await closeDatabase();r=await readRoom();assert.equal(r.doudizhu![0].phase,"bidding");assertRoom(r);
  await doudizhuMove(active[0],request({type:"bid",bid:3,version:r.doudizhu![0].version}));
+ for(const u of active){const v=await doudizhuRead(u);await doudizhuMove(u,request({type:"double",doubleMultiplier:1,version:v.room!.version}));}
  const view=await doudizhuRead(active[0]);const card=view.room!.players[0].hand![0],version=view.room!.version;
  const moves=await Promise.allSettled([doudizhuMove(active[0],request({type:"play",cards:[card],version})),doudizhuMove(active[0],request({type:"play",cards:[card],version}))]);
  assert.equal(moves.filter(x=>x.status==="fulfilled").length,1);
