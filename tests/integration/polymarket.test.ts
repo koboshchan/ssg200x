@@ -1,0 +1,76 @@
+import {test,after} from "node:test";
+import assert from "node:assert/strict";
+import {randomUUID} from "node:crypto";
+import {db,readRoom,closeDatabase} from "../../lib/db";
+import {mutate} from "../../lib/store";
+import {assertRoom,register,totalChips} from "../../lib/poker";
+import {polymarketTrade,tickPolymarket} from "../../lib/polymarket-store";
+import {polyPortfolio,changePolymarketSettings,applyPolymarketTrade,settlePolymarket} from "../../lib/polymarket";
+import {normalizePolyMarket,normalizePolyBook} from "../../lib/polymarket-data";
+import type {PolyTrade,PolyResolution} from "../../lib/polymarket-types";
+if(!process.env.MONGODB_DB?.startsWith("fakebucks_test_")||!/^mongodb:\/\/(localhost|127\.0\.0\.1):\d+\//.test(process.env.MONGODB_URI??""))throw new Error("Requires isolated localhost fakebucks_test_* DB");
+process.env.MONGODB_DB+="_polymarket";
+const original=globalThis.fetch;
+after(async()=>{globalThis.fetch=original;await(await db()).dropDatabase();await closeDatabase();});
+const who={id:"poly-owner",name:"Owner",email:"private@test",admin:false},other={...who,id:"poly-other"};
+const condition="0x"+"b".repeat(64);
+const marketData=(closed=false)=>({id:"123",conditionId:condition,version:"v2",outcomes:'["Yes","No"]',clobTokenIds:'["999","888"]',positionIds:["111","222"],outcomePrices:closed?'["1","0"]':'["0.6","0.4"]',active:true,closed,acceptingOrders:!closed,question:"Real market"});
+const bookData=()=>({asset_id:"111",market:condition,timestamp:Date.now(),hash:"real-hash",asks:[{price:"0.6",size:"10000000"}],bids:[{price:"0.59",size:"10000000"}]});
+const input=(patch:Partial<PolyTrade>={}):PolyTrade=>({action:"buy",marketId:"123",tokenId:"111",amount:1000,limitPrice:.61,requestId:randomUUID(),requestAt:Date.now(),...patch});
+let offline=false,closed=false;
+globalThis.fetch=async(url)=>{
+ if(offline)throw new Error("offline");
+ const path=new URL(String(url));
+ if(path.pathname==="/markets/123")return Response.json(marketData(closed));
+ if(path.pathname==="/book")return Response.json(bookData());
+ if(path.pathname==="/v2/resolutions")return Response.json({data:[{condition_id:condition,status:"resolved",payouts:[1000000,0],extended_review:false}]});
+ throw new Error("Unexpected upstream URL "+path.href);
+};
+test("actual Mongo CAS concurrent duplicate buy is once-only, durable receipt replay works offline and owner/payload fences hold",async()=>{
+ const i=input();const [a,b]=await Promise.all([polymarketTrade(who,i),polymarketTrade(who,i)]);assert.equal(a.wallet,99000);assert.equal(b.wallet,99000);
+ let r=await readRoom();assertRoom(r);assert.equal(r.polymarket!.positions.length,1);assert.equal(r.financeReceipts!.filter(x=>x.id===i.requestId).length,1);
+ assert.equal(await(await db()).collection("audit").countDocuments({what:"polymarket.buy"}),1);
+ await closeDatabase();offline=true;assert.equal((await polymarketTrade(who,i)).wallet,99000);
+ await assert.rejects(()=>polymarketTrade(who,{...i,amount:2000}),/different order/);
+ await assert.rejects(()=>polymarketTrade(other,i),/different order/);offline=false;
+ // Two distinct intents really both debit, CAS preserves sum and ownership.
+ await Promise.all([polymarketTrade(who,input()),polymarketTrade(who,input())]);r=await readRoom();assertRoom(r);
+ assert.equal(r.members.find(m=>m.id===who.id)!.wallet,97000);assert.equal(r.polymarket!.positions.length,1);
+ assert.equal(await(await db()).collection("audit").countDocuments({what:"polymarket.buy"}),3);
+});
+test("parallel partial sells cannot oversell; losing mutation and stale quotes never publish partial ledger edits",async()=>{
+ let r=await readRoom(),p=r.polymarket!.positions[0],amount=p.shareMicros;
+ const sells=await Promise.allSettled([polymarketTrade(who,input({action:"sell",amount,limitPrice:.58})),polymarketTrade(who,input({action:"sell",amount,limitPrice:.58}))]);
+ assert.equal(sells.filter(x=>x.status==="fulfilled").length,1);r=await readRoom();assertRoom(r);assert.equal(r.polymarket!.positions.length,0);
+ const before=r.members[0].wallet;
+ await assert.rejects(()=>mutate(r=>applyPolymarketTrade(r,who,input(),normalizePolyMarket(marketData()),normalizePolyBook({...bookData(),timestamp:Date.now()-20000},"111"))),/stale/);
+ assert.equal((await readRoom()).members[0].wallet,before);
+ await mutate(r=>changePolymarketSettings(r,{...who,admin:true},{enabled:false,maxTrade:100000}));
+ await assert.rejects(()=>polymarketTrade(who,input()),/disabled/);
+ await mutate(r=>changePolymarketSettings(r,{...who,admin:true},{enabled:true,maxTrade:500}));
+ await assert.rejects(()=>polymarketTrade(who,input()),/limit/);
+ await mutate(r=>changePolymarketSettings(r,{...who,admin:true},{enabled:true,maxTrade:100000}));
+});
+test("worker independently resolves both users from real final-payout envelope; racing workers persist exactly one settlement across restart",async()=>{
+ await Promise.all([polymarketTrade(who,input()),polymarketTrade(other,input())]);
+ let r=await readRoom();const shares=r.polymarket!.positions[0].shareMicros;
+ await mutate(r=>changePolymarketSettings(r,{...who,admin:true},{enabled:false,maxTrade:1}));closed=true;
+ await Promise.all([tickPolymarket(),tickPolymarket()]);
+ await closeDatabase();r=await readRoom();assertRoom(r);assert.equal(r.polymarket!.positions.length,0);
+ assert.equal(r.polymarket!.settlements["123"].source,"data-v2-final");
+ assert.equal(await(await db()).collection("audit").countDocuments({what:"polymarket.settle"}),2);
+ const wallet=r.members.find(m=>m.id===other.id)!.wallet;assert.equal(wallet,99000+Math.floor(shares/10000));
+ const own=polyPortfolio(r,who),foreign=polyPortfolio(r,other);assert(!JSON.stringify(own).includes(other.id));assert.equal(foreign.history.filter(h=>h.action==="settle").length,1);
+ const balances=r.members.map(m=>m.wallet),chips=totalChips(r);await tickPolymarket();r=await readRoom();assert.deepEqual(r.members.map(m=>m.wallet),balances);assert.equal(totalChips(r),chips);
+});
+test("50/50 invalid-market split uses payout not refund, floor once per combined holding; malformed identity cannot debit",async()=>{
+ const m=normalizePolyMarket({...marketData(),id:"124",version:"v1",clobTokenIds:'["333","444"]'}),b=normalizePolyBook({...bookData(),asset_id:"333"},"333");
+ const i={...input(),marketId:"124",tokenId:"333"};
+ await mutate(r=>{changePolymarketSettings(r,{...who,admin:true},{enabled:true,maxTrade:100000});applyPolymarketTrade(r,who,i,m,b);});
+ const resolution:PolyResolution={marketId:"124",conditionId:condition,version:"v1",payouts:{"333":500000,"444":500000},source:"data-v2-final",kind:"void",asOf:Date.now()};
+ const before=await readRoom();await assert.rejects(()=>mutate(r=>settlePolymarket(r,{...resolution,conditionId:"bad"})),/identity/);
+ assert.deepEqual((await readRoom()).members.map(m=>m.wallet),before.members.map(m=>m.wallet));
+ await Promise.all([mutate(r=>settlePolymarket(r,resolution)),mutate(r=>settlePolymarket(r,resolution))]);
+ const r=await readRoom();assertRoom(r);assert.equal(await(await db()).collection("audit").countDocuments({what:"polymarket.void"}),1);
+ assert.equal(r.polymarket!.history[who.id][0].action,"void");
+});

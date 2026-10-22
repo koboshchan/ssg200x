@@ -82,7 +82,7 @@ export function settlePolymarket(r:Room,resolution:PolyResolution,now=Date.now()
  const s=r.polymarket;if(!s||s.settlements[resolution.marketId])return false;
  ensure(resolution.asOf<=now+1000&&now-resolution.asOf<=60_000,"Resolution evidence expired.",409);
  const payouts=Object.values(resolution.payouts);
- ensure(resolution.source==="gamma+clob-final"&&payouts.length===2&&payouts.every(p=>Number.isSafeInteger(p)&&p>=0&&p<=1e6)&&payouts.reduce((a,b)=>a+b,0)===1e6,"Invalid resolution evidence.",409);
+ ensure(["gamma+clob-final","data-v2-final"].includes(resolution.source)&&payouts.length===2&&payouts.every(p=>Number.isSafeInteger(p)&&p>=0&&p<=1e6)&&payouts.reduce((a,b)=>a+b,0)===1e6,"Invalid resolution evidence.",409);
  const positions=s.positions.filter(p=>p.marketId===resolution.marketId);if(!positions.length)return false;
  for(const p of positions){
   ensure(p.conditionId===resolution.conditionId&&p.version===resolution.version&&Object.hasOwn(resolution.payouts,p.tokenId),"Resolution identity mismatch.",409);

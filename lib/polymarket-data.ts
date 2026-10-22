@@ -2,7 +2,10 @@ import {z} from "zod";
 import {AppError,ensure} from "./errors";
 import type {PolyMarket,PolyEvent,PolyBook,PolyLevel,PolyResolution} from "./polymarket-types";
 const GAMMA="https://gamma-api.polymarket.com",CLOB="https://clob.polymarket.com";
-const slots=new Map<string,{until:number;value?:unknown;error?:AppError;pending?:Promise<unknown>}>();
+type DataSlot={until:number;value?:unknown;error?:AppError;pending?:Promise<unknown>};
+// App Router bundles can each load this module, keep one process-wide cache.
+const shared=globalThis as typeof globalThis&{__polymarketDataSlots?:Map<string,DataSlot>};
+const slots=shared.__polymarketDataSlots??=new Map<string,DataSlot>();
 const raw=z.record(z.string(),z.unknown());
 export const polyId=z.string().regex(/^\d{1,24}$/);
 export const polyToken=z.string().regex(/^\d{1,80}$/);
@@ -90,13 +93,26 @@ export function normalizePolyResolution(market:PolyMarket,clob:unknown,now=Date.
  let payouts:Record<string,number>,kind:"settle"|"void"="settle";
  if(winners.length===1&&tokens.every(t=>typeof t.winner==="boolean")){
   payouts=Object.fromEntries(tokens.map(t=>[String(t.token_id),t.winner?1_000_000:0]));
- }else if(winners.length===0&&market.resolutionStatus==="resolved"&&tokens.every(t=>t.winner===false&&String(t.price)==="0.5")&&market.outcomes.every(o=>o.price===0.5)){
-  payouts=Object.fromEntries(ids.map(id=>[id,500_000]));kind="void";
  }else return null;
  return{marketId:market.id,conditionId:market.conditionId,version:market.version,payouts,source:"gamma+clob-final",asOf:now,kind};
+}
+/** Data API v2 exposes final micro-USDC payouts for both protocols, including
+ * 50/50 and derived negative-risk outcomes. Never guess these from market prices. */
+export function normalizePolyDataResolution(market:PolyMarket,value:unknown,now=Date.now()):PolyResolution|null{
+ if(!market.closed||market.version==="unsupported"||market.outcomes.length!==2)return null;
+ const rows=array(record(value).data).map(record),matching=rows.filter(x=>x.condition_id===market.conditionId);
+ if(matching.length!==1)return null;const row=matching[0],payouts=array(row.payouts);
+ if(row.status!=="resolved"||row.extended_review===true||payouts.length!==2||!payouts.every(p=>typeof p==="number"&&Number.isSafeInteger(p)&&p>=0&&p<=1e6)||Number(payouts[0])+Number(payouts[1])!==1e6)return null;
+ if(!market.outcomes.every(o=>polyToken.safeParse(o.tokenId).success))return null;
+ return{marketId:market.id,conditionId:market.conditionId,version:market.version,payouts:Object.fromEntries(market.outcomes.map((o,i)=>[o.tokenId,Number(payouts[i])])),source:"data-v2-final",asOf:now,kind:payouts.every(p=>p===500_000)?"void":"settle"};
 }
 export async function polyResolution(id:string){
  const market=await polyMarket(id,true);if(!market.closed)return null;
  ensure(/^0x[a-fA-F0-9]{64}$/.test(market.conditionId),"Unsupported market resolution.",503);
+ const data=await get("https://data-api.polymarket.com/v2/resolutions?"+new URLSearchParams({condition:market.conditionId}),15_000,true);
+ const result=normalizePolyDataResolution(market,data);if(result)return result;
+ const matching=array(record(data).data).map(record).filter(x=>x.condition_id===market.conditionId);
+ // Do not bypass a live dispute or malformed published payout using a second feed.
+ if(matching.length>1||matching.some(x=>x.status!=="resolved"||x.extended_review===true||x.payouts!=null))return null;
  return normalizePolyResolution(market,await get(CLOB+"/markets/"+market.conditionId,15_000,true));
 }
