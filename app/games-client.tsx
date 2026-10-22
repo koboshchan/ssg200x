@@ -146,7 +146,7 @@ export default function GamesClient(){
   <p className={styles.blurb}>{KINDS.find(k=>k.kind===kind)!.blurb}</p>
   {kind!=="plinko"&&pending&&!working?<div className={styles.note+" "+styles.warn} role="alert"><span>{error||"Your last action is unconfirmed."} ({pending.label})</span><button className="primary" disabled={working||connection!=="connected"} onClick={()=>void run(pending,true)}>Retry</button></div>:kind!=="plinko"&&error?<p className={styles.note+" "+styles.warn} role="alert">{error}</p>:null}
   {kind==="plinko"&&plinkoError?<p className={styles.note+" "+styles.warn} role="alert">{plinkoError}</p>:null}
-  <section className={styles.stage} key={kind} aria-label={KINDS.find(k=>k.kind===kind)!.label} aria-busy={busy}>
+  <section className={styles.stage+(kind==="chicken"?" "+styles.chickenStage:"")} key={kind} aria-label={KINDS.find(k=>k.kind===kind)!.label} aria-busy={busy}>
    {busy?<span className={styles.gameSpinner} role="status" aria-label="Game in progress"/>:null}
    {kind==="plinko"?<Plinko balls={balls} drops={drops} trail={trail} onDone={ballDone} onRetry={runDrop} blocked={connection!=="connected"}/>:null}
    {kind==="hilo"?<HiLo game={game} blocked={blocked} send={send}/>:null}
@@ -155,7 +155,7 @@ export default function GamesClient(){
    {kind==="chicken"?<Chicken game={game} blocked={blocked} send={send} animKey={animId}/>:null}
    <p className={styles.outcome+" "+(game?.status==="lost"?styles.lose:styles.win)} role="status" aria-label="Round result">{game&&done(game)&&kind!=="plinko"?(game.status==="lost"?"Lost "+money(game.bet):(game.status==="cashed"?"Cashed out ":"Won ")+money(game.payout)+" at "+mult(game.multiplier)):kind==="plinko"&&trail[0]?(trail[0].status==="lost"?"Lost ":"Payout ")+money(trail[0].payout):" "}</p>
   </section>
-  {kind==="plinko"?<StartPanel kind={kind} blocked={dropBlocked} send={send} drop={drop} {...betProps}/>:active?<ActiveBar game={active} blocked={blocked} send={send}/>:<StartPanel kind={kind} blocked={blocked} send={send} {...betProps}/>}
+  {kind==="chicken"?<StartPanel kind={kind} game={game} blocked={blocked} send={send} {...betProps}/>:kind==="plinko"?<StartPanel kind={kind} blocked={dropBlocked} send={send} drop={drop} {...betProps}/>:active?<ActiveBar game={active} blocked={blocked} send={send}/>:<StartPanel kind={kind} blocked={blocked} send={send} {...betProps}/>}
  </main>;
 }
 type Send=(label:string,payload:object)=>void;
@@ -164,7 +164,7 @@ function ActiveBar({game,blocked,send}:{game:GameView;blocked:boolean;send:Send}
  return <div className={styles.panel}><div className={styles.stat}><span>Bet</span><strong>{money(game.bet)}</strong></div><div className={styles.stat}><span>Multiplier</span><strong>{mult(game.multiplier)}</strong></div><div className={styles.stat}><span>Cash out</span><strong>{money(game.payout)}</strong></div>
   <button className={"primary "+styles.go} disabled={blocked||!can} onClick={()=>send("Cash out",{type:"cashout",id:game.id,revision:game.revision})}>{can?"Cash out":"Take a step first"}</button></div>;
 }
-function StartPanel({kind,blocked,send,drop,mines,setMines,amount,setAmount,cents,betOk,maxBet}:{mines:number;setMines:(n:number)=>void;drop?:(amount:number)=>void;kind:Kind;blocked:boolean;send:Send;amount:string;setAmount:(v:string)=>void;cents:number|null;betOk:boolean;maxBet:number}){
+function StartPanel({kind,game,blocked,send,drop,mines,setMines,amount,setAmount,cents,betOk,maxBet}:{game?:GameView;mines:number;setMines:(n:number)=>void;drop?:(amount:number)=>void;kind:Kind;blocked:boolean;send:Send;amount:string;setAmount:(v:string)=>void;cents:number|null;betOk:boolean;maxBet:number}){
  const [target,setTarget]=useState(50),[dir,setDir]=useState<"over"|"under">("over");
  const extra:object=kind==="mines"?{mines}:kind==="dice"?{target,direction:dir}:{};
  const chance=dir==="over"?100-target:target-1;
@@ -175,7 +175,10 @@ function StartPanel({kind,blocked,send,drop,mines,setMines,amount,setAmount,cent
   <div className={styles.quick} role="group" aria-label="Quick bets">{[1,5,25,100].map(n=><button key={n} disabled={blocked} onClick={()=>setAmount(String(n))}>{n}</button>)}</div>
   {kind==="mines"?<label className={styles.field}><span>Next bet · {mines} mines</span><input type="range" min={1} max={10} value={mines} onChange={e=>setMines(Number(e.target.value))} aria-label="Number of mines"/></label>:null}
 
-  <button className={"primary "+styles.go} disabled={blocked||!betOk} onClick={()=>kind==="plinko"&&drop?drop(cents!):send("Start "+kind,{type:"start",game:kind,amount:cents,...extra})}>{kind==="dice"?"Roll":kind==="plinko"?"Drop":"Start"}</button>
+  {kind==="chicken"?<div className={styles.chickenActions}>
+   {game?.status==="active"?<button disabled={blocked||game.steps<1} onClick={()=>send("Cash out",{type:"cashout",id:game.id,revision:game.revision})}>Cash out</button>:<span aria-hidden="true"/>}
+   <button className="primary" disabled={blocked||(game?.status!=="active"&&!betOk)} onClick={()=>game?.status==="active"?send("Cross lane",{type:"step",id:game.id,revision:game.revision}):send("Start chicken",{type:"start",game:"chicken",amount:cents})}>{game?.status==="active"?"Go":"Start"}</button>
+  </div>:<button className={"primary "+styles.go} disabled={blocked||!betOk} onClick={()=>kind==="plinko"&&drop?drop(cents!):send("Start "+kind,{type:"start",game:kind,amount:cents,...extra})}>{kind==="dice"?"Roll":kind==="plinko"?"Drop":"Start"}</button>}
   {cents!==null&&cents>maxBet?<small className={styles.hint}>Max bet is {money(maxBet)}.</small>:null}
  </div>;
 }
@@ -273,9 +276,6 @@ function Chicken({game,blocked,send,animKey}:{game?:GameView;blocked:boolean;sen
     </span>;})}
    <span className={styles.chick+(lost?" "+styles.dead:"")+(won?" "+styles.safeEnd:"")+(play?" "+styles.hop:"")} style={{left:"calc("+pos/(lanes+1)*100+"% + 4px)"}} aria-label="Chicken"><ChickenSvg dead={lost}/></span>
   </div></div>
-  {act&&game?<div className={styles.choices}>
-   <button className="primary" disabled={blocked||full} onClick={()=>send("Cross lane",{type:"step",id:game.id,revision:game.revision})}>Cross next lane</button>
-   <button disabled={blocked||game.steps<1} onClick={()=>send("Cash out",{type:"cashout",id:game.id,revision:game.revision})}>{game.steps>=1?"Cash out "+money(game.payout):"Cash out"}</button>
-  </div>:<p className={styles.empty}>{game?(lost?"The chicken didn't make it.":"Round over."):"Start to step onto the road."}</p>}
+  <p className={styles.empty}>{act?"Cross another lane or cash out.":game?(lost?"The chicken didn't make it.":"Round over."):"Start to step onto the road."}</p>
  </div>;
 }
