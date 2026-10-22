@@ -214,7 +214,7 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
 .felt-wrapper.dense .seat-top small{font-size:9px}
 .felt-wrapper.dense .hole{height:36px}
 .felt-wrapper.dense .seat .hole{justify-content:center;padding-left:0}
-.felt-wrapper.dense .seat-bet{bottom:-19px;top:auto}
+.felt-wrapper.dense .seat-bet{bottom:-32px;top:auto}
 .felt-wrapper.dense .seat>button{padding:12px 6px;font-size:9px}
 .felt-wrapper.dense .board{inset:auto 0;top:50%;transform:translateY(-50%)}
 @media(max-width:760px){.felt-wrapper.dense{height:var(--mh)}.felt-wrapper.dense .felt{inset:62px 34px}.felt-wrapper.dense .felt-mark{top:20px}.felt-wrapper.dense .seat{left:var(--mx);top:var(--my);width:min(120px,33%);max-width:none}.felt-wrapper.dense .board{inset:auto 0;top:calc(var(--mb) - 62px)}}

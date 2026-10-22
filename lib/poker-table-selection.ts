@@ -23,12 +23,12 @@ export const isLegacyLayout=(ids:readonly number[])=>ids.length===POKER_BASE_SEA
 export type SeatSlot={index:number;x:number;y:number};
 export const isDenseTable=(count:number)=>count>POKER_BASE_SEATS;
 /** Desktop wrapper height in px for a dense (7-12 seat) table. */
-export const denseTableHeight=(count:number)=>560+(count-POKER_BASE_SEATS)*30;
+export const denseTableHeight=(count:number)=>640+(count-POKER_BASE_SEATS)*30;
 /** Seat centres in percent of the wrapper, clockwise from the top; index i keeps its slot identity (no remap of occupied seats). */
 export function denseSeatSlots(count:number):SeatSlot[]{
  if(count>POKER_BASE_SEATS){
   // Seven or more seats follow the long stadium felt: spread them evenly along a rounded rectangle, clockwise from the top.
-  const X0=11,X1=89,Y0=9,Y1=91,w=X1-X0,h=Y1-Y0,per=2*(w+h);
+  const X0=11,X1=89,Y0=10,Y1=85,w=X1-X0,h=Y1-Y0,per=2*(w+h);
   return Array.from({length:count},(_,i)=>{let d=((i+.5)*per/count+w/2)%per,x:number,y:number;
    if(d<w){x=X0+d;y=Y0}else if((d-=w)<h){x=X1;y=Y0+d}else if((d-=h)<w){x=X1-d;y=Y1}else{d-=w;x=X0;y=Y1-d}
    return {index:i,x:+x.toFixed(2),y:+y.toFixed(2)};});
@@ -44,10 +44,10 @@ export function slotsOverlap(count:number,width:number,seatW:number,seatH:number
 export type MobileDenseLayout={height:number;boardY:number;slots:{x:number;y:number}[]};
 /** Phone ring for 7-12 seats: one seat top and bottom centre, the rest in a left and right column with a gap at mid-height for the board, so hole cards and bets never reach it. x is percent of width, y/height/boardY px. Slot i is clockwise from the top, matching denseSeatSlots. */
 export function denseMobileLayout(count:number):MobileDenseLayout{
- const P=118,TOP=58,BAND=170,rest=Math.max(0,count-2),R=Math.ceil(rest/2),L=Math.floor(rest/2),a=Math.max(1,Math.ceil(Math.max(R,L)/2));
+ const P=150,TOP=58,BAND=170,rest=Math.max(0,count-2),R=Math.ceil(rest/2),L=Math.floor(rest/2),a=Math.max(1,Math.ceil(Math.max(R,L)/2));
  const aboveY=(i:number)=>TOP+P*i,bandTop=aboveY(a-1)+78,bandBottom=bandTop+BAND,belowY=(j:number)=>bandBottom+60+P*j,lastY=belowY(a-1);
  const col=(k:number)=>{const above=Math.ceil(k/2),below=k-above,ys:number[]=[];for(let i=0;i<above;i++)ys.push(aboveY(i));for(let j=0;j<below;j++)ys.push(belowY(a-below+j));return ys};
  const right=col(R),left=col(L).reverse();
  const slots=[{x:50,y:TOP},...right.map(y=>({x:83,y})),...(count>1?[{x:50,y:lastY}]:[]),...left.map(y=>({x:17,y}))].slice(0,count);
- return {height:lastY+62,boardY:bandTop+BAND/2,slots};
+ return {height:lastY+96,boardY:bandTop+BAND/2,slots};
 }
