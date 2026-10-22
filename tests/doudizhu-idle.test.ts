@@ -30,7 +30,7 @@ test("joins, reactions and visibility never extend the nobody-ready baseline",()
 });
 test("a ready player exempts room indefinitely; departure starts a fresh continuous interval",()=>{
  const r=setup(),g=r.doudizhu![0];move(r,1,{type:"join",code:g.code});
- move(r,0,{type:"ready"},2000);assert.equal(g.idleDeadline,undefined);
+ move(r,0,{type:"ready"},2000);assert.equal(g.idleDeadline,undefined);assert.equal(publicDoudizhu(r,users[0]).room!.idleDeadline,null);
  assert(!doudizhuNeedsTick(r,999999));assert(!tickDoudizhu(r,999999));
  move(r,0,{type:"leave"},1000000);assert.equal(g.idleDeadline,1000000+DOUDIZHU_IDLE_MS);
  assert(!tickDoudizhu(r,g.idleDeadline!-1));assert(tickDoudizhu(r,g.idleDeadline!));assertRoom(r);
@@ -65,4 +65,10 @@ test("persisted empty rooms are removed safely even with a stray active phase",(
  const r=setup(),g=r.doudizhu![0];move(r,0,{type:"leave"});
  g.players=[];g.phase="playing";r.doudizhu=[g];
  assert(doudizhuNeedsTick(r,2000));assert(tickDoudizhu(r,2000));assert.equal(r.doudizhu.length,0);assertRoom(r);
+});
+
+test("nullable legacy deadline receives the full grace interval",()=>{
+ const r=setup(),g=r.doudizhu![0];g.idleDeadline=null;
+ assert(doudizhuNeedsTick(r,900000));assert(tickDoudizhu(r,900000));
+ assert.equal(g.idleDeadline,900000+DOUDIZHU_IDLE_MS);
 });
