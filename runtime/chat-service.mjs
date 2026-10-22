@@ -2,7 +2,7 @@ import {createIdentityStore} from './chat-identity.mjs';
 import {randomUUID} from 'node:crypto';
 import {shape,uuid,binary,text,fail,digest,registerData,bundleFingerprint,signedWrap,signedMessage,verify,validateDevice} from './chat-protocol.mjs';
 // All persistence is constructed field by field. Never spread caller input into Mongo.
-export function createChatService(db,{now=Date.now,clerk,roomId='main'}={}){
+export function createChatService(db,{now=Date.now,clerk,roomId='main',canSend=()=>true}={}){
  if(!['main','poker-02','poker-03'].includes(roomId))throw new Error('Invalid chat room');
  const scope=roomId==='main'?{$or:[{room:'main'},{room:{$exists:false}}]}:{room:roomId};
  const scoped=collection=>new Proxy(collection,{get(target,key){if(['find','findOne','countDocuments'].includes(key))return (query={},...args)=>target[key]({$and:[query,scope]},...args);const value=target[key];return typeof value==='function'?value.bind(target):value;}});
@@ -62,7 +62,7 @@ export function createChatService(db,{now=Date.now,clerk,roomId='main'}={}){
  async function archivePublic(user,d){
   await db.collection('chat_public_keys').updateOne({_id:digest(JSON.stringify([user,d.deviceId]))},{$setOnInsert:{userId:user,deviceId:d.deviceId,dhPublic:d.dhPublic,signPublic:d.signPublic}},{upsert:true});
  }
- async function perform(user,event,p){await ready;text(user);await rate(user);const s=await snapshot(user);
+ async function perform(user,event,p){await ready;text(user);if(event==='send'&&!canSend())fail('feature_disabled');await rate(user);const s=await snapshot(user);
   if(event==='keys:get'||event==='keys:put'){
    if(!identity)fail('identity_unavailable');
    if(event==='keys:get')shape(p,['v']);
@@ -130,13 +130,14 @@ export function createChatService(db,{now=Date.now,clerk,roomId='main'}={}){
    return {wrap:cleanWrap(doc)};
   }
   if(event==='send'){
+   if(!canSend())fail('feature_disabled');
    shape(p,['v','room','revision','epoch','deviceId','id','ts','iv','ciphertext','signature']);current(p,s);uuid(p.id);binary(p.iv,12);binary(p.ciphertext,17,4112);binary(p.signature,64);if(!Number.isSafeInteger(p.ts))fail();
    const d=await device(user,p.deviceId);if(s.state.status!=='active'||!await hasWrap(p.epoch,user,p.deviceId))fail('waiting');
    const content=signedMessage(user,p);if(!await verify(d.signPublic,content,p.signature))fail('invalid_signature');
    const prior=await messages.findOne({epoch:p.epoch,senderUserId:user,id:p.id});if(prior){if(prior.content!==content)fail('conflict');await fence(s,user);return {message:cleanMessage(prior),duplicate:true};}
    if(Math.abs(now()-p.ts)>300000)fail('expired');await fence(s,user);
    const counter=await states.findOneAndUpdate({_id:roomId,revision:p.revision,epoch:p.epoch,status:'active'},{$inc:{counter:1}},{returnDocument:'after'});if(!counter)fail('stale_revision');
-   const doc={_id:digest(content),v:1,room:roomId,revision:p.revision,epoch:p.epoch,senderUserId:user,deviceId:p.deviceId,id:p.id,ts:p.ts,iv:p.iv,ciphertext:p.ciphertext,signature:p.signature,senderSignPublic:d.signPublic,serverTs:now(),cursor:counter.counter,content};await messages.insertOne(doc);return {message:cleanMessage(doc),duplicate:false};
+   const doc={_id:digest(content),v:1,room:roomId,revision:p.revision,epoch:p.epoch,senderUserId:user,deviceId:p.deviceId,id:p.id,ts:p.ts,iv:p.iv,ciphertext:p.ciphertext,signature:p.signature,senderSignPublic:d.signPublic,serverTs:now(),cursor:counter.counter,content};if(!canSend())fail('feature_disabled');await messages.insertOne(doc);return {message:cleanMessage(doc),duplicate:false};
   }
   if(event==='history'){
    shape(p,['v','epoch','deviceId'],['before','limit']);uuid(p.epoch);await device(user,p.deviceId);if(!await hasWrap(p.epoch,user,p.deviceId))fail('waiting');

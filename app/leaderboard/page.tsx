@@ -3,10 +3,13 @@ import RefreshNames from "./refresh-names";
 import ProfileAvatar from "./profile-avatar";
 import type {Metadata} from "next";
 import {getLeaderboard} from "@/lib/leaderboard-store";
+import {requireFeature} from "@/lib/feature-flags";
 export const metadata:Metadata={title:"Leaderboard · ssg200x"};
 export const dynamic="force-dynamic";
 const money=(cents:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(cents/100);
 export default async function LeaderboardPage(){
+ const off=await requireFeature("leaderboard").then(()=>false,()=>true);
+ if(off)return <main className="game-main public-leaderboard feature-disabled"><h1>Leaderboard</h1><p role="status">Temporarily disabled</p></main>;
  const snapshot=await getLeaderboard().catch(()=>null);
  const main=<main className="game-main public-leaderboard"><RefreshNames/><section className="standings"><p className="eyebrow">BRAGGING RIGHTS</p><h1>Leaderboard</h1><p>Play-money net worth. Wallet, poker chips, unsettled game stakes, spot holdings and perpetual equity at the latest available prices.</p>
  {snapshot?<><p className="fine">Snapshot from <time dateTime={new Date(snapshot.updatedAt).toISOString()}>{new Date(snapshot.updatedAt).toLocaleString("en-US",{timeZone:"UTC",timeZoneName:"short"})}</time>. Names and standings refresh automatically.</p>

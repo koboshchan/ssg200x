@@ -11,7 +11,8 @@
     "test:finance-retry": "node --experimental-test-module-mocks --import tsx --test tests/pending-finance.test.ts tests/finance-retry-route.test.mts",
     "test:finance-retry:integration": "node --experimental-test-module-mocks --import tsx --test tests/finance-retry-integration.test.mts",
     "test:integration": "tsx --test tests/integration/*.test.ts",
-    "test:candle-route": "node --experimental-test-module-mocks --import tsx --test tests/candle-route.test.mts"
+    "test:candle-route": "node --experimental-test-module-mocks --import tsx --test tests/candle-route.test.mts",
+    "test:feature-workers": "node --experimental-test-module-mocks --import tsx --test tests/feature-worker-gates.test.mts"
   },
   "dependencies": {
     "@clerk/nextjs": "7.9.17",

@@ -65,3 +65,27 @@ export function changeMarketSymbol(room:Room,who:Identity,input:SymbolChange){
  audit(room,who,"market-symbol-"+input.action,symbol,current,next);
  room.marketSymbols=next;
 }
+
+/** Replace the FX universe once, never expose intermediate empty/partial lists. */
+export function replaceForexPairs(room:Room,who:Identity,pairs:string[],expectedVersion:number,confirmed:boolean){
+ ensure(who.admin,'Administrator access required.',403);
+ ensure(pairs.length<=8&&new Set(pairs).size===pairs.length&&pairs.every(validForexPair),'Use up to eight unique currency pairs.');
+ const current=marketSymbols(room);
+ ensure(current.revision===expectedVersion,'Market list changed. Refresh and confirm again.',409);
+ const removed=current.forex.filter(p=>!pairs.includes(p));
+ if(removed.length)ensure(confirmed,'Confirm removal and affected claims first.',409);
+ for(const pair of removed){const impact=symbolImpact(room,pair);ensure(!impact.holdings&&!impact.positions,'Forex pair has open claims. Close positions and sell holdings using fresh live rates before removal.',409);}
+ if(removed.includes('USD/JPY')){const dependent=symbolImpact(room,'AUD/JPY');ensure(!dependent.holdings&&!dependent.positions,'Conversion pair supports open AUD/JPY claims.',409);}
+ const next={...current,forex:[...pairs],delisted:[...new Set([...current.delisted.filter(s=>!pairs.includes(s)),...removed])],revision:current.revision+1};
+ audit(room,who,'forex-pair-list','global',current,next);room.marketSymbols=next;
+}
+export async function validateForexPairs(pairs:string[],request:typeof fetch=fetch,env:Readonly<Record<string,string|undefined>>=process.env){
+ ensure(pairs.length<=8&&new Set(pairs).size===pairs.length&&pairs.every(validForexPair),'Use up to eight unique currency pairs.');
+ if(!pairs.length)return;
+ ensure(env.OANDA_API_TOKEN&&env.OANDA_ACCOUNT_ID,'OANDA credentials required to validate pairs.',503);
+ const url=new URL('https://api-fxpractice.oanda.com/v3/accounts/'+encodeURIComponent(env.OANDA_ACCOUNT_ID)+'/instruments');
+ url.searchParams.set('instruments',pairs.map(p=>p.replace('/','_')).join(','));
+ const response=await request(url,{headers:{Authorization:'Bearer '+env.OANDA_API_TOKEN},signal:AbortSignal.timeout(5000),cache:'no-store',redirect:'error'});
+ ensure(response.ok,'Forex metadata validation unavailable.',503);const value=await response.json();
+ ensure(Array.isArray(value.instruments)&&pairs.every(p=>value.instruments.some((i:{name?:string;type?:string})=>i.name===p.replace('/','_')&&i.type==='CURRENCY')),'Unsupported OANDA practice pair; no substitutions.');
+}

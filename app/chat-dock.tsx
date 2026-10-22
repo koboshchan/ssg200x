@@ -9,6 +9,7 @@ import {indexedDbStore} from "@/lib/chat-store";
 import WordEntry from "./word-entry";
 import {MAX_TEXT_BYTES} from "@/lib/chat-crypto";
 import DmPanel from "./dm-panel";
+import {useFeatures} from "./use-features";
 
 const errorText:Record<string,string>={admin_reset:"An admin reset your chat words. Create and save new words. Old words no longer unlock this account. Unsent messages were discarded and will not be retried. Older history needs a new key grant; a trusted member can share the current room key.",setup_words_lost:"Setup was interrupted. Enter the six words you saved.",wrong_words:"Those words don't match. Check the order and spelling.",bad_words:"Enter exactly six words from the list.",disconnected:"Not connected. Try again in a moment.",timeout:"The server didn't answer in time.",rate_limited:"Slow down a little.",busy:"The server is busy. Trying again.",identity_exists:"Chat keys already exist for this account. Enter your six recovery words.",identity_conflict:"Your keys changed on another device. Reload to continue.",forbidden:"Chat is only open to approved members."};
 const friendly=(code:string|null)=>code?errorText[code]||"Chat is unavailable right now.":null;
@@ -30,7 +31,9 @@ export default function ChatDock(){
  const loadDmUnread=useCallback(async()=>{if(!userId)return;const scope=++unreadScope.current;try{const r=await live.request("dm:unread",{v:1});if(scope===unreadScope.current)setDmUnread(Object.values(r.counts??{}).reduce<number>((n,v)=>n+(typeof v==="number"?v:0),0));}catch{}},[userId,live.request]);
  useEffect(()=>{unreadScope.current++;setDmUnread(0);if(userId&&live.connection==="connected")void loadDmUnread();},[userId,live.connection,loadDmUnread]);
  useLiveEvent("dm:changed",()=>{void loadDmUnread();});
- const [tab,setTab]=useState<"room"|"dm">("room");
+ const {features:ft}=useFeatures();
+ const [pickedTab,setTab]=useState<"room"|"dm">("room");
+ const tab:"room"|"dm"=pickedTab==="room"&&!ft.tableTalk&&ft.dms?"dm":pickedTab==="dm"&&!ft.dms&&ft.tableTalk?"room":pickedTab;
  const [preferencesUser,setPreferencesUser]=useState<string|null>(null);
  const preferencesReady=preferencesUser===userId;
  useEffect(()=>{
@@ -83,7 +86,7 @@ export default function ChatDock(){
   {!open&&<button className="chat-toggle" onClick={()=>setOpen(true)} aria-label={unread?"Open chat, "+unread+" unread":"Open chat"}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg>{unread>0&&<span className="chat-badge" aria-hidden="true">{unread>99?"99+":unread}</span>}</button>}
   {open&&<aside className="chat-dock" aria-label="TableTalk chat">
    <header><div><strong>TableTalk</strong><span className="chat-lock">End-to-end encrypted</span></div><button onClick={()=>setOpen(false)} aria-label="Hide chat">Hide</button></header>
-   <div className="chat-tabs" role="tablist"><button role="tab" aria-selected={tab==="room"} onClick={()=>setTab("room")}>Room</button><button role="tab" aria-selected={tab==="dm"} onClick={()=>setTab("dm")}>Messages{dmUnread>0&&<span className="dm-unread" aria-label={`${dmUnread} unread messages`}>{dmUnread}</span>}</button></div>
+   <div className="chat-tabs" role="tablist">{ft.tableTalk?<button role="tab" aria-selected={tab==="room"} onClick={()=>setTab("room")}>Room</button>:null}{ft.dms?<button role="tab" aria-selected={tab==="dm"} onClick={()=>setTab("dm")}>Messages{dmUnread>0&&<span className="dm-unread" aria-label={`${dmUnread} unread messages`}>{dmUnread}</span>}</button>:null}</div>
    {tab==="room"?<Body snap={snap} client={client} names={names}/>:<DmPanel phase={snap.phase} goSetup={()=>setTab("room")}/>}
   </aside>}
  </>;

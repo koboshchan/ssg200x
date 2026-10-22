@@ -2,7 +2,7 @@
 const URL='wss://ws-subscriptions-clob.polymarket.com/ws/market';
 const idOK=x=>typeof x==='string'&&/^\d{1,24}$/.test(x);
 const tokenOK=x=>typeof x==='string'&&/^\d{1,80}$/.test(x);
-export function createPolymarketStream({connect=url=>new WebSocket(url),now=Date.now,graceMs=5000,freshMs=10000,healthMs=25000,onChange=()=>{}}={}){
+export function createPolymarketStream({connect=url=>new WebSocket(url),now=Date.now,graceMs=5000,freshMs=10000,healthMs=25000,onChange=()=>{},enabled=()=>true}={}){
  const liveStates=new Map();
  const markets=new Map(),viewers=new Map(),books=new Map(),subscribed=new Set();
  let socket=null,connectingAt=0,heartbeatAt=0,pingAt=0,retryAt=0,attempt=0,opens=0,stopped=false;
@@ -31,13 +31,20 @@ export function createPolymarketStream({connect=url=>new WebSocket(url),now=Date
  function send(data){socket.send(JSON.stringify(data));}
  function invalidate(){books.clear();subscribed.clear();for(const id of markets.keys())changed(id);}
  function lose(ws){if(socket!==ws)return;socket=null;invalidate();retryAt=now()+Math.min(30000,500*2**Math.min(attempt++,6));try{ws.close();}catch{}}
+ function closeDisabled(){
+  const old=socket;socket=null;
+  if(old)try{old.close();}catch{}
+  if(old||books.size||subscribed.size)invalidate();
+ }
+ function syncEnabled(){if(!enabled())closeDisabled();else reconcile();}
  function reconcile(){
   if(stopped)return;
+  if(!enabled()){closeDisabled();return;}
   const tokens=desired();
   if(!tokens.size){if(socket){const old=socket;socket=null;try{old.close();}catch{}}invalidate();return;}
   if(!socket&&now()>=retryAt){
    let ws;try{ws=connect(URL);}catch{retryAt=now()+1000;return;}socket=ws;connectingAt=now();
-   ws.addEventListener('open',()=>{if(socket!==ws)return;opens++;attempt=0;heartbeatAt=pingAt=now();subscribed.clear();books.clear();const ids=[...desired()];send({assets_ids:ids,type:'market',custom_feature_enabled:true});ids.forEach(t=>subscribed.add(t));for(const id of markets.keys())changed(id);});
+   ws.addEventListener('open',()=>{if(socket!==ws)return;if(!enabled()){closeDisabled();return;}opens++;attempt=0;heartbeatAt=pingAt=now();subscribed.clear();books.clear();const ids=[...desired()];send({assets_ids:ids,type:'market',custom_feature_enabled:true});ids.forEach(t=>subscribed.add(t));for(const id of markets.keys())changed(id);});
    ws.addEventListener('message',event=>{if(socket!==ws)return;const text=String(event.data);if(text==='PONG'){heartbeatAt=now();return;}if(text.length>4_000_000){lose(ws);return;}try{const data=JSON.parse(text);for(const item of Array.isArray(data)?data:[data])message(item);}catch{/* Invalid upstream frames never become tradable. */}});
    ws.addEventListener('close',()=>lose(ws));ws.addEventListener('error',()=>lose(ws));return;
   }
@@ -66,11 +73,12 @@ export function createPolymarketStream({connect=url=>new WebSocket(url),now=Date
   }else if(x.event_type==='market_resolved'){for(const t of x.assets_ids||[]){books.delete(t);notifyToken(t);}}
  }
  function read(token){
-  const b=books.get(token);if(socket?.readyState!==1||now()-heartbeatAt>healthMs||!subscribed.has(token)||!b||now()-b.asOf>freshMs)return null;
+  const b=books.get(token);if(!enabled()||socket?.readyState!==1||now()-heartbeatAt>healthMs||!subscribed.has(token)||!b||now()-b.asOf>freshMs)return null;
   const rows=(m,desc)=>[...m].map(([price,size])=>({price,size})).sort((a,b)=>desc?Number(b.price)-Number(a.price):Number(a.price)-Number(b.price));
   return{asset_id:token,market:b.conditionId,bids:rows(b.bids,true),asks:rows(b.asks,false),timestamp:b.asOf,hash:b.hash,source:'stream',sourceAt:b.sourceAt,streamAt:b.asOf};
  }
  function sweep(){
+  if(!enabled()){closeDisabled();return;}
   for(const [id,m]of markets)if(m.until!==null&&now()>=m.until){markets.delete(id);changed(id);}
   if(socket?.readyState===0&&now()-connectingAt>10000)lose(socket);
   if(socket?.readyState===1){if(now()-heartbeatAt>healthMs)lose(socket);else if(now()-pingAt>=10000){try{socket.send('PING');pingAt=now();}catch{lose(socket);}}}
@@ -81,7 +89,7 @@ export function createPolymarketStream({connect=url=>new WebSocket(url),now=Date
  function status(id){const m=markets.get(id);return{marketId:id,live:!!m&&[...m.tokens].every(t=>!!read(t)),books:m?[...m.tokens].map(read).filter(Boolean):[],serverNow:now()};}
  function diagnostics(){return{connections:socket?1:0,opens,connected:socket?.readyState===1,markets:[...markets].map(([id,m])=>({id,viewers:m.viewers.size,positions:m.pins.size,tokens:[...m.tokens],graceUntil:m.until})),subscribed:[...subscribed],cached:books.size};}
  function stop(){stopped=true;const old=socket;socket=null;old?.close();books.clear();subscribed.clear();markets.clear();viewers.clear();}
- return{setViewer,syncPositions,read,sweep,status,diagnostics,stop};
+ return{setViewer,syncPositions,read,sweep,status,diagnostics,stop,syncEnabled};
 }
 
 // Presence uses server-authenticated socket identity only. One selected market per socket.

@@ -4,6 +4,8 @@ import {RELEASE_EVENT} from "../runtime/release.mjs";
 import {attachSocketAuthClient} from "../runtime/socket-auth.mjs";
 import PaymentAnnouncement from "./payment-announcement";
 import CheckInBanner from "./check-in-banner";
+import {useFeatures} from "./use-features";
+import type {FeatureKey} from "@/lib/feature-catalog";
 import AdvancementAnnouncement from "./advancement-announcement";
 import AirdropAnnouncement from "./airdrop-announcement";
 import {AIRDROP_EVENT,createAirdropReceiver} from "../runtime/airdrop-events.mjs";
@@ -86,7 +88,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
   return()=>{closed=true;clearInterval(reportTimer);document.removeEventListener("visibilitychange",report);window.removeEventListener("pageshow",report);receiver.clear();latest.current.clear();clearTimeout(retry);disposeAuth?.();socket?.disconnect();socketRef.current=undefined;};
  },[release]);
  const value=useMemo<Live>(()=>({connection,maintenance,lastMessageAt,...api}),[connection,maintenance,lastMessageAt,api]);
- return <Context.Provider value={value}>{children}<AirdropAnnouncement subscribe={api.subscribe}/><AdvancementAnnouncement subscribe={api.subscribe}/><CheckInBanner/><PaymentAnnouncement subscribe={api.subscribe}/>{tabBlocked?<TabBlockedOverlay/>:null}</Context.Provider>;
+ return <Context.Provider value={value}>{children}<AirdropAnnouncement subscribe={api.subscribe}/><AdvancementAnnouncement subscribe={api.subscribe}/><FlagGated k="checkIn"><CheckInBanner/></FlagGated><PaymentAnnouncement subscribe={api.subscribe}/>{tabBlocked?<TabBlockedOverlay/>:null}</Context.Provider>;
 }
 export function ConnectionBadge(){const {connection}=useLive();return <p className="connection-status" role="status" data-state={connection}>{connection==="connected"?"Live":connection==="connecting"?"Connecting…":"Disconnected. Trading is paused until the connection returns."}</p>;}
 
@@ -105,3 +107,5 @@ function TabBlockedOverlay(){
   </div>
  </dialog>;
 }
+
+function FlagGated({k,children}:{k:FeatureKey;children:React.ReactNode}){const {features}=useFeatures();return features[k]===false?null:<>{children}</>;}

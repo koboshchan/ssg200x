@@ -1,3 +1,4 @@
+import {enforceFeatureRequest} from "./feature-flags";
 import {checkActionTab} from "./tab-guard";
 import {currentClerkUser,currentClerkSession} from "./clerk-reads";
 import {clerkDisplayName} from "../runtime/clerk-names.mjs";
@@ -44,6 +45,14 @@ export async function endpoint(request:Request,handler:(who:Identity)=>Promise<u
   const budget=endpointBudget(request.method,new URL(request.url).pathname,userId);
   if(!await receiveGeneration(request))await rateLimit(budget.key,budget.limit);
   if(!who.admin&&new URL(request.url).pathname!=="/api/maintenance")ensure(!(await siteMaintenance(false)).blocked,"Under maintenance",503);
+  let featureInput:Record<string,unknown>={};
+  if(request.method!=="GET"){
+   // Bounded inspection of the clone leaves the original body for the route schema.
+   const reader=request.clone().body?.getReader();let bytes=0,text="";const decoder=new TextDecoder();
+   try{if(reader){while(true){const part=await reader.read();if(part.done)break;bytes+=part.value.byteLength;ensure(bytes<=32768,"Request too large.",413);text+=decoder.decode(part.value,{stream:true});}text+=decoder.decode();featureInput=JSON.parse(text);ensure(featureInput!==null&&typeof featureInput==="object"&&!Array.isArray(featureInput),"Invalid request.");}}
+   finally{if(reader)void reader.cancel().catch(()=>{});}
+  }
+  await enforceFeatureRequest(new URL(request.url).pathname,request.method,featureInput,userId);
   await checkActionTab(request,userId);
   return NextResponse.json(await handler(who),{headers:{"Cache-Control":"no-store"}});
  }catch(e) {

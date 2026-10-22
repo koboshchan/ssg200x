@@ -5,7 +5,7 @@ export const TAUNT_COOLDOWN_MS=4000;
 export const POKER_EMOTES=Object.freeze({laugh:{emoji:"😂",label:"Laugh"},cry:{emoji:"😭",label:"Cry"},wow:{emoji:"😮",label:"Wow"},think:{emoji:"🤔",label:"Thinking"},nice:{emoji:"👏",label:"Nice hand"},oops:{emoji:"🙈",label:"Oops"}});
 // Effects are ephemeral; only paid throws use the atomic financial outbox.
 // One budget per identity across all tables and sockets.
-export function createPokerTaunts({collection,auditCollection,io,checkSession,checkTab,now=Date.now}){
+export function createPokerTaunts({collection,auditCollection,io,checkSession,checkTab,enabled=()=>true,now=Date.now}){
  const budgets=new Map();
  function reserve(user){
   const at=now(),previous=budgets.get(user);
@@ -17,6 +17,7 @@ export function createPokerTaunts({collection,auditCollection,io,checkSession,ch
  return function attach(socket){
   socket.on("poker:taunt",async(payload,ack)=>{
    if(typeof ack!=="function")return;
+   if(!enabled()){ack({ok:false,error:"feature_disabled"});return;}
    const user=socket.data.identity.id,retryAfterMs=reserve(user);
    if(retryAfterMs){ack({ok:false,error:"cooldown",retryAfterMs});return;}
    try{
@@ -40,9 +41,10 @@ export function createPokerTaunts({collection,auditCollection,io,checkSession,ch
     if((socket.data.pokerTableId||"01")!==payload.tableId)throw Error("tab");
     if(!socket.connected||socket.data.expires<=now())throw Error("session");
     if(checkTab(user,socket.handshake.auth.tabId,socket.handshake.auth.tabProof,"poker"))throw Error("tab");
+    if(!enabled())throw Error("feature_disabled");
     let payment;
     if(throwable){
-     payment=await chargePokerThrow({collection,auditCollection,user,payload,now,authorize:async()=>{if((socket.data.pokerTableId||"01")!==payload.tableId)throw Error("tab");
+     payment=await chargePokerThrow({collection,auditCollection,user,payload,now,authorize:async()=>{if(!enabled())throw Error("feature_disabled");if((socket.data.pokerTableId||"01")!==payload.tableId)throw Error("tab");
     await checkSession(socket);
     if((socket.data.pokerTableId||"01")!==payload.tableId)throw Error("tab");if(!socket.connected||socket.data.expires<=now())throw Error("session");if(checkTab(user,socket.handshake.auth.tabId,socket.handshake.auth.tabProof,"poker"))throw Error("tab");}});
      if(payment.replayed){ack({ok:true,replayed:true,cost:payment.cost});return;}
@@ -51,7 +53,7 @@ export function createPokerTaunts({collection,auditCollection,io,checkSession,ch
     // Only current table viewers receive effects. No persistent snapshot/replay.
     for(const target of io.sockets.sockets.values())if(target.connected&&target.data.expires>now()&&target.data.marketRoute==="/poker"&&(target.data.pokerTableId||"01")===payload.tableId)target.emit("poker:taunt",event);
     ack({ok:true,cooldownMs:TAUNT_COOLDOWN_MS,...(payment?{cost:payment.cost}:{})});
-   }catch(error){ack({ok:false,error:["invalid","tab","not_seated","target","session","expired","cooldown","price_changed","insufficient_funds"].includes(error.message)?error.message:"unavailable"});if(error.message==="session")socket.disconnect(true);}
+   }catch(error){ack({ok:false,error:["feature_disabled","invalid","tab","not_seated","target","session","expired","cooldown","price_changed","insufficient_funds"].includes(error.message)?error.message:"unavailable"});if(error.message==="session")socket.disconnect(true);}
   });
  };
 }

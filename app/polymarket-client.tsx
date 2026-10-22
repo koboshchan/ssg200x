@@ -1,4 +1,5 @@
 "use client";
+import {useFeatures} from "./use-features";
 import {Suspense,useCallback,useEffect,useMemo,useRef,useState} from "react";
 import {useRouter,useSearchParams} from "next/navigation";
 import {useUser} from "@clerk/nextjs";
@@ -191,7 +192,8 @@ function Ticket({ev,market,portfolio,settings,onTraded,stream}:{stream:StreamPri
  const sellAmt=action==="sell"&&valid?Math.min(n,pos?.shares||0):0;
  const payoutC=action==="buy"?shares*100:(fresh?quote!.cents:0);
  const costC=action==="buy"?(valid?n*100:0):0;
- const disabled=busy||!valid||!fresh||settings==null||market.closed||ev.closed||settings?.enabled===false||(action==="buy"&&portfolio!=null&&costC>portfolio.wallet)||(action==="buy"&&max!=null&&costC>max)||(action==="sell"&&(!pos||n>pos.shares+1e-9));
+ const buyOff=action==="buy"&&useFeatures().features.polymarket===false;
+ const disabled=buyOff||busy||!valid||!fresh||settings==null||market.closed||ev.closed||settings?.enabled===false||(action==="buy"&&portfolio!=null&&costC>portfolio.wallet)||(action==="buy"&&max!=null&&costC>max)||(action==="sell"&&(!pos||n>pos.shares+1e-9));
  useEffect(()=>{const d=dlg.current;if(!d)return;if(confirm&&!d.open)d.showModal();if(!confirm&&d.open)d.close();},[confirm]);
  async function submit(){
   setBusy(true);setErr("");
@@ -231,7 +233,7 @@ function Ticket({ev,market,portfolio,settings,onTraded,stream}:{stream:StreamPri
   {settings==null&&<p className={styles.hint}>Loading trading limits…</p>}
   {max!=null&&<p className={styles.hint}>Max per trade {money(max)}. Price may move slightly at fill.</p>}
   {err&&<p className={styles.error} role="alert">{err}</p>}
-  <button className={"primary "+styles.go} disabled={disabled} onClick={()=>setConfirm(true)}>{settings?.enabled===false?"Trading off":market.closed||ev.closed?"Market closed":valid&&!fresh?"Price unavailable":(action==="buy"?"Buy ":"Sell ")+side.toUpperCase()}</button>
+  <button className={"primary "+styles.go} disabled={disabled} onClick={()=>setConfirm(true)}>{buyOff?"Buying disabled":settings?.enabled===false?"Trading off":market.closed||ev.closed?"Market closed":valid&&!fresh?"Price unavailable":(action==="buy"?"Buy ":"Sell ")+side.toUpperCase()}</button>
   <dialog ref={dlg} className={styles.dialog} onCancel={e=>{e.preventDefault();if(!busy)setConfirm(false);}} onClose={()=>setConfirm(false)}>
    <h3>Confirm {action}</h3><p>{action==="buy"?"Spend "+money(costC)+" for about "+shares.toFixed(2)+" "+side.toUpperCase()+" at about "+cents(price):"Sell "+sellAmt+" "+side.toUpperCase()+" shares at about "+cents(price)}.</p><p className={styles.muted}>{market.question}</p>
    <div className={styles.actions}><button onClick={()=>setConfirm(false)} disabled={busy}>Cancel</button><button className="primary" onClick={submit} disabled={busy||!fresh}>{busy?"Placing…":"Confirm"}</button></div>

@@ -1,3 +1,4 @@
+import {roomFeatureEnabled} from "./feature-context";
 import type {Member} from "./types";
 import type {RouletteWager} from "./roulette";
 import {ROULETTE_CHIPS} from "./roulette-chips";
@@ -17,6 +18,7 @@ export function advancementView(member?:Pick<Member,"advancements">):Advancement
  * Called at animation end inside the existing room Mongo CAS, never speculatively
  * broadcast at spin start. Round guard makes retries/replayed ticks idempotent. */
 export function settleAdvancements(member:Member,wagers:readonly RouletteWager[],number:number,round:number,at:number,room?:import("./types").Room,rewards:Record<number,number>=ADVANCEMENT_REWARDS_CENTS){
+ if(!roomFeatureEnabled(room,"advancements"))return;
  const qualifying=wagers.filter(w=>w.userId===member.id&&w.dead!==true&&chips.has(w.bet.amount)&&kinds.has(w.bet.kind));
  if(!qualifying.length||round<=(member.advancements?.lastRound??0))return;
  const state=advancementView(member);

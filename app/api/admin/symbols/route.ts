@@ -12,6 +12,7 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
  ensure(who.admin,"Administrator access required.",403);
  await rateLimit("admin-symbols:"+who.id,20);
  const input=await parse(request,schema);
+ ensure(input.kind!=="forex","Save the complete forex pair list instead.",409);
  if(input.action==="add")await validateProviderSymbol(input.kind,input.symbol);
  const {room}=await mutate(room=>changeMarketSymbol(room,who,input));
  return adminSymbolSnapshot(room,who);

@@ -6,6 +6,8 @@ import {createTransferHistoryRefresh,retryAfterMs} from "@/lib/transfer-history-
 import type {PublicRoom} from "@/lib/public";
 import WordEntry from "../../word-entry";
 import styles from "./wallet.module.css";
+import {useFeatures} from "../../use-features";
+import {FeatureNotice} from "../../feature-gate";
 
 type Entry={id:string;amount:number;note:string;at:number;from:string;to:string;direction:string;kind?:string};
 type Resolved={name:string;publicId:string;expiresAt:number;avatar?:string|null;amount:number;note?:string};
@@ -108,9 +110,11 @@ export default function Wallet(){
  const recipientName=recipient?(room?.chatNames?.find(m=>m.publicId===recipient.publicId)?.name??recipient.name):"";
  const ready=connection==="connected",expired=Boolean(recipient&&recipient.expiresAt<=now),previewExpired=Boolean(preview&&preview.expiresAt<=now);
  const label=(t:Entry)=>t.kind==="airdrop"?(t.direction==="received"?"Airdrop":"Airdrop to "+t.to):t.direction==="sent"?"To "+t.to:t.direction==="received"?"From "+t.from:t.from+" to "+t.to;
+ const {features:ft}=useFeatures();
  return <main className={styles.wallet}>
   <header><p className={styles.eyebrow}>Play money only</p><h1>Wallet</h1><p className={styles.balance}>{room?money(room.me.wallet):"Loading…"}</p><p>Available cash. Open positions and table chips stay locked.</p></header>
-  <div className={styles.columns}>
+  {ft.transfers?null:<FeatureNotice feature="transfers"/>}
+  {ft.transfers?<div className={styles.columns}>
    <section aria-labelledby="receive-title"><h2 id="receive-title">Receive</h2>
     <p>Set the amount you want, then share the two-word code with the sender. It expires in 10 minutes and works once. Each code stays active until it is used, cancelled, or expires. This is not your chat recovery phrase.</p>
     <form onSubmit={e=>{e.preventDefault();void run(generate);}}>
@@ -129,15 +133,15 @@ export default function Wallet(){
      {!receive.some(item=>item.expiresAt>now)?<p>No active receive codes.</p>:null}
     </div>
    </section>
-   <section aria-labelledby="send-title"><h2 id="send-title">Send</h2>
+   {ft.payments?<section aria-labelledby="send-title"><h2 id="send-title">Send</h2>
     <form onSubmit={e=>{e.preventDefault();void run(recipient?send:resolve);}}>
      <WordEntry count={2} label="Recipient’s two-word code" value={code} disabled={busy} onChange={value=>{setCode(value);editSend();}}/>
      {recipient?<div role="status" className={styles.preview}>{recipient.avatar?<img src={recipient.avatar} alt="" width={40} height={40} style={{borderRadius:"50%"}}/>:null}<p>Send <strong>{money(recipient.amount)}</strong> to <strong>{recipientName}</strong>{recipient.note?<>. Note: “{recipient.note}”</>:null}. {expired?"Code expired. Ask for a new code.":"The amount is set by the receiver."}</p></div>:null}
      <button className="primary" disabled={busy||!ready||expired}>{busy?"Working…":recipient?"Confirm send to "+recipientName:"Check code"}</button>{recipient?<button type="button" disabled={busy} onClick={editSend}>Cancel</button>:null}
     </form>
-   </section>
-  </div>
-  {room?.me.admin?<section className={styles.airdrop} aria-labelledby="airdrop-title"><h2 id="airdrop-title">Airdrop <span>(admin)</span></h2>
+   </section>:<section aria-labelledby="send-title"><h2 id="send-title">Send</h2><FeatureNotice feature="payments"/></section>}
+  </div>:null}
+  {room?.me.admin&&ft.airdrops?<section className={styles.airdrop} aria-labelledby="airdrop-title"><h2 id="airdrop-title">Airdrop <span>(admin)</span></h2>
    <p>Give every eligible player the same play money. You will see the exact player count and total before it is sent.</p>
    <form onSubmit={e=>{e.preventDefault();void run(preview&&!previewExpired?confirmAirdrop:previewAirdrop);}}>
     <label>Amount per player in dollars<input inputMode="decimal" autoComplete="off" value={airAmount} maxLength={32} required disabled={busy} onChange={e=>{setAirAmount(e.target.value);editAirdrop();}} placeholder="0.00" pattern={AMOUNT}/></label>

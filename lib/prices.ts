@@ -1,3 +1,4 @@
+import {getFeatureSettings,type FeatureSettings} from "../runtime/feature-settings.mjs";
 import {ForexIsolation,forexStreamOptions} from "./forex-isolation";
 import {forexObserver} from "./forex-observation";
 import {createForexStream} from "./forex-feed";
@@ -36,12 +37,16 @@ export function startPriceWorker(){
  if(globalWorker.exchangePriceWorker)return globalWorker.exchangePriceWorker;
  const owner=randomUUID();
  let running=false,leaseUntil=0,stopped=false;
+ let flags:FeatureSettings|undefined;
+ const cryptoOn=()=>!!flags&&(flags.enabled("cryptoPerps")||flags.enabled("cryptoSpot"));
+ const stocksOn=()=>flags?.enabled("stocks")===true;
+ const forexOn=()=>flags?.enabled("forex")===true;
  let feed:ExchangeFeed;
  let symbols=marketSymbols();
- const makeFeed=()=>new ExchangeFeed({symbols:()=>symbols.crypto,socket:()=>{if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Price lease unavailable");return new WebSocket("wss://ws-feed.exchange.coinbase.com");},apply:async ticks=>{if(stopped||Date.now()>=leaseUntil)throw new Error("Price lease expired");await persistExchangeTicks(ticks);},log:message=>console.warn(message)});
+ const makeFeed=()=>new ExchangeFeed({symbols:()=>symbols.crypto,socket:()=>{if(stopped||!cryptoOn()||Date.now()>=leaseUntil-1000)throw new Error("Price lease unavailable");return new WebSocket("wss://ws-feed.exchange.coinbase.com");},apply:async ticks=>{if(stopped||!cryptoOn()||Date.now()>=leaseUntil)throw new Error("Price lease expired");await persistExchangeTicks(ticks);},log:message=>console.warn(message)});
  feed=makeFeed();
- const forex=createForexStream({leaseId:()=>fx.leaseId(),observe:forexObserver(),owner,symbols:()=>symbols.forex,leader:()=>!stopped&&fx.leader(),leaseUntil:()=>fx.leaseUntil()});
- const fx=new ForexIsolation({options:()=>forexStreamOptions(),now:Date.now,step:()=>forex.step(),revoke:()=>forex.revoke(),claim:async id=>{
+ const forex=createForexStream({leaseId:()=>fx.leaseId(),observe:forexObserver(),owner,symbols:()=>symbols.forex,leader:()=>!stopped&&forexOn()&&fx.leader(),leaseUntil:()=>fx.leaseUntil()});
+ const fx=new ForexIsolation({options:()=>({...forexStreamOptions(),enabled:forexOn()&&forexStreamOptions().enabled}),now:Date.now,step:()=>forex.step(),revoke:()=>forex.revoke(),claim:async id=>{
   const now=Date.now(),locks=(await db()).collection<{_id:string;owner:string;until:number}>("workers");
   await locks.updateOne({_id:id},{$setOnInsert:{owner:"",until:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
   return !!(await locks.updateOne({_id:id,$or:[{owner},{until:{$lte:now}}]},{$set:{owner,until:now+15000}})).matchedCount;
@@ -50,13 +55,14 @@ export function startPriceWorker(){
   await (await db()).collection<{_id:string;owner:string;until:number}>("workers").updateOne({_id:id,owner},{$set:{until:0}});}});
  const stocks=new StockRuntime({
   log:message=>console.warn(message),
-  symbols:()=>symbols.stocks,env:process.env,leaseUntil:()=>leaseUntil-1000,isLeader:()=>!stopped&&Date.now()<leaseUntil-1000,
-  socket:url=>new WebSocket(url) as unknown as StockSocket,fetch,now:Date.now,
+  symbols:()=>symbols.stocks,env:process.env,leaseUntil:()=>leaseUntil-1000,isLeader:()=>!stopped&&stocksOn()&&Date.now()<leaseUntil-1000,
+  socket:url=>{if(!stocksOn())throw new Error("Stocks temporarily disabled");return new WebSocket(url) as unknown as StockSocket;},
+  fetch:async(...args)=>{if(!stocksOn())throw new Error("Stocks temporarily disabled");return fetch(...args);},now:Date.now,
   publish:async(current,ticks)=>{
-   if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Stock lease unavailable");
+   if(stopped||!stocksOn()||Date.now()>=leaseUntil-1000)throw new Error("Stock lease unavailable");
    if(ticks.length)await candleUpdate({});
    await mutateStockPublication(owner,room=>{
-    if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Stock lease revoked");
+    if(stopped||!stocksOn()||Date.now()>=leaseUntil-1000)throw new Error("Stock lease revoked");
     applyStockPublication(room,current,ticks);
    },ticks.length?session=>candleUpdate(ticks.map(tick=>({[tick.symbol]:{micro:Math.round(tick.price*1e6),at:tick.timestamp}})),session):undefined);
   },
@@ -64,6 +70,14 @@ export function startPriceWorker(){
  async function step(){
   if(running||stopped)return;running=true;
   try{
+   if(!flags){
+    flags=getFeatureSettings((await db()).collection("featureFlags"));await flags.ready;
+    flags.subscribe(()=>{if(!stocksOn())stocks.revoke();if(!cryptoOn()){feed.stop();feed=makeFeed();}if(!forexOn())void fx.stop();});
+   }
+   await flags.ready;
+   if(!forexOn())await fx.stop();
+   if(!stocksOn())stocks.revoke();
+   if(!cryptoOn()){feed.stop();feed=makeFeed();}
    const now=Date.now(),locks=(await db()).collection<{_id:string;owner:string;until:number}>("workers");
    if(leaseUntil-now<5000){
     try{
@@ -79,8 +93,8 @@ export function startPriceWorker(){
    }
    symbols=marketSymbols(await readRoom());
    await fx.step();
-   void stocks.step();
-   feed.step();feed.retryPending();
+   if(stocksOn())void stocks.step();
+   if(cryptoOn()){feed.step();feed.retryPending();}
    // No executable REST fallback. The v2 rates body has no provider event time:
    // changing values, HTTP Date/Age and receipt time cannot establish freshness.
    // Keep reconnecting the verified WS source; expired marks pause all execution.

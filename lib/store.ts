@@ -1,3 +1,5 @@
+import {bindRoomFeatures} from "./feature-context";
+import {getFeatureSettings} from "../runtime/feature-settings.mjs";
 import {tickDoudizhu,doudizhuNeedsTick} from "./doudizhu";
 import {applyPokerKick,reconcilePokerKickVotes,pokerKickNeedsTick,type PokerKickRequest} from "./poker-kicks";
 import {seatedPokerTable,pokerTableRoom,touchPokerSeat,applyPokerTableAction,tickPokerTables,pokerTableNeedsTick,POKER_TABLE_IDS,type PokerTableId} from "./poker-tables";
@@ -13,6 +15,8 @@ export async function mutate<T>(fn: (r: Room)=>T | Promise<T>) {
  // Fresh server-owned copies on each CAS retry. No speculative state leaves here.
  for(let attempt=0;attempt<12;attempt++) {
   const previous=await readRoom(), next=structuredClone(previous);
+  const features=getFeatureSettings((await db()).collection("featureFlags"));await features.ready;
+  bindRoomFeatures(next,{...features.current()});
   await compactAudit(next);
   const result=await fn(next);
   reconcilePokerKickVotes(next,Date.now());

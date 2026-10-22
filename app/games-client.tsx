@@ -1,6 +1,7 @@
 "use client";
 import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import {useUser} from "@clerk/nextjs";
+import {useFeatures} from "./use-features";
 import {useLive} from "./live-provider";
 import {getTabHeaders} from "@/lib/tab-identity";
 import CasinoAmountInput from "./casino-amount-input";
@@ -47,7 +48,7 @@ async function reply(body:string,stale:()=>boolean){
 export default function GamesClient(){
  const {user}=useUser(),uid=user?.id;
  const {connection}=useLive();
- const [snap,setSnap]=useState<Snapshot|null>(null),[kind,setKind]=useState<Kind>("plinko"),[error,setError]=useState(""),[working,setWorking]=useState(false),[pending,setPending]=useState<Pending|null>(null);
+ const [snap,setSnap]=useState<Snapshot|null>(null),[pickedKind,setKind]=useState<Kind>("plinko"),[error,setError]=useState(""),[working,setWorking]=useState(false),[pending,setPending]=useState<Pending|null>(null);
  // Keep the owner alongside the preference so a new account never renders the previous choice.
  const [minePreference,setMinePreference]=useState<{uid:string;count:number}|null>(null);
  const mines=minePreference&&minePreference.uid===uid?minePreference.count:3;
@@ -137,6 +138,9 @@ export default function GamesClient(){
  const ballDone=useCallback((g:GameView)=>{setBalls(b=>b.filter(x=>x.id!==g.id));setResults(r=>[g,...r.filter(x=>x.id!==g.id)].slice(0,12));},[]);
  const send=(label:string,payload:object)=>{if(pendingRef.current||working_.current)return;void run({label,body:JSON.stringify({...payload,requestId:crypto.randomUUID(),requestAt:Date.now()+offset.current})});};
  const byKind=useMemo(()=>{const m=new Map<Kind,GameView>();for(const g of snap?.games||[]){const c=m.get(g.kind);if(!c||(c.status!=="active"&&(g.status==="active"||g.createdAt>c.createdAt)))m.set(g.kind,g);}return m;},[snap]);
+ const {features:ft}=useFeatures();
+ const shown=KINDS.filter(k=>ft[k.kind]!==false||byKind.get(k.kind)?.status==="active");
+ const kind:Kind=shown.some(k=>k.kind===pickedKind)?pickedKind:(shown[0]?.kind??pickedKind);
  const game=byKind.get(kind),active=game&&game.status==="active"?game:undefined;
  const blocked=connection!=="connected"||working||!!pending||!snap;
  const dropBlocked=connection!=="connected"||!snap||drops.length>=MAX_DROPS;
@@ -148,7 +152,7 @@ export default function GamesClient(){
  const betProps={mines,setMines,amount,setAmount,cents,betOk:betOk&&(kind!=="plinko"||cents!<=free),maxBet};
  return <main className={styles.games}>
   <header className={styles.head}><div><h1>Games</h1><p>{Math.round((snap?.houseEdge??0.02)*100)}% house edge, payouts round down to the cent.</p></div><div className={styles.wallet}><span>Wallet</span><strong>{snap?money(snap.wallet):"—"}</strong></div></header>
-  <div className={styles.tabs} role="tablist" aria-label="Games">{KINDS.map(k=>{const a=byKind.get(k.kind)?.status==="active";return <button key={k.kind} role="tab" aria-selected={kind===k.kind} className={styles.tab} onClick={()=>setKind(k.kind)}>{k.label}{a?<i className={styles.dot} aria-label="In progress"/>:null}</button>;})}</div>
+  <div className={styles.tabs} role="tablist" aria-label="Games">{shown.map(k=>{const a=byKind.get(k.kind)?.status==="active";return <button key={k.kind} role="tab" aria-selected={kind===k.kind} className={styles.tab} onClick={()=>setKind(k.kind)}>{k.label}{a?<i className={styles.dot} aria-label="In progress"/>:null}</button>;})}</div>
   <p className={styles.blurb}>{KINDS.find(k=>k.kind===kind)!.blurb}</p>
   {kind!=="plinko"&&pending&&!working?<div className={styles.note+" "+styles.warn} role="alert"><span>{error||"Your last action is unconfirmed."} ({pending.label})</span><button className="primary" disabled={working||connection!=="connected"} onClick={()=>void run(pending,true)}>Retry</button></div>:kind!=="plinko"&&error?<p className={styles.note+" "+styles.warn} role="alert">{error}</p>:null}
   {kind==="plinko"&&plinkoError?<p className={styles.note+" "+styles.warn} role="alert">{plinkoError}</p>:null}
@@ -172,6 +176,7 @@ function ActiveBar({game,blocked,send}:{game:GameView;blocked:boolean;send:Send}
 }
 function StartPanel({kind,game,blocked,send,drop,mines,setMines,amount,setAmount,cents,betOk,maxBet}:{game?:GameView;mines:number;setMines:(n:number)=>void;drop?:(amount:number)=>void;kind:Kind;blocked:boolean;send:Send;amount:string;setAmount:(v:string)=>void;cents:number|null;betOk:boolean;maxBet:number}){
  const [target,setTarget]=useState(50),[dir,setDir]=useState<"over"|"under">("over");
+ const ftl=useFeatures().features,off=ftl.games===false||ftl[kind]===false;
  const extra:object=kind==="mines"?{mines}:kind==="dice"?{target,direction:dir}:{};
  const chance=dir==="over"?100-target:target-1;
  return <div className={styles.panel}>
@@ -183,8 +188,8 @@ function StartPanel({kind,game,blocked,send,drop,mines,setMines,amount,setAmount
 
   {kind==="chicken"?<div className={styles.chickenActions}>
    {game?.status==="active"?<button disabled={blocked||game.steps<1} onClick={()=>send("Cash out",{type:"cashout",id:game.id,revision:game.revision})}>Cash out</button>:<span aria-hidden="true"/>}
-   <button className="primary" disabled={blocked||(game?.status!=="active"&&!betOk)} onClick={()=>game?.status==="active"?send("Cross lane",{type:"step",id:game.id,revision:game.revision}):send("Start chicken",{type:"start",game:"chicken",amount:cents})}>{game?.status==="active"?"Go":"Start"}</button>
-  </div>:<button className={"primary "+styles.go} disabled={blocked||!betOk} onClick={()=>kind==="plinko"&&drop?drop(cents!):send("Start "+kind,{type:"start",game:kind,amount:cents,...extra})}>{kind==="dice"?"Roll":kind==="plinko"?"Drop":"Start"}</button>}
+   <button className="primary" disabled={blocked||(game?.status!=="active"&&(!betOk||off))} onClick={()=>game?.status==="active"?send("Cross lane",{type:"step",id:game.id,revision:game.revision}):send("Start chicken",{type:"start",game:"chicken",amount:cents})}>{game?.status==="active"?"Go":"Start"}</button>
+  </div>:<button className={"primary "+styles.go} disabled={blocked||!betOk||off} onClick={()=>kind==="plinko"&&drop?drop(cents!):send("Start "+kind,{type:"start",game:kind,amount:cents,...extra})}>{kind==="dice"?"Roll":kind==="plinko"?"Drop":"Start"}</button>}
   {cents!==null&&cents>maxBet?<small className={styles.hint}>Max bet is {money(maxBet)}.</small>:null}
  </div>;
 }

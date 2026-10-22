@@ -1,3 +1,5 @@
+import {getFeatureSettings} from "./runtime/feature-settings.mjs";
+import {attachFeatureSocket} from "./runtime/feature-sockets.mjs";
 import {normalizeCommit,serveCommit} from "./runtime/git-commit.mjs";
 import {createPolymarketPublic} from "./runtime/polymarket-public.mjs";
 const polyPublic=createPolymarketPublic();
@@ -39,6 +41,10 @@ const config=dev?undefined:JSON.parse(readFileSync(new URL("./.next/required-ser
 // Read the baked artifact, never mutable runtime environment or a git checkout.
 let serverCommit="unknown";
 try{serverCommit=normalizeCommit(readFileSync(new URL("./.next/GIT_COMMIT",import.meta.url),"utf8"));}catch{}
+const client=new MongoClient(process.env.MONGODB_URI,{serverSelectionTimeoutMS:5000});await client.connect();
+const collection=client.db(process.env.MONGODB_DB||"pokerroom").collection("rooms");
+const featureSettings=getFeatureSettings(client.db(process.env.MONGODB_DB||"pokerroom").collection("featureFlags"),{onError:()=>console.warn("Feature settings refresh deferred")});
+await featureSettings.ready;
 const app=next({dev,hostname,port,conf:config,webpack:true});
 await app.prepare();
 const nextHandler=app.getRequestHandler();
@@ -56,10 +62,13 @@ const server=createServer(async(request,response)=>{
   if(request.url==="/internal-polymarket"){
    const {tokenId,sync,history,publicData}=JSON.parse(body);
    if(publicData){
+    // Resolution polling must remain available for settlement of existing positions.
+    if(!featureSettings.enabled("polymarket")&&!/^https:\/\/gamma-api\.polymarket\.com\/markets\/\d{1,24}$/.test(publicData.path)){response.writeHead(503,{"Content-Type":"application/json"}).end('{"error":"feature_disabled"}');return;}
     try{const result=await polyPublic.get(publicData.path,publicData.ttl,publicData.fresh===true);response.writeHead(200,{"Content-Type":"application/json"}).end(JSON.stringify(result));}
     catch{response.writeHead(503,{"Content-Type":"application/json"}).end('{"error":"Prediction data unavailable."}');}return;
    }
    if(history){
+    if(!featureSettings.enabled("polymarket")){response.writeHead(503,{"Content-Type":"application/json"}).end('{"error":"feature_disabled"}');return;}
     try{const result=await polyHistory.read(history.marketId,history.range,history);response.writeHead(200,{"Content-Type":"application/json"}).end(JSON.stringify(result));}
     catch(error){response.writeHead(error.status||503,{"Content-Type":"application/json"}).end(JSON.stringify({error:error.status===403?error.message:'Price history unavailable.'}));}return;
    }
@@ -101,11 +110,11 @@ io.use(async(socket,next)=>{
  socket.data.sessionId=claims.sid;socket.data.identity=identity;socket.data.expires=claims.exp*1000;next();
  }catch{next(new Error("Sign in with Google."));}
 });
-const client=new MongoClient(process.env.MONGODB_URI,{serverSelectionTimeoutMS:5000});await client.connect();
-const collection=client.db(process.env.MONGODB_DB||"pokerroom").collection("rooms");
+
 // Demand and durable-position pins belong to this process, never route workers or browsers.
 const polyDirty=new Set();
-const polyStream=createPolymarketStream({onChange:id=>polyDirty.add(id)});
+const polyStream=createPolymarketStream({enabled:()=>featureSettings.enabled("polymarket"),onChange:id=>polyDirty.add(id)});
+featureSettings.subscribe(()=>{polyStream.syncEnabled();for(const socket of io.sockets.sockets.values()){socket.emit("features:state",featureSettings.current());socket.data.forceFull=true;socket.data.statusAt=0;}});
 const polyMetadata=new Map();
 async function resolvePolyMarket(id){
  let old=polyMetadata.get(id);if(old?.until>Date.now())return old.value;if(old?.pending)return old.pending;
@@ -150,13 +159,13 @@ const polyStreamTimer=setInterval(()=>{
   if(polyOwners.get(id)?.has(socket.data.identity.id))socket.emit('polymarket:positions',{marketId:id});
  }}polyDirty.clear();
 },500);polyStreamTimer.unref();
-const chat=createPokerChatService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
-const dm=createDmService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk});
+const chat=createPokerChatService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk,canSend:()=>featureSettings.enabled("chat")&&featureSettings.enabled("tableTalk")});
+const dm=createDmService(client.db(process.env.MONGODB_DB||"pokerroom"),{clerk,canSend:()=>featureSettings.enabled("chat")&&featureSettings.enabled("dms")});
 await Promise.all([chat.ready,dm.ready]);
 const chatDmGate=createChatDmGate(chat,dm);
 const announceAirdrop=createAirdropBroadcaster(io,client.db(process.env.MONGODB_DB||"pokerroom").collection("airdrop_receipts"));
 const checkChatSession=sessionGuard(clerk,{reads:clerkReads(clerk)});
-const attachPokerTaunts=createPokerTaunts({collection,auditCollection:client.db(process.env.MONGODB_DB||"pokerroom").collection("audit"),io,checkSession:checkChatSession,checkTab:tabLeases.check});
+const attachPokerTaunts=createPokerTaunts({enabled:()=>featureSettings.enabled("poker")&&featureSettings.enabled("tableTalk"),collection,auditCollection:client.db(process.env.MONGODB_DB||"pokerroom").collection("audit"),io,checkSession:checkChatSession,checkTab:tabLeases.check});
 let hintTimer;
 function hintChatChanged(){if(hintTimer)return;hintTimer=setTimeout(()=>{hintTimer=null;io.emit("chat:changed",{v:1});},100);hintTimer.unref();}
 async function pushState(socket,force=false,profiles){
@@ -192,6 +201,8 @@ async function pushState(socket,force=false,profiles){
 }
 io.on("connection",socket=>{
  try{tabLeases.attach(socket.data.identity.id,socket,socket.handshake.auth);}catch(error){socket.emit("live:error",{error:error.message});socket.disconnect(true);return;}
+ attachFeatureSocket(socket,featureSettings);
+ socket.emit("features:state",featureSettings.current());
  attachPokerTaunts(socket);
  socket.data.marketRoute=socket.handshake.auth?.route;
  attachPolymarketPresence(socket,{stream:{...polyStream,setViewer(viewer,id,tokens){polyStream.setViewer(viewer,id,tokens);socket.data.polyMarketId=id;}},resolveMarket:resolvePolyMarket,checkSession:checkChatSession});
@@ -216,6 +227,7 @@ io.on("connection",socket=>{
    try{
     await checkChatSession(socket);
     if(!socket.connected||socket.data.expires<=Date.now()){socket.disconnect(true);return;}
+    if(event==="send"&&(!featureSettings.enabled("chat")||!featureSettings.enabled("tableTalk"))){ack({ok:false,error:"feature_disabled",feature:"chat"});return;}
     const result=await chat.handle(socket.data.identity.id,event,payload);
     if(socket.data.expires<=Date.now()){socket.disconnect(true);return;}
     // Include current names for historical senders as well as seated members.
@@ -240,6 +252,7 @@ io.on("connection",socket=>{
     await checkChatSession(socket);
     if(!socket.connected||socket.data.expires<=Date.now()){socket.disconnect(true);return;}
     const user=socket.data.identity.id;
+    if(event==="send"&&(!featureSettings.enabled("chat")||!featureSettings.enabled("dms"))){ack({ok:false,error:"feature_disabled",feature:"dms"});return;}
     const result=await chatDmGate.handle(user,event,payload);
     await checkChatSession(socket);
     if(!socket.connected||socket.data.expires<=Date.now())return;
@@ -281,5 +294,5 @@ const timer=setInterval(async()=>{
  }catch{}finally{running=false;}
 },200);timer.unref();
 server.listen(port,hostname);
-async function stop(){clearInterval(polySyncTimer);clearInterval(polyStreamTimer);polyStream.stop();clearInterval(tabSweep);clearInterval(timer);await io.close();await client.close();server.close();process.exit(0);}
+async function stop(){featureSettings.stop();clearInterval(polySyncTimer);clearInterval(polyStreamTimer);polyStream.stop();clearInterval(tabSweep);clearInterval(timer);await io.close();await client.close();server.close();process.exit(0);}
 process.once("SIGTERM",stop);process.once("SIGINT",stop);

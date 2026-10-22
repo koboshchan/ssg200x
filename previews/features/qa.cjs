@@ -1,0 +1,16 @@
+const {chromium}=require("playwright");
+(async()=>{const b=await chromium.launch();const p=await b.newPage();const errs=[];p.on("pageerror",e=>errs.push(String(e)));p.on("console",m=>m.type()==="error"&&errs.push(m.text()));
+await p.goto("http://localhost:45317/");await p.waitForSelector("text=Market symbols");
+const out={};
+out.stocksNotice=await p.locator("text=/Temporarily disabled|disabled/i").count();
+const fx=p.locator("fieldset.admin-set",{hasText:"Forex"}).first();
+await fx.getByLabel("Add forex symbol").fill("GBP/USD");await fx.getByRole("button",{name:"Add",exact:true}).click();
+await fx.getByRole("button",{name:"Remove EUR/USD"}).click();
+out.staged=await fx.innerText();
+out.putsBefore=(await (await fetch("http://localhost:45317/puts")).json()).puts;
+await fx.getByRole("button",{name:"Save pairs"}).click();
+await p.getByRole("button",{name:"Save",exact:true}).click();
+await p.waitForTimeout(800);
+out.after=await fx.innerText();out.puts=(await (await fetch("http://localhost:45317/puts")).json()).puts;
+await p.reload();await p.waitForSelector("text=Market symbols");out.persist=await p.locator("fieldset.admin-set",{hasText:"Forex"}).first().innerText();
+out.errs=errs;console.log(JSON.stringify(out,null,1));await b.close();})();
