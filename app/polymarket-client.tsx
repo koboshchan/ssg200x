@@ -11,12 +11,12 @@ type Outcome={label:string;tokenId:string;price:number};
 type StreamPrice={marketId:string;live:boolean;serverNow:number;rx?:number;books:{asset_id:string;timestamp:number;bids:{price:string;size:string}[];asks:{price:string;size:string}[]}[]};
 type Market={id:string;question:string;outcomes:Outcome[];volume?:number;closed?:boolean};
 type PEvent={enabled?:boolean;maxTradeCents?:number;id:string;title:string;category?:string;image?:string;volume?:number;liquidity?:number;endDate?:string;closed?:boolean;description?:string;resolutionSource?:string;markets:Market[]};
-type Position={marketId:string;eventId?:string;eventTitle?:string;question:string;side:"yes"|"no";shares:number;avgPrice:number;curPrice:number;costCents:number;valueCents:number;pnlCents:number;status:"open"|"won"|"lost"|"void";priceLive?:boolean};
+type Position={marketId:string;eventId?:string;eventTitle?:string;question:string;side:"yes"|"no";shares:number;avgPrice:number;curPrice:number;costCents:number;valueCents:number;pnlCents:number;status:"open"|"won"|"lost"|"void";priceLive?:boolean;marketClosed?:boolean};
 type Activity={t:number;type:string;marketId?:string;question?:string;side?:string;shares?:number;price?:number;cents?:number};
 type Portfolio={wallet:number;positions:Position[];activity:Activity[]};
 type Listing={enabled:boolean;maxTradeCents:number;wallet?:number;categories?:string[];events:PEvent[];total?:number};
 type Book={bids:{price:number;size:number}[];asks:{price:number;size:number}[]};
-type Quote={price:number;shares:number;cents:number;asOf:number;tradable?:boolean;serverNow?:number;rx?:number};
+type Quote={price:number;shares:number;cents:number;asOf:number;tradable?:boolean;reason?:string;serverNow?:number;rx?:number};
 const QUOTE_MAX_AGE=15000;
 type Trade={t:number;side?:string;price:number;size:number;user?:string};
 
@@ -55,7 +55,7 @@ function Inner(){
   {settings&&!settings.enabled&&<p className={styles.banner} role="status">Trading is turned off right now. You can still browse and sell is unavailable until it is back.</p>}
   {toast&&<p className={styles.toast} role="status" onClick={()=>setToast("")}>{toast}</p>}
   <div className={styles.tabs} role="tablist"><button role="tab" aria-selected={view==="markets"&&!eventId} className={styles.tab} onClick={()=>{setView("markets");if(eventId)open(null);}}>Markets</button><button role="tab" aria-selected={view==="positions"} className={styles.tab} onClick={()=>{setView("positions");if(eventId)open(null);void loadPortfolio();}}>Positions{portfolio&&portfolio.positions.filter(p=>p.status==="open").length>0&&<span className={styles.badge}>{portfolio.positions.filter(p=>p.status==="open").length}</span>}</button></div>
-  {view==="positions"&&!eventId?<Positions portfolio={portfolio} onOpen={open}/>:eventId?<EventView id={eventId} portfolio={portfolio} settings={settings} onBack={()=>open(null)} onTraded={(m)=>{setToast(m);void loadPortfolio();}}/>:<Browse onOpen={open} onSettings={setSettings}/>}
+  {view==="positions"&&!eventId?<Positions portfolio={portfolio} onOpen={open} onTraded={(m)=>{setToast(m);void loadPortfolio();}}/>:eventId?<EventView id={eventId} portfolio={portfolio} settings={settings} onBack={()=>open(null)} onTraded={(m)=>{setToast(m);void loadPortfolio();}}/>:<Browse onOpen={open} onSettings={setSettings}/>}
  </main>;
 }
 
@@ -222,16 +222,55 @@ function Ticket({ev,market,portfolio,settings,onTraded,stream}:{stream:StreamPri
  </aside>;
 }
 
-function Positions({portfolio,onOpen}:{portfolio:Portfolio|null;onOpen:(id:string)=>void}){
+function Positions({portfolio,onOpen,onTraded}:{portfolio:Portfolio|null;onOpen:(id:string)=>void;onTraded:(m:string)=>void}){
+ const [selected,setSelected]=useState<Position|null>(null),[quote,setQuote]=useState<Quote|null>(null),[busy,setBusy]=useState(false),[err,setErr]=useState(""),[tick,setTick]=useState(Date.now());
+ const dlg=useRef<HTMLDialogElement>(null),pending=useRef(false),envelope=useRef<{requestId:string;requestAt:number;limitPrice:number}|null>(null);
+ const current=portfolio?.positions.find(p=>p.marketId===selected?.marketId&&p.side===selected?.side&&p.status==="open");
+ useEffect(()=>{const d=dlg.current;if(!d)return;if(selected&&!d.open)d.showModal();if(!selected&&d.open)d.close();},[selected]);
+ useEffect(()=>{
+  setQuote(null);if(!selected)return;
+  let active=true;
+  const refresh=()=>api<Quote>("/quote?marketId="+encodeURIComponent(selected.marketId)+"&side="+selected.side+"&action=sell&shares="+selected.shares).then(q=>{if(active){setQuote({...q,rx:Date.now()});}}).catch(e=>{if(active){setQuote(null);setErr(e.message);}});
+  void refresh();const timer=setInterval(refresh,3000),clock=setInterval(()=>setTick(Date.now()),1000);
+  return()=>{active=false;clearInterval(timer);clearInterval(clock);};
+ },[selected]);
+ const age=quote?((quote.serverNow??quote.rx??tick)-quote.asOf)+(tick-(quote.rx??tick)):Infinity;
+ const fresh=!!quote&&quote.tradable===true&&quote.price>0&&age<=10000;
+ const available=!!current&&!current.marketClosed&&current.shares===selected?.shares;
+ async function closePosition(){
+  if(pending.current||!selected||!fresh||!available)return;
+  pending.current=true;setBusy(true);setErr("");
+  envelope.current??={requestId:rid(),requestAt:Date.now(),limitPrice:Math.max(0.01,Math.floor((quote!.price-0.03)*1000)/1000)};
+  try{
+   const r=await api<{fill:{shares:number;price:number;cents:number}}>("/trade",{method:"POST",body:JSON.stringify({...envelope.current,marketId:selected.marketId,side:selected.side,action:"sell",shares:selected.shares})});
+   envelope.current=null;setSelected(null);
+   onTraded("Sold "+r.fill.shares+" "+selected.side.toUpperCase()+" for "+money(r.fill.cents));
+  }catch(e){
+   const st=(e as {status?:number}).status,ambiguous=st==null||st>=500||st===408;
+   if(!ambiguous)envelope.current=null;
+   setErr(ambiguous?"No confirmed reply. Retrying is safe, it won't double trade.":e instanceof Error?e.message:"Could not close position.");
+  }finally{pending.current=false;setBusy(false);}
+ }
+
  if(!portfolio)return <p className={styles.empty}>Loading…</p>;
  const openP=portfolio.positions.filter(p=>p.status==="open"),closed=portfolio.positions.filter(p=>p.status!=="open");
  const val=openP.reduce((s,p)=>s+p.valueCents,0),pnl=openP.reduce((s,p)=>s+p.pnlCents,0);
- const row=(p:Position)=><tr key={p.marketId+p.side}><th scope="row"><button className={styles.link} onClick={()=>p.eventId&&onOpen(p.eventId)}>{p.question}</button><small>{p.eventTitle}</small></th><td><span className={p.side==="yes"?styles.yes:styles.no}>{p.side.toUpperCase()}</span></td><td>{p.shares.toFixed(2)}</td><td>{cents(p.avgPrice)}</td><td>{p.status==="open"?cents(p.curPrice)+(p.priceLive===false?" (stale)":""):p.status}</td><td>{money(p.valueCents)}</td><td className={p.pnlCents>=0?styles.pos:styles.neg}>{p.pnlCents>=0?"+":""}{money(p.pnlCents)}</td></tr>;
- const tbl=(rows:Position[])=><div className={styles.scroll}><table className={styles.table}><thead><tr><th>Market</th><th>Side</th><th>Shares</th><th>Avg</th><th>Now</th><th>Value</th><th>P&amp;L</th></tr></thead><tbody>{rows.map(row)}</tbody></table></div>;
+ const row=(p:Position)=><tr key={p.marketId+p.side}><th scope="row"><button className={styles.link} onClick={()=>p.eventId&&onOpen(p.eventId)}>{p.question}</button><small>{p.eventTitle}</small></th><td><span className={p.side==="yes"?styles.yes:styles.no}>{p.side.toUpperCase()}</span></td><td>{p.shares.toFixed(2)}</td><td>{cents(p.avgPrice)}</td><td>{p.status==="open"?cents(p.curPrice)+(p.priceLive===false?" (stale)":""):p.status}</td><td>{money(p.valueCents)}</td><td className={p.pnlCents>=0?styles.pos:styles.neg}>{p.pnlCents>=0?"+":""}{money(p.pnlCents)}</td><td className={styles.closeCell}>{p.status==="open"?<button disabled={busy||p.marketClosed} title={p.marketClosed?"Market closed, awaiting settlement":undefined} onClick={()=>{setErr("");envelope.current=null;setSelected(p);}}>Close</button>:<span className={styles.muted}>Settled</span>}</td></tr>;
+ const tbl=(rows:Position[])=><div className={styles.scroll}><table className={styles.table}><thead><tr><th>Market</th><th>Side</th><th>Shares</th><th>Avg</th><th>Now</th><th>Value</th><th>P&amp;L</th><th className={styles.closeCell}><span className={styles.srOnly}>Action</span></th></tr></thead><tbody>{rows.map(row)}</tbody></table></div>;
  return <section aria-label="Positions">
   <div className={styles.stats}><div><span>Open value</span><strong>{money(val)}</strong></div><div><span>Open P&amp;L</span><strong className={pnl>=0?styles.pos:styles.neg}>{pnl>=0?"+":""}{money(pnl)}</strong></div></div>
   {openP.length?tbl(openP):<p className={styles.empty}>No open positions.</p>}
   {closed.length>0&&<><h3 className={styles.h3}>Settled</h3>{tbl(closed)}</>}
+  <dialog ref={dlg} aria-labelledby="close-position-title" className={styles.dialog} onCancel={e=>{e.preventDefault();if(!busy)setSelected(null);}} onClose={()=>{if(!busy)setSelected(null);}}>
+   <h3 id="close-position-title">Close position</h3>
+   {selected&&<><p>Sell all {selected.shares} {selected.side.toUpperCase()} shares.</p><p className={styles.muted}>{selected.question}</p></>}
+   <p>Estimated proceeds: <strong>{fresh?money(quote!.cents):"Getting live price…"}</strong></p>
+   <p className={styles.hint}>Filled at the current live price. Proceeds may change slightly.</p>
+   {!available&&<p role="status" className={styles.error}>Position changed or market closed. Refresh positions before trying again.</p>}
+   {quote?.tradable===false&&<p role="status" className={styles.error}>{quote.reason||"Live price unavailable."}</p>}
+   {err&&<p role="alert" className={styles.error}>{err}</p>}
+   <div className={styles.actions}><button disabled={busy} onClick={()=>setSelected(null)}>Cancel</button><button className="primary" disabled={busy||!fresh||!available} onClick={()=>void closePosition()}>{busy?"Closing…":"Confirm"}</button></div>
+  </dialog>
   <h3 className={styles.h3}>Activity</h3>
   {portfolio.activity.length?<ul className={styles.feed}>{portfolio.activity.slice(0,40).map((a,i)=><li key={i}><span>{a.type==="settle"?"Settled":a.type==="buy"?"Bought":"Sold"} {a.shares!=null?a.shares.toFixed(2)+" ":""}{a.side?.toUpperCase()} · {a.question}{a.cents!=null?" · "+money(a.cents):""}</span><span className={styles.muted}>{ago(a.t)}</span></li>)}</ul>:<p className={styles.empty}>Nothing yet.</p>}
  </section>;

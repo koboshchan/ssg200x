@@ -36,3 +36,5 @@
 @media(max-width:560px){.head h1,.page>h1{font-size:28px}.grid{grid-template-columns:1fr}.book{grid-template-columns:1fr}.chartHead b{font-size:24px}.cardTop h2{font-size:20px}.stats{gap:20px}.chart svg,.chartEmpty{height:180px}}
 @media(prefers-reduced-motion:reduce){.card,.skel{animation:none;transition:none}}
 .admin{margin-bottom:12px;background:var(--surface-2);border-radius:10px;padding:10px 14px}.admin summary{cursor:pointer;font-weight:500}.adminRow{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:10px}.adminRow .field{width:140px}.adminRow .field input{font-size:15px;padding:9px}
+
+.closeCell{white-space:nowrap;text-align:right}.closeCell button{min-height:36px;padding:6px 12px}.srOnly{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}

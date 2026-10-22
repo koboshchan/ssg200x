@@ -72,7 +72,7 @@ export async function viewPortfolio(r:Room,userId:string,wallet:number,history:P
    try{const f=fillPolymarket(book,"sell",p.shareMicros,0.000001);valueCents=f.amount;cur=f.averagePrice;live=true;}
    catch{const bid=book.bids[0];if(bid){cur=bid.price;valueCents=Math.floor(shares*cur*100);live=true;}}
   }
-  return{marketId:p.marketId,eventId:ev?.id,eventTitle:ev?.title,question:p.question,side:m?sideOf(m,p.tokenId):(isYes(p.outcome)?"yes":"no"),outcome:p.outcome,shares,avgPrice:avg,curPrice:cur,costCents:p.cost,valueCents,pnlCents:valueCents-p.cost,status:"open" as const,priceLive:live};
+  return{marketId:p.marketId,eventId:ev?.id,eventTitle:ev?.title,question:p.question,side:m?sideOf(m,p.tokenId):(isYes(p.outcome)?"yes":"no"),outcome:p.outcome,shares,avgPrice:avg,curPrice:cur,costCents:p.cost,valueCents,pnlCents:valueCents-p.cost,status:"open" as const,marketClosed:!!m&&(m.closed||!m.acceptingOrders),priceLive:live};
  });
  const settled=history.filter(h=>h.action==="settle"||h.action==="void").slice(0,60).map(h=>{
   const shares=h.shareMicros/1e6,avg=shares>0?h.cost/100/shares:0,ev=eventIds.get(h.marketId);
