@@ -72,3 +72,23 @@ test("nullable legacy deadline receives the full grace interval",()=>{
  assert(doudizhuNeedsTick(r,900000));assert(tickDoudizhu(r,900000));
  assert.equal(g.idleDeadline,900000+DOUDIZHU_IDLE_MS);
 });
+
+for(const isPublic of [false,true]){
+ test("finished zero-ready expiry and read polls preserve deadline "+(isPublic?"public":"private"),()=>{
+  const r=setup(isPublic),g=r.doudizhu![0];
+  g.phase="finished";g.settled=true;g.idleDeadline=5000+DOUDIZHU_IDLE_MS;
+  const deadline=g.idleDeadline,wallets=r.members.map(m=>m.wallet),assets=totalChips(r);
+  for(let n=0;n<5;n++){
+   assert.equal(publicDoudizhu(r,users[0]).room!.idleDeadline,deadline);
+   publicDoudizhu(r,users[2],g.code);
+   assert(!tickDoudizhu(r,deadline-1));
+  }
+  move(r,0,{type:"reaction",kind:"emote",value:"laugh"},10000);
+  move(r,0,{type:"visibility",isPublic:!isPublic},11000);
+  assert.equal(g.idleDeadline,deadline);
+  assert(tickDoudizhu(r,deadline));assert.equal(r.doudizhu!.length,0);
+  assert.equal(r.members[0].wallet,wallets[0]+10000);
+  assert.equal(totalChips(r),assets);assertRoom(r);
+  const snapshot=structuredClone(r);assert(!tickDoudizhu(r,deadline+1));assert.deepEqual(r,snapshot);
+ });
+}
