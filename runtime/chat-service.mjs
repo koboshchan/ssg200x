@@ -22,11 +22,20 @@ export function createChatService(db,{now=Date.now,clerk,roomId='main'}={}){
   if(state.fingerprint!==fingerprint||(state.removalVersion||0)!==(room.chatRemovalVersion||0)){const removed=(state.members||[]).some(u=>!members.includes(u));const rotate=removed||(state.removalVersion||0)!==(room.chatRemovalVersion||0);if(rotate&&state.bootstrap)await wraps.updateOne({_id:state.bootstrap._id},{$setOnInsert:state.bootstrap},{upsert:true});const changed=await states.updateOne({_id:roomId,revision:state.revision,fingerprint:state.fingerprint},{$set:{fingerprint,members,directory,removalVersion:room.chatRemovalVersion||0,...(rotate?{epoch:randomUUID(),status:'unclaimed',owner:null,leaseUntil:0,counter:0,bootstrap:null}:{})},$inc:{revision:1}});if(!changed.matchedCount)fail('stale_revision');state=await states.findOne({_id:roomId});}
   return {room,members,directory,state};
  }
- async function fence(s,user){
-  // Linearization point against existing room mutations, which already CAS version.
-  const current=await snapshot(user);if(current.state.revision!==s.state.revision||current.state.epoch!==s.state.epoch)fail('stale_revision');
-  if(!(await rooms.updateOne({_id:'main',version:current.room.version},{$inc:{version:1}})).matchedCount)fail('stale_revision');
+ async function fence(s,user,{retryRoomContention=false}={}){
+  // Only identity reads may retry an economic-room CAS miss. Every attempt
+  // rechecks authorization and the original chat revision/epoch, never replays
+  // a signed mutation or silently accepts a membership/key change.
+  const attempts=retryRoomContention?8:1;
+  for(let attempt=0;attempt<attempts;attempt++){
+   const current=await snapshot(user);
+   if(current.state.revision!==s.state.revision||current.state.epoch!==s.state.epoch)fail('stale_revision');
+   if((await rooms.updateOne({_id:'main',version:current.room.version},{$inc:{version:1}})).matchedCount)return;
+   if(attempt+1<attempts)await new Promise(resolve=>setTimeout(resolve,Math.min(40,5*2**attempt)));
+  }
+  fail('stale_revision');
  }
+
  function current(p,s){if(p.room!==undefined&&p.room!==roomId)fail();if(!Number.isSafeInteger(p.revision)||p.revision!==s.state.revision||uuid(p.epoch)!==s.state.epoch)fail('stale_revision');uuid(p.deviceId);}
  async function device(user,id){const d=await devices.findOne({userId:user,deviceId:uuid(id)});if(!d)fail('device_required');if(identity){const pointer=await db.collection('chat_identity_versions').findOne({_id:user});if(!pointer||pointer.status!=='active'||pointer.version!==d.keyVersion)fail('identity_conflict');}return d;}
  async function hasWrap(epoch,user,id){const state=await states.findOne({_id:roomId,epoch});if(state?.bootstrap?.toUserId===user&&state.bootstrap.toDeviceId===id)return state.bootstrap;return wraps.findOne({_id:digest(JSON.stringify([epoch,user,id]))});}
@@ -61,7 +70,7 @@ export function createChatService(db,{now=Date.now,clerk,roomId='main'}={}){
     const existing=await devices.findOne({_id:p?.deviceId});
     if(existing&&existing.userId!==user)fail('device_conflict');
    }
-   await fence(s,user);
+   await fence(s,user,{retryRoomContention:event==='keys:get'});
    const result=event==='keys:get'?await identity.get(user):await identity.put(user,p);
    const d=result.identity;
    if(d){
