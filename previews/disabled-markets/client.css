@@ -1,0 +1,185 @@
+/* ../../app/in-play-navigation.module.css */
+.in_play_navigation_dialog {
+  width: min(400px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 24px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 20px 80px #0004;
+}
+.in_play_navigation_dialog::backdrop {
+  background: #0006;
+}
+.in_play_navigation_dialog h2 {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -.02em;
+}
+.in_play_navigation_dialog p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.in_play_navigation_actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+.in_play_navigation_actions button {
+  min-height: 44px;
+  min-width: 76px;
+}
+.in_play_navigation_body {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.in_play_navigation_body p {
+  margin: 0 0 8px;
+}
+
+/* ../../app/market-symbol-picker.module.css */
+.market_symbol_picker_trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  font-weight: 700;
+  font-size: 1.1rem;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--seg,#8881);
+  color: var(--ink);
+  cursor: pointer;
+}
+.market_symbol_picker_trigger small {
+  font-weight: 400;
+  opacity: .7;
+}
+.market_symbol_picker_scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: #0006;
+}
+.market_symbol_picker_drawer {
+  box-sizing: border-box;
+  max-width: 100vw;
+  max-height: 100dvh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 61;
+  width: min(360px, 100vw);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  background: var(--surface,#fff);
+  color: var(--ink,inherit);
+  box-shadow: 2px 0 24px #0004;
+  overflow: hidden;
+}
+.market_symbol_picker_head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.market_symbol_picker_head h3 {
+  margin: 0;
+}
+.market_symbol_picker_search {
+  width: 100%;
+  box-sizing: border-box;
+}
+.market_symbol_picker_list {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.market_symbol_picker_group {
+  font-size: .75rem;
+  letter-spacing: .06em;
+  opacity: .65;
+  padding: 10px 4px 4px;
+}
+.market_symbol_picker_row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 6px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.market_symbol_picker_row[aria-current=true] {
+  background: var(--seg,#8882);
+  border-radius: 8px;
+}
+.market_symbol_picker_name {
+  font-weight: 700;
+}
+.market_symbol_picker_nums {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+.market_symbol_picker_up {
+  color: var(--ok,#248a3d);
+}
+.market_symbol_picker_down {
+  color: var(--red,#c0392b);
+}
+.market_symbol_picker_na {
+  opacity: .6;
+}
+.market_symbol_picker_empty {
+  padding: 12px 4px;
+  opacity: .7;
+}
+@media (max-width: 700px) {
+  .market_symbol_picker_drawer {
+    width: 100%;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    right: 0;
+  }
+  .market_symbol_picker_head,
+  .market_symbol_picker_search {
+    min-width: 0;
+  }
+  .market_symbol_picker_search {
+    max-width: 100%;
+  }
+}
+.market_symbol_picker_head button {
+  flex: none;
+}
+.market_symbol_picker_row {
+  box-sizing: border-box;
+  min-width: 0;
+}
+.market_symbol_picker_drawer,
+.market_symbol_picker_drawer * {
+  box-sizing: border-box;
+}
