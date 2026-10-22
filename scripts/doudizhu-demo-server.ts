@@ -8,7 +8,7 @@ import {tickDoudizhu,doudizhuNeedsTick} from "../lib/doudizhu";
 import {readRoom} from "../lib/db";
 import {z} from "zod";
 if(process.env.MONGODB_DB!=="fakebucks_demo_doudizhu")throw Error("Isolated demo DB required");
-const users=["You","Mochi","Dango","Spectator"].map((name,i)=>({id:"demo-dd-"+i,name,email:"demo"+i+"@invalid.test",admin:i===0}));
+const users=["Sora","Mochi","Dango","Spectator"].map((name,i)=>({id:"demo-dd-"+i,name,email:"demo"+i+"@invalid.test",admin:i===0}));
 const stamp={requestId:z.string().uuid(),requestAt:z.number().int(),code:z.string().max(100).optional(),version:z.number().int().nonnegative().optional()};
 const schema=z.discriminatedUnion("type",[
  z.object({...stamp,type:z.literal("spectate")}).strict(),
