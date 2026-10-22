@@ -20,3 +20,10 @@ test("image proxy validates MIME, byte signature, size and caches bounded bytes"
  await assert.rejects(fetchPolyImage("https://images.polymarket.com/c.png"));
  }finally{global.fetch=old;}
 });
+import {liveCardMarkets} from "../lib/polymarket-card";
+test("card previews exclude final markets and rank live yes probability",()=>{
+ const make=(id:string,price:number,closed=false,resolved=false)=>({id,closed,resolved,outcomes:[{label:"No",price:1-price},{label:"Yes",price}]});
+ const rows=[make("old",1,true),make("low",0.1),make("final",1,false,true),make("high",0.7)];
+ assert.deepEqual(liveCardMarkets(rows).map(m=>m.id),["high","low"]);
+ assert.equal(rows.length,4);
+});

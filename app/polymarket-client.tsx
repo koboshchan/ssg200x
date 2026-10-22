@@ -2,6 +2,7 @@
 import {Suspense,useCallback,useEffect,useMemo,useRef,useState} from "react";
 import {useRouter,useSearchParams} from "next/navigation";
 import {useUser} from "@clerk/nextjs";
+import {liveCardMarkets} from "@/lib/polymarket-card";
 import {sharesAtPercent,percentOfShares} from "@/lib/polymarket-sell-slider";
 import {matchingPositions,closeIndependently,type CloseMode} from "@/lib/polymarket-close";
 import {getTabHeaders} from "@/lib/tab-identity";
@@ -88,7 +89,7 @@ function MarketImage({src,size}:{src?:string;size:number}){
 }
 
 function EventCard({e,onOpen}:{e:PEvent;onOpen:(id:string)=>void}){
- const live=e.markets.filter(m=>!m.closed&&!m.resolved),multi=live.length>1,top=[...live].sort((a,b)=>yes(b)-yes(a));
+ const top=liveCardMarkets(e.markets),multi=top.length>1;
  return <button className={styles.card} onClick={()=>onOpen(e.id)}>
   <div className={styles.cardTop}><MarketImage src={e.image} size={40}/><h3>{e.title}</h3>{!multi&&top[0]&&<span className={styles.big}>{pct(yes(top[0]))}<small>chance</small></span>}</div>
   {!top.length?<p className={styles.muted}>No live outcomes</p>:multi?<ul className={styles.rows}>{top.slice(0,3).map(m=><li key={m.id}><span>{m.question}</span><b>{pct(yes(m))}</b></li>)}{top.length>3&&<li className={styles.muted}>+{top.length-3} more</li>}</ul>:top[0]&&<div className={styles.yn}><span className={styles.yes}>Yes {cents(yes(top[0]))}</span><span className={styles.no}>No {cents(1-yes(top[0]))}</span></div>}
