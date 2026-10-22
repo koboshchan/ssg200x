@@ -8,12 +8,14 @@ import styles from "./polymarket.module.css";
 
 type Outcome={label:string;price:number};
 type Market={id:string;question:string;outcomes:Outcome[];volume?:number;closed?:boolean};
-type PEvent={id:string;title:string;category?:string;image?:string;volume?:number;liquidity?:number;endDate?:string;closed?:boolean;description?:string;resolutionSource?:string;markets:Market[]};
+type PEvent={enabled?:boolean;maxTradeCents?:number;id:string;title:string;category?:string;image?:string;volume?:number;liquidity?:number;endDate?:string;closed?:boolean;description?:string;resolutionSource?:string;markets:Market[]};
 type Position={marketId:string;eventId?:string;eventTitle?:string;question:string;side:"yes"|"no";shares:number;avgPrice:number;curPrice:number;costCents:number;valueCents:number;pnlCents:number;status:"open"|"won"|"lost"|"void"};
 type Activity={t:number;type:string;marketId?:string;question?:string;side?:string;shares?:number;price?:number;cents?:number};
 type Portfolio={wallet:number;positions:Position[];activity:Activity[]};
 type Listing={enabled:boolean;maxTradeCents:number;wallet?:number;categories?:string[];events:PEvent[];total?:number};
 type Book={bids:{price:number;size:number}[];asks:{price:number;size:number}[]};
+type Quote={price:number;shares:number;cents:number;asOf:number;serverNow?:number;rx?:number};
+const QUOTE_MAX_AGE=15000;
 type Trade={t:number;side?:string;price:number;size:number;user?:string};
 
 const money=(c:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:c%100===0?0:2}).format(c/100);
@@ -99,9 +101,11 @@ function Chart({marketId}:{marketId:string}){
 }
 
 function EventView({id,portfolio,settings,onBack,onTraded}:{id:string;portfolio:Portfolio|null;settings:{enabled:boolean;maxTradeCents:number}|null;onBack:()=>void;onTraded:(m:string)=>void}){
- const [ev,setEv]=useState<PEvent|null>(null),[err,setErr]=useState(""),[mid,setMid]=useState<string|null>(null),[tab,setTab]=useState<"book"|"activity"|"about">("book");
+ const [ev,setEv]=useState<PEvent|null>(null),[global,setGlobal]=useState<{enabled:boolean;maxTradeCents:number}|null>(null),[err,setErr]=useState(""),[mid,setMid]=useState<string|null>(null),[tab,setTab]=useState<"book"|"activity"|"about">("book");
  useEffect(()=>{let live=true;setEv(null);setErr("");const load=()=>api<PEvent>("/events/"+encodeURIComponent(id)).then(d=>{if(!live)return;setEv(d);setMid(m=>m&&d.markets.some(x=>x.id===m)?m:d.markets[0]?.id??null);}).catch(e=>live&&setErr(e.message));void load();const t=setInterval(load,20000);return()=>{live=false;clearInterval(t);};},[id]);
+ useEffect(()=>{if(settings)return;let live=true;api<Listing>("/events?limit=1").then(d=>live&&setGlobal({enabled:d.enabled,maxTradeCents:d.maxTradeCents})).catch(()=>{});return()=>{live=false;};},[settings]);
  const market=ev?.markets.find(m=>m.id===mid);
+ const eff=ev&&typeof ev.enabled==="boolean"&&typeof ev.maxTradeCents==="number"?{enabled:ev.enabled,maxTradeCents:ev.maxTradeCents}:settings||global;
  return <section aria-label="Market">
   <button className={styles.back} onClick={onBack}>← All markets</button>
   {err&&<p className={styles.error} role="alert">{err}</p>}
@@ -114,7 +118,7 @@ function EventView({id,portfolio,settings,onBack,onTraded}:{id:string;portfolio:
     {market&&<><div className={styles.tabs2} role="tablist">{(["book","activity","about"] as const).map(t=><button key={t} role="tab" aria-selected={tab===t} onClick={()=>setTab(t)}>{t==="book"?"Order book":t==="activity"?"Activity":"About"}</button>)}</div>
     {tab==="book"?<BookView id={market.id}/>:tab==="activity"?<ActivityView id={market.id}/>:<div className={styles.about}><p>{ev.description||"No description."}</p>{ev.resolutionSource&&<p className={styles.muted}>Resolution source: {ev.resolutionSource}</p>}<p className={styles.muted}>Markets settle automatically when the real market resolves.</p></div>}</>}
    </div>
-   {market&&<Ticket key={market.id} ev={ev} market={market} portfolio={portfolio} settings={settings} onTraded={onTraded}/>}
+   {market&&<Ticket key={market.id} ev={ev} market={market} portfolio={portfolio} settings={eff} onTraded={onTraded}/>}
   </div>}
  </section>;
 }
@@ -137,21 +141,34 @@ function ActivityView({id}:{id:string}){
 function Ticket({ev,market,portfolio,settings,onTraded}:{ev:PEvent;market:Market;portfolio:Portfolio|null;settings:{enabled:boolean;maxTradeCents:number}|null;onTraded:(m:string)=>void}){
  const [action,setAction]=useState<"buy"|"sell">("buy"),[side,setSide]=useState<"yes"|"no">("yes"),[amount,setAmount]=useState("10"),[confirm,setConfirm]=useState(false),[busy,setBusy]=useState(false),[err,setErr]=useState("");
  const reqId=useRef(rid()),reqAt=useRef(Date.now()),dlg=useRef<HTMLDialogElement>(null);
- const py=yes(market),price=side==="yes"?py:1-py;
+ const py=yes(market);
+ const [quote,setQuote]=useState<Quote|null>(null),[quoteErr,setQuoteErr]=useState(false),[tick,setTick]=useState(Date.now());
+ useEffect(()=>{const t=setInterval(()=>setTick(Date.now()),1000);return()=>clearInterval(t);},[]);
  const pos=portfolio?.positions.find(p=>p.marketId===market.id&&p.side===side&&p.status==="open");
- const n=Number(amount),valid=Number.isInteger(n)&&n>0;
+ const n=Number(amount),valid=action==="buy"?Number.isInteger(n)&&n>0:Number.isFinite(n)&&n>=0.000001&&/^\d*\.?\d{0,6}$/.test(amount);
+ const qs="/quote?marketId="+encodeURIComponent(market.id)+"&side="+side+"&action="+action+(valid?(action==="buy"?"&amountCents="+n*100:"&shares="+n):"");
+ useEffect(()=>{
+  let live=true;setQuote(null);setQuoteErr(false);
+  if(!valid||settings?.enabled===false)return;
+  const go=()=>api<Quote>(qs).then(q=>{if(live){setQuote({...q,rx:Date.now()});setQuoteErr(false);}}).catch(()=>{if(live){setQuote(null);setQuoteErr(true);}});
+  const d=setTimeout(go,250),t=setInterval(go,3000);return()=>{live=false;clearTimeout(d);clearInterval(t);};
+ },[qs,valid,settings?.enabled]);
+ const qAge=quote?((quote.serverNow??quote.rx??tick)-quote.asOf)+(tick-(quote.rx??tick)):Infinity;
+ const fresh=!!quote&&Number.isFinite(quote.asOf)&&qAge<=QUOTE_MAX_AGE&&quote.price>0;
+ const price=fresh?quote!.price:(side==="yes"?py:1-py);
  const max=settings?.maxTradeCents;
- const shares=action==="buy"?(valid&&price>0?n/price:0):(pos?pos.shares:0);
+ const shares=action==="buy"?(fresh?quote!.shares:0):(valid?Math.min(n,pos?.shares||0):0);
  const sellAmt=action==="sell"&&valid?Math.min(n,pos?.shares||0):0;
- const payoutC=action==="buy"?shares*100:sellAmt*price*100;
+ const payoutC=action==="buy"?shares*100:(fresh?quote!.cents:0);
  const costC=action==="buy"?(valid?n*100:0):0;
- const disabled=busy||!valid||market.closed||ev.closed||settings?.enabled===false||(action==="buy"&&portfolio!=null&&costC>portfolio.wallet)||(action==="buy"&&max!=null&&costC>max)||(action==="sell"&&(!pos||n>pos.shares));
+ const disabled=busy||!valid||!fresh||settings==null||market.closed||ev.closed||settings?.enabled===false||(action==="buy"&&portfolio!=null&&costC>portfolio.wallet)||(action==="buy"&&max!=null&&costC>max)||(action==="sell"&&(!pos||n>pos.shares+1e-9));
  useEffect(()=>{const d=dlg.current;if(!d)return;if(confirm&&!d.open)d.showModal();if(!confirm&&d.open)d.close();},[confirm]);
  async function submit(){
   setBusy(true);setErr("");
   try{
    const body:Record<string,unknown>={requestId:reqId.current,requestAt:reqAt.current,marketId:market.id,side,action,limitPrice:action==="buy"?Math.min(0.99,Math.ceil((price+0.03)*1000)/1000):Math.max(0.01,Math.floor((price-0.03)*1000)/1000)};
-   if(action==="buy")body.amountCents=n*100;else body.shares=n;
+   if(!fresh){setErr("Quote is stale. Try again in a moment.");setBusy(false);return;}
+   if(action==="buy")body.amountCents=n*100;else body.shares=Math.round(n*1e6)/1e6;
    const r=await api<{fill:{shares:number;price:number;cents:number}}>("/trade",{method:"POST",body:JSON.stringify(body)});
    reqId.current=rid();reqAt.current=Date.now();setConfirm(false);
    onTraded((action==="buy"?"Bought ":"Sold ")+r.fill.shares.toFixed(2)+" "+side.toUpperCase()+" at "+cents(r.fill.price)+" for "+money(r.fill.cents));
@@ -161,17 +178,19 @@ function Ticket({ev,market,portfolio,settings,onTraded}:{ev:PEvent;market:Market
  const label=action==="buy"?"Amount ($)":"Shares to sell";
  return <aside className={styles.ticket} aria-label="Trade">
   <p className={styles.tq}>{market.question}</p>
-  <div className={styles.seg} role="group" aria-label="Action">{(["buy","sell"] as const).map(a=><button key={a} aria-pressed={action===a} onClick={()=>{setAction(a);setErr("");}}>{a==="buy"?"Buy":"Sell"}</button>)}</div>
-  <div className={styles.sides} role="group" aria-label="Outcome"><button className={styles.yesBtn} aria-pressed={side==="yes"} onClick={()=>setSide("yes")}>Yes {cents(py)}</button><button className={styles.noBtn} aria-pressed={side==="no"} onClick={()=>setSide("no")}>No {cents(1-py)}</button></div>
-  <label className={styles.field}><span>{label}</span><CasinoAmountInput value={amount} onChange={v=>{setAmount(v);reqId.current=rid();reqAt.current=Date.now();}} min={1}/></label>
-  {action==="sell"&&<div className={styles.quick}><span className={styles.muted}>{pos?"You hold "+pos.shares.toFixed(2)+" "+side.toUpperCase():"No "+side.toUpperCase()+" shares held"}</span>{pos&&<button onClick={()=>setAmount(String(Math.floor(pos.shares)||1))}>Max</button>}</div>}
-  {action==="buy"&&<div className={styles.quick}>{[5,10,25,100].map(v=><button key={v} onClick={()=>setAmount(String(v))}>${v}</button>)}</div>}
-  <dl className={styles.sum}><div><dt>Price</dt><dd>{cents(price)}</dd></div><div><dt>{action==="buy"?"Est. shares":"Shares"}</dt><dd>{action==="buy"?shares.toFixed(2):(valid?Math.min(n,pos?.shares||0).toFixed(2):"-")}</dd></div><div><dt>{action==="buy"?"Payout if "+side.toUpperCase():"You receive"}</dt><dd className={styles.pos}>{payoutC>0?money(Math.round(payoutC)):"-"}</dd></div></dl>
+  <div className={styles.seg} role="group" aria-label="Action">{(["buy","sell"] as const).map(a=><button key={a} aria-pressed={action===a} onClick={()=>{setAction(a);setErr("");setAmount(a==="buy"?"10":"");reqId.current=rid();reqAt.current=Date.now();}}>{a==="buy"?"Buy":"Sell"}</button>)}</div>
+  <div className={styles.sides} role="group" aria-label="Outcome"><button className={styles.yesBtn} aria-pressed={side==="yes"} onClick={()=>{setSide("yes");reqId.current=rid();reqAt.current=Date.now();}}>Yes {cents(py)}</button><button className={styles.noBtn} aria-pressed={side==="no"} onClick={()=>{setSide("no");reqId.current=rid();reqAt.current=Date.now();}}>No {cents(1-py)}</button></div>
+  <label className={styles.field}><span>{label}</span>{action==="buy"?<CasinoAmountInput value={amount} onChange={v=>{setAmount(v);reqId.current=rid();reqAt.current=Date.now();}} min={1}/>:<input type="text" inputMode="decimal" autoComplete="off" value={amount} onChange={e=>{if(/^\d*\.?\d{0,6}$/.test(e.target.value)){setAmount(e.target.value);reqId.current=rid();reqAt.current=Date.now();}}}/>}</label>
+  {action==="sell"&&<div className={styles.quick}><span className={styles.muted}>{pos?"You hold "+(Math.floor(pos.shares*1e6)/1e6)+" "+side.toUpperCase():"No "+side.toUpperCase()+" shares held"}</span>{pos&&<button onClick={()=>{setAmount(String(Math.floor(pos.shares*1e6)/1e6));reqId.current=rid();reqAt.current=Date.now();}}>Max</button>}</div>}
+  {action==="buy"&&<div className={styles.quick}>{[5,10,25,100].map(v=><button key={v} onClick={()=>{setAmount(String(v));reqId.current=rid();reqAt.current=Date.now();}}>${v}</button>)}</div>}
+  <dl className={styles.sum}><div><dt>{action==="buy"?"Buy price":"Sell price"}</dt><dd>{fresh?cents(price):valid?(quoteErr?"Unavailable":"Quoting…"):"-"}</dd></div><div><dt>{action==="buy"?"Est. shares":"Shares"}</dt><dd>{action==="buy"?(fresh?shares.toFixed(2):"-"):(valid?(Math.min(n,pos?.shares||0)).toString():"-")}</dd></div><div><dt>{action==="buy"?"Payout if "+side.toUpperCase():"You receive"}</dt><dd className={styles.pos}>{payoutC>0?money(Math.round(payoutC)):"-"}</dd></div></dl>
+  {valid&&!fresh&&<p className={styles.hint} role="status">{quoteErr||(quote&&qAge>QUOTE_MAX_AGE)?"Live price unavailable, trading paused for this market.":"Getting live price…"}</p>}
+  {settings==null&&<p className={styles.hint}>Loading trading limits…</p>}
   {max!=null&&<p className={styles.hint}>Max per trade {money(max)}. Price may move slightly at fill.</p>}
   {err&&<p className={styles.error} role="alert">{err}</p>}
-  <button className={"primary "+styles.go} disabled={disabled} onClick={()=>setConfirm(true)}>{settings?.enabled===false?"Trading off":market.closed||ev.closed?"Market closed":(action==="buy"?"Buy ":"Sell ")+side.toUpperCase()}</button>
+  <button className={"primary "+styles.go} disabled={disabled} onClick={()=>setConfirm(true)}>{settings?.enabled===false?"Trading off":market.closed||ev.closed?"Market closed":valid&&!fresh?"Price unavailable":(action==="buy"?"Buy ":"Sell ")+side.toUpperCase()}</button>
   <dialog ref={dlg} className={styles.dialog} onCancel={e=>{e.preventDefault();if(!busy)setConfirm(false);}} onClose={()=>setConfirm(false)}>
-   <h3>Confirm {action}</h3><p>{action==="buy"?"Spend "+money(costC)+" on "+side.toUpperCase()+" at about "+cents(price):"Sell "+sellAmt+" "+side.toUpperCase()+" shares at about "+cents(price)}.</p><p className={styles.muted}>{market.question}</p>
+   <h3>Confirm {action}</h3><p>{action==="buy"?"Spend "+money(costC)+" for about "+shares.toFixed(2)+" "+side.toUpperCase()+" at about "+cents(price):"Sell "+sellAmt+" "+side.toUpperCase()+" shares at about "+cents(price)}.</p><p className={styles.muted}>{market.question}</p>
    <div className={styles.actions}><button onClick={()=>setConfirm(false)} disabled={busy}>Cancel</button><button className="primary" onClick={submit} disabled={busy}>{busy?"Placing…":"Confirm"}</button></div>
   </dialog>
  </aside>;
