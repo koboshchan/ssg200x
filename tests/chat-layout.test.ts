@@ -47,3 +47,17 @@ test("phone chat button is a bottom bar and the page scrolls above it",()=>{
  assert.match(m[0],/html:has\(\.chat-toggle\) body\{height:calc\(100dvh - 46px - env\(safe-area-inset-bottom\)\);min-height:0;overflow-y:auto/);
  assert.match(m[0],/\.chat-toggle\{left:0;right:0;bottom:0;width:auto;height:calc\(46px \+ env\(safe-area-inset-bottom\)\)/);
 });
+test("poker switching retains all room clients on the same live transport",()=>{
+ assert.match(ui,/new Map\(\["main","poker-02","poker-03"\]/);
+ assert.match(ui,/\},\[isLoaded,userId,live.request\]\)/);
+ assert.doesNotMatch(ui,/\[isLoaded,userId,live.request,chatRoom\]/);
+ assert.match(ui,/clients\?\.get\(chatRoom\)/);
+ assert.match(ui,/chatRoom:room/);
+ assert.match(ui,/for\(const c of retained.values\(\)\)c.close\(\)/);
+});
+test("hole cards and bets remain inside their own flow-layout seat at all counts",()=>{
+ assert.match(css,/\.felt-wrapper \.seat \.seat-bet\{position:static/);
+ assert.match(css,/\.felt-wrapper \.seat,\.felt-wrapper.dense \.seat\{position:relative;inset:auto/);
+ assert.match(css,/grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+ assert.match(css,/grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+});

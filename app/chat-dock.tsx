@@ -20,17 +20,21 @@ export default function ChatDock(){
  const pathname=usePathname();
  const [pokerTableId,setPokerTableId]=useState("01");
  const chatRoom=pathname==="/poker"&&pokerTableId!=="01"?"poker-"+pokerTableId:"main";
- const [binding,setBinding]=useState<{room:string;user:string;client:ChatClient}|null>(null);
- const client=binding?.room===chatRoom&&binding.user===userId?binding.client:null;
+ const [binding,setBinding]=useState<{user:string;clients:Map<string,ChatClient>}|null>(null);
+ const clients=binding&&binding.user===userId?binding.clients:null;
+ const client=clients?.get(chatRoom)??null;
  const [open,setOpen]=useState(false),[names,setNames]=useState<Record<string,string>>({}),[seen,setSeen]=useState<number|null>(null);
  const [tab,setTab]=useState<"room"|"dm">("room");
  const [preferencesUser,setPreferencesUser]=useState<string|null>(null);
  const preferencesReady=preferencesUser===userId;
  useEffect(()=>{
   if(!isLoaded||!userId)return;
-  const c=new ChatClient(userId,(event,payload)=>live.request("chat:"+event,{...(payload as object),chatRoom}),indexedDbStore(chatRoom),Date.now,undefined,undefined,chatRoom);
-  setBinding({room:chatRoom,user:userId,client:c});return()=>{c.close();setBinding(null);};
- },[isLoaded,userId,live.request,chatRoom]);
+  // Table changes select a retained room client, not a new identity/key lifecycle.
+  // All three rooms share LiveProvider's one authenticated socket.
+  const retained=new Map(["main","poker-02","poker-03"].map(room=>[room,new ChatClient(userId,(event,payload)=>live.request("chat:"+event,{...(payload as object),chatRoom:room}),indexedDbStore(room),Date.now,undefined,undefined,room)]));
+  setBinding({user:userId,clients:retained});
+  return()=>{for(const c of retained.values())c.close();};
+ },[isLoaded,userId,live.request]);
  useEffect(()=>{
   if(!userId)return;
   const key="tabletalk:"+userId;
