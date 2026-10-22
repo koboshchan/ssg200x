@@ -241,3 +241,50 @@ test('Mines preferences are account scoped; lost boards reveal bombs and all res
   await page.close();
  }}finally{await browser.close();}
 });
+
+test('Plinko risk persists per account and each receipt/history retains its original risk',async()=>{
+ const {PLINKO_RISK_TABLES,LEGACY_PLINKO_TABLE}=await import('../lib/plinko-risk');
+ const js=await bundle(),browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--no-sandbox']});
+ try{for(const width of [1280,390]){
+  const page=await browser.newPage({viewport:{width,height:1000},reducedMotion:'reduce'});
+  await page.addInitScript(INIT);await page.route('https://games.test/**',(r:any)=>r.fulfill({contentType:'text/html',body:'<!doctype html><meta charset="utf-8"><div id="root"></div>'}));
+  const hydrate=async()=>{await page.addScriptTag({content:js});await page.getByRole('button',{name:'Drop',exact:true}).waitFor();await page.waitForFunction(()=>!document.querySelector('[aria-label="Game in progress"]'));};
+  await page.goto('https://games.test');await hydrate();
+  const check=async(risk:'low'|'medium'|'high')=>{
+   assert.equal(await page.getByRole('group',{name:'Plinko risk'}).locator('[aria-pressed=true]').innerText(),risk[0].toUpperCase()+risk.slice(1));
+   const labels=await page.locator('.slots b').allTextContents();
+   assert.deepEqual(labels,PLINKO_RISK_TABLES[risk].map(b=>b.multiplier.toFixed(2)+'×'));
+  };
+  await check('medium');await page.getByRole('button',{name:'Low',exact:true}).click();await check('low');
+  await page.getByRole('tab',{name:'Mines',exact:true}).click();await page.getByRole('tab',{name:'Plinko',exact:true}).click();await check('low');
+  await page.reload();await hydrate();await check('low');
+  await page.evaluate(()=>(window as any).__setUid('userB'));
+  await page.waitForFunction(()=>document.querySelector('[aria-pressed=true]')?.textContent==='Medium');await check('medium');
+  await page.getByRole('button',{name:'High',exact:true}).click();
+  await page.evaluate(()=>(window as any).__setUid('userA'));
+  await page.waitForFunction(()=>document.querySelector('[aria-pressed=true]')?.textContent==='Low');await check('low');
+  await page.getByRole('button',{name:'Drop',exact:true}).click();
+  await page.waitForFunction(()=>(window as any).__reqs.length===1);
+  const first=await page.evaluate(()=>JSON.parse((window as any).__reqs[0].body));assert.equal(first.risk,'low');
+  await page.getByRole('button',{name:'High',exact:true}).click();await check('high');
+  await page.getByRole('button',{name:'Drop',exact:true}).click();
+  await page.waitForFunction(()=>(window as any).__reqs.length===2);
+  const second=await page.evaluate(()=>JSON.parse((window as any).__reqs[1].body));assert.equal(second.risk,'high');
+  // Settle high then the older low snapshot. Both exact per-round payouts survive.
+  const high={...plinko(second.requestId,0,PLINKO_RISK_TABLES.high[0].multiplier),risk:'high',plinkoTable:PLINKO_RISK_TABLES.high};
+  const low={...plinko(first.requestId,4,PLINKO_RISK_TABLES.low[4].multiplier),risk:'low',plinkoTable:PLINKO_RISK_TABLES.low};
+  await page.evaluate(([high,low]:any)=>{(window as any).__reqs[1].resolve(200,{version:3,wallet:99000,maxBet:100000,serverNow:Date.now(),houseEdge:.02,games:[high],actionGameId:high.id});(window as any).__reqs[0].resolve(200,{version:2,wallet:99500,maxBet:100000,serverNow:Date.now(),houseEdge:.02,games:[low],actionGameId:low.id});},[high,low]);
+  await page.waitForFunction(()=>document.querySelectorAll('[aria-label="Recent drops"] li').length===2);
+  await check('high');
+  const history=await page.getByRole('list',{name:'Recent drops'}).innerText();
+  for(const g of [high,low])assert.ok(history.includes(g.multiplier.toFixed(2)+'×'));
+  // Legacy response remains its own stored multiplier even when current risk changes.
+  await page.getByRole('button',{name:'Drop',exact:true}).click();await page.waitForFunction(()=>(window as any).__reqs.length===3);
+  const legacy=plinko('legacy',0,LEGACY_PLINKO_TABLE[0].multiplier);
+  await page.evaluate((game:any)=>(window as any).__reqs[2].resolve(200,{version:4,wallet:98500,maxBet:100000,serverNow:Date.now(),houseEdge:.02,games:[game],actionGameId:game.id}),legacy);
+  await page.waitForFunction(()=>document.querySelectorAll('[aria-label="Recent drops"] li').length===3);
+  await page.getByRole('button',{name:'Medium',exact:true}).click();await check('medium');
+  assert.ok((await page.getByRole('list',{name:'Recent drops'}).innerText()).includes(legacy.multiplier.toFixed(2)+'×'));
+  await page.close();
+ }}finally{await browser.close();}
+});

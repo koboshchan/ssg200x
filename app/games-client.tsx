@@ -6,10 +6,11 @@ import {getTabHeaders} from "@/lib/tab-identity";
 import CasinoAmountInput from "./casino-amount-input";
 import {casinoInputCents} from "@/lib/casino-amount";
 import styles from "./games.module.css";
+import {PLINKO_RISKS,PLINKO_RISK_TABLES,LEGACY_PLINKO_TABLE,isPlinkoRisk,type PlinkoRisk,type PlinkoBucket} from "@/lib/plinko-risk";
 
 type Kind="plinko"|"hilo"|"mines"|"dice"|"chicken";
 type Status="active"|"won"|"lost"|"cashed";
-type GameView={id:string;kind:Kind;bet:number;status:Status;revision:number;steps:number;multiplier:number;payout:number;createdAt:number;card?:number;cards?:number[];revealed?:number[];bombs?:number[];mines?:number;result?:{path?:number[];slot?:number;roll?:number;hit?:number;card?:number};target?:number;direction?:"over"|"under"};
+type GameView={id:string;kind:Kind;bet:number;status:Status;revision:number;steps:number;multiplier:number;payout:number;createdAt:number;risk?:PlinkoRisk;plinkoTable?:readonly PlinkoBucket[];card?:number;cards?:number[];revealed?:number[];bombs?:number[];mines?:number;result?:{path?:number[];slot?:number;roll?:number;hit?:number;card?:number};target?:number;direction?:"over"|"under"};
 type Snapshot={version:number;wallet:number;maxBet:number;serverNow:number;games:GameView[];houseEdge:number};
 type Pending={body:string;label:string};
 type Drop={rid:string;body:string;label:string;state:"sending"|"unconfirmed"};
@@ -20,7 +21,7 @@ const dkey=(u:string)=>"ssg-games-plinko-v1:"+u;
 const KINDS:{kind:Kind;label:string;blurb:string}[]=[{kind:"plinko",label:"Plinko",blurb:"Drop the ball, land a multiplier."},{kind:"hilo",label:"Hi-Lo",blurb:"Guess higher or lower, cash out any time."},{kind:"mines",label:"Mines",blurb:"Reveal gems, avoid the mines."},{kind:"dice",label:"Dice",blurb:"Roll over or under your target."},{kind:"chicken",label:"Chicken Road",blurb:"Cross lane after lane. Don't get hit."}];
 const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:n%100===0?0:2}).format(n/100);
 const mult=(n:number)=>(Math.round(n*100)/100).toFixed(2)+"×";
-const PLINKO=[16,4,2,1,.5,1,2,4,16].map(w=>w*.98*256/355);
+const roundTable=(g:GameView)=>g.plinkoTable||(g.risk?PLINKO_RISK_TABLES[g.risk]:LEGACY_PLINKO_TABLE);
 const rank=(c:number)=>c===11?"J":c===12?"Q":c===13?"K":c===14?"A":String(c);
 const done=(g:GameView)=>g.status!=="active";
 const key=(u:string)=>"ssg-games-v1:"+u;
@@ -51,6 +52,10 @@ export default function GamesClient(){
  const mines=minePreference&&minePreference.uid===uid?minePreference.count:3;
  useEffect(()=>{if(!uid){setMinePreference(null);return;}let count=3;try{const saved=Number(localStorage.getItem("ssg-games-mines-v1:"+uid));if(Number.isInteger(saved)&&saved>=1&&saved<=10)count=saved;}catch{}setMinePreference({uid,count});},[uid]);
  const setMines=(count:number)=>{if(!uid||!Number.isInteger(count)||count<1||count>10)return;setMinePreference({uid,count});try{localStorage.setItem("ssg-games-mines-v1:"+uid,String(count));}catch{}};
+ const [riskPreference,setRiskPreference]=useState<{uid:string;risk:PlinkoRisk}|null>(null);
+ const risk=riskPreference&&riskPreference.uid===uid?riskPreference.risk:"medium";
+ useEffect(()=>{if(!uid){setRiskPreference(null);return;}let risk:PlinkoRisk="medium";try{const saved=localStorage.getItem("ssg-games-risk-v1:"+uid);if(isPlinkoRisk(saved))risk=saved;}catch{}setRiskPreference({uid,risk});},[uid]);
+ const setRisk=(risk:PlinkoRisk)=>{if(!uid)return;setRiskPreference({uid,risk});try{localStorage.setItem("ssg-games-risk-v1:"+uid,risk);}catch{}};
  const [animId,setAnimId]=useState<string|null>(null),[amount,setAmount]=useState("5");
  const [drops,setDropsState]=useState<Drop[]>([]),[balls,setBalls]=useState<Ball[]>([]),[results,setResults]=useState<GameView[]>([]),[plinkoError,setPlinkoError]=useState("");
  const dropsRef=useRef<Drop[]>([]),fetching=useRef(new Set<string>());
@@ -125,7 +130,7 @@ export default function GamesClient(){
  const drop=(amount:number)=>{
   if(dropsRef.current.length>=MAX_DROPS||amount>(snap?.wallet??0)-reserved(dropsRef.current))return;
   const rid=crypto.randomUUID();
-  setDrops(l=>[...l,{rid,label:"Drop",state:"sending",body:JSON.stringify({type:"start",game:"plinko",amount,requestId:rid,requestAt:Date.now()+offset.current})}]);
+  setDrops(l=>[...l,{rid,label:"Drop",state:"sending",body:JSON.stringify({type:"start",game:"plinko",risk,amount,requestId:rid,requestAt:Date.now()+offset.current})}]);
   void runDrop(rid);
  };
  const ballDone=useCallback((g:GameView)=>{setBalls(b=>b.filter(x=>x.id!==g.id));setResults(r=>[g,...r.filter(x=>x.id!==g.id)].slice(0,12));},[]);
@@ -148,7 +153,7 @@ export default function GamesClient(){
   {kind==="plinko"&&plinkoError?<p className={styles.note+" "+styles.warn} role="alert">{plinkoError}</p>:null}
   <section className={styles.stage+(kind==="chicken"?" "+styles.chickenStage:"")} key={kind} aria-label={KINDS.find(k=>k.kind===kind)!.label} aria-busy={busy}>
    {busy?<span className={styles.gameSpinner} role="status" aria-label="Game in progress"/>:null}
-   {kind==="plinko"?<Plinko balls={balls} drops={drops} trail={trail} onDone={ballDone} onRetry={runDrop} blocked={connection!=="connected"}/>:null}
+   {kind==="plinko"?<Plinko risk={risk} setRisk={setRisk} balls={balls} drops={drops} trail={trail} onDone={ballDone} onRetry={runDrop} blocked={connection!=="connected"}/>:null}
    {kind==="hilo"?<HiLo game={game} blocked={blocked} send={send}/>:null}
    {kind==="mines"?<Mines game={game} nextMines={mines} blocked={blocked} send={send}/>:null}
    {kind==="dice"?<DiceView game={game} animKey={animId}/>:null}
@@ -197,21 +202,22 @@ function PlinkoBall({game,onDone}:{game:GameView;onDone:(g:GameView)=>void}){
  },[]);
  return <span ref={el} className={styles.ball}/>;
 }
-function Plinko({balls,drops,trail,onDone,onRetry,blocked}:{balls:Ball[];drops:Drop[];trail:GameView[];onDone:(g:GameView)=>void;onRetry:(rid:string)=>void;blocked:boolean}){
- const rows=8,last=trail[0],slot=last?.result?.slot;
+function Plinko({risk,setRisk,balls,drops,trail,onDone,onRetry,blocked}:{risk:PlinkoRisk;setRisk:(risk:PlinkoRisk)=>void;balls:Ball[];drops:Drop[];trail:GameView[];onDone:(g:GameView)=>void;onRetry:(rid:string)=>void;blocked:boolean}){
+ const rows=8,last=trail[0],slot=last?.result?.slot,table=PLINKO_RISK_TABLES[risk];
  const [flash,setFlash]=useState<number|null>(null);
- useEffect(()=>{if(slot===undefined||!last)return;setFlash(slot);const t=setTimeout(()=>setFlash(null),900);return()=>clearTimeout(t);},[last?.id,slot]);
+ useEffect(()=>{if(slot===undefined||!last||roundTable(last).some((b,i)=>b.multiplier!==table[i].multiplier)){setFlash(null);return;}setFlash(slot);const t=setTimeout(()=>setFlash(null),900);return()=>clearTimeout(t);},[last?.id,slot,table]);
  const idle=!balls.length&&!drops.length&&!trail.length;
  const unconfirmed=drops.filter(d=>d.state==="unconfirmed");
  return <div>
-  <div className={styles.plinko} role="img" aria-label={last?"Last ball landed in slot "+((slot??0)+1)+", "+mult(PLINKO[slot??0]):"Plinko board"}>
+  <div className={styles.risk} role="group" aria-label="Plinko risk">{PLINKO_RISKS.map(r=><button key={r} aria-pressed={risk===r} onClick={()=>setRisk(r)}>{r[0].toUpperCase()+r.slice(1)}</button>)}</div>
+  <div className={styles.plinko} role="img" aria-label={last?"Last ball landed in slot "+((slot??0)+1)+", "+mult(last.multiplier):"Plinko board"}>
    {Array.from({length:rows},(_,r)=>Array.from({length:r+1},(_,c)=><i key={r+"-"+c} className={styles.peg} style={{left:50+(c-r/2)*(100/9)+"%",top:(r+1)*(88/rows)-4+"%"}}/>))}
    {balls.map(b=><PlinkoBall key={b.id} game={b.game} onDone={onDone}/>)}
-   <div className={styles.slots}>{Array.from({length:rows+1},(_,i)=><b key={i} className={flash===i?styles.hit:""} aria-label={"Slot "+(i+1)+", "+mult(PLINKO[i])}>{PLINKO[i].toFixed(2)}×</b>)}</div>
+   <div className={styles.slots}>{Array.from({length:rows+1},(_,i)=><b key={i} className={flash===i?styles.hit:""} aria-label={"Slot "+(i+1)+", "+mult(table[i].multiplier)}>{table[i].multiplier.toFixed(2)}×</b>)}</div>
    {idle?<p className={styles.empty}>Place a bet and drop the ball. You can drop several at once.</p>:null}
   </div>
   {unconfirmed.length?<ul className={styles.drops} aria-label="Drops awaiting a result">{unconfirmed.map(d=><li key={d.rid} className={styles.warn}><span>Unconfirmed</span><button disabled={blocked} onClick={()=>onRetry(d.rid)}>Retry</button></li>)}</ul>:null}
-  {trail.length?<ul className={styles.trail} aria-label="Recent drops">{trail.map(g=>{const win=g.payout>=g.bet;return <li key={g.id} className={win?styles.win:styles.lose}><b>{mult(g.multiplier)}</b><span>{win?"+":"-"}{money(Math.abs(g.payout-g.bet))}</span></li>;})}</ul>:null}
+  {trail.length?<ul className={styles.trail} aria-label="Recent drops">{trail.map(g=>{const win=g.payout>=g.bet;return <li key={g.id} className={win?styles.win:styles.lose}><b title={g.risk||"Legacy"}>{mult(g.multiplier)}</b><span>{win?"+":"-"}{money(Math.abs(g.payout-g.bet))}</span></li>;})}</ul>:null}
  </div>;
 }
 function HiLo({game,blocked,send}:{game?:GameView;blocked:boolean;send:Send}){

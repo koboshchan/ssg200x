@@ -83,3 +83,7 @@
 .chickenActions{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:10px;height:48px}
 .chickenActions button{width:100%;height:48px}
 @media(max-width:560px){.chickenStage{height:330px;min-height:330px;max-height:330px}}
+
+.risk{display:flex;justify-content:center;gap:6px;margin:0 0 14px}
+.risk button{padding:7px 14px;font-size:13px}
+.risk button[aria-pressed=true]{background:var(--blue);color:#fff}
