@@ -5,7 +5,7 @@ import {readFileSync} from "node:fs";
 const require=createRequire(import.meta.url);
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||"/home/kit/out/cal-browser-evidence/node_modules/playwright");
 const {build}=require("esbuild");
-const FX=["EUR/USD","USD/JPY","GBP/USD","AUD/JPY","CAD/USD","CNY/USD"];
+const FX=["EUR/USD","USD/JPY","GBP/USD","USD/CNH","USD/CAD","AUD/USD","USD/CHF","AUD/JPY"];
 test("market picker stays clickable for every forex pair with chat open or closed",async()=>{
  const out=await build({stdin:{contents:`
   import React from "react";import {createRoot} from "react-dom/client";
@@ -20,7 +20,7 @@ test("market picker stays clickable for every forex pair with chat open or close
   await page.route("https://fx.test/**",(r:any)=>r.fulfill({contentType:"text/html",body:'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><div id="root"></div>'}));
   await page.goto("https://fx.test");
   await page.addStyleTag({content:readFileSync("app/globals.css","utf8")});if(css)await page.addStyleTag({content:css.text});
-  await page.evaluate((c:boolean)=>{const w:any=window;w.__s={crypto:["BTC"],stocks:[],forex:["EUR/USD","USD/JPY","GBP/USD","AUD/JPY","CAD/USD","CNY/USD"],delisted:[],revision:1};w.__q={BTC:{micro:1e6,at:1}};w.__chat=c;document.documentElement.classList.toggle("chat-open",c);},chat);
+  await page.evaluate((c:boolean)=>{const w:any=window;w.__s={crypto:["BTC"],stocks:[],forex:["EUR/USD","USD/JPY","GBP/USD","USD/CNH","USD/CAD","AUD/USD","USD/CHF","AUD/JPY"],delisted:[],revision:1};w.__q={BTC:{micro:1e6,at:1}};w.__chat=c;document.documentElement.classList.toggle("chat-open",c);},chat);
   await page.addScriptTag({content:js});
   for(const pair of FX){
   await page.locator("[data-market-picker]").click();
