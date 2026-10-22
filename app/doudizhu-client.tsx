@@ -13,7 +13,7 @@ const beans=(n:number)=><BeanAmount v={beansFmt(n)}/>;
 const B=({n}:{n:number})=><BeanAmount v={beansFmt(n)}/>;
 const signed=(n:number)=>(n>=0?"+":"−")+beansFmt(Math.abs(n));
 const exactSigned=(v:string)=>{const m=/^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(v.trim());if(!m)return v;const frac=(m[3]??"").replace(/0+$/,"");const zero=/^0+$/.test(m[2])&&!frac;return (m[1]&&!zero?"−":"+")+BigInt(m[2]).toLocaleString("en-US")+(frac?"."+frac:"");};
-const PRESETS=[1000,2000,3000];
+const PRESETS=[10,50,100];
 // Backend reaction errors are English text; the shared controls speak machine codes.
 const reactionCode=(m:string)=>/4 seconds/i.test(m)?"cooldown":/price changed/i.test(m)?"price_changed":/player left|invalid target/i.test(m)?"target":/not enough money/i.test(m)?"insufficient_funds":/expired/i.test(m)?"expired":/service unavailable|room is busy|unavailable|\b50[234]\b|bad gateway|timed? ?out/i.test(m)?"unavailable":m;
 const DOUBLES:{m:1|2|4;label:string}[]=[{m:1,label:"No double ×1"},{m:2,label:"Double ×2"},{m:4,label:"Super double ×4"}];
@@ -29,7 +29,7 @@ function Card({card}:{card:string}){return <span className={"card"+(["h","d"].in
 type Transport={read:(code?:string)=>Promise<PublicDoudizhu>;move:(body:object)=>Promise<PublicDoudizhu>};
 const api:Transport={async read(code){const r=await fetch("/api/doudizhu"+(code?"?code="+encodeURIComponent(code):""),{cache:"no-store"}),d=await r.json();if(!r.ok)throw Error(d.error);return d;},async move(body){const r=await fetch("/api/doudizhu",{method:"POST",headers:{"content-type":"application/json",...getTabHeaders()},body:JSON.stringify(body)}),d=await r.json();if(!r.ok)throw Error(d.error);return d;}};
 export default function Doudizhu({transport=api,fxPreview=false}: {transport?:Transport;fxPreview?:boolean}){
- const [view,setView]=useState<PublicDoudizhu|null>(null),[code,setCode]=useState(""),[preview,setPreview]=useState<PublicDoudizhu["preview"]>(null),[rate,setRate]=useState("1000"),[isPublic,setIsPublic]=useState(false),[cap,setCap]=useState("100"),[chosen,setChosen]=useState<string[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState(""),[fresh,setFresh]=useState(false),[now,setNow]=useState(Date.now());
+ const [view,setView]=useState<PublicDoudizhu|null>(null),[code,setCode]=useState(""),[preview,setPreview]=useState<PublicDoudizhu["preview"]>(null),[rate,setRate]=useState("10"),[isPublic,setIsPublic]=useState(false),[cap,setCap]=useState("100"),[chosen,setChosen]=useState<string[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState(""),[fresh,setFresh]=useState(false),[now,setNow]=useState(Date.now());
  const lock=useRef(false),epoch=useRef(0);
  const [muted,setMutedState]=useState(false),stageRef=useRef<HTMLDivElement|null>(null),seenReactions=useRef<{code:string;ids:Set<string>}|null>(null);
  useEffect(()=>{try{setMutedState(localStorage.getItem(HIDE_KEY)==="1");}catch{}},[]);
@@ -76,10 +76,10 @@ export default function Doudizhu({transport=api,fxPreview=false}: {transport?:Tr
   {error?<div role="alert" className="error">{error}<button aria-label="Dismiss error" onClick={()=>setError("")}>×</button></div>:null}
   {!fresh?<p role="status">Connecting to the room…</p>:null}
   {!g?<div className="dd-lobby"><section><h2>Create a room</h2><p>Set the rate before inviting your friends.</p>
-   <fieldset className="dd-label dd-beans"><legend>Happy Beans per $1</legend><div className="dd-presets">{PRESETS.map(n=><button type="button" key={n} aria-pressed={Number(rate)===n} onClick={()=>setRate(String(n))}><B n={n}/></button>)}<label className="dd-custom"><span>Custom</span><input aria-label="Custom beans per dollar" type="number" inputMode="numeric" min={1} max={maxBeans} step={1} value={rate} onChange={e=>setRate(e.target.value)}/><BeanIcon/></label></div></fieldset>
-   <p className="dd-example"><B n={Number(rate)||1000}/> = $1. Score = base <B n={baseBeans}/> × bid × bombs × spring. Example: bid 3 with one bomb is <B n={baseBeans*3*2}/>, or {money(baseBeans*3*2/(Number(rate)||1000)*100)}. Admin maximum <B n={maxBeans}/> per $1.</p>
+   <fieldset className="dd-label dd-beans"><legend>Happy Beans per $1</legend><div className="dd-presets">{PRESETS.map(n=><button type="button" key={n} aria-label={`USD to Happy Beans 1:${n}`} disabled={n>maxBeans} aria-pressed={Number(rate)===n} onClick={()=>setRate(String(n))}><B n={n}/></button>)}<label className="dd-custom"><span>Custom</span><input aria-label="Custom beans per dollar" type="number" inputMode="numeric" min={1} max={maxBeans} step={1} value={rate} onChange={e=>setRate(e.target.value)}/><BeanIcon/></label></div></fieldset>
+   <p className="dd-example"><B n={Number(rate)||10}/> = $1. Score = base <B n={baseBeans}/> × bid × bombs × spring. Example: bid 3 with one bomb is <B n={baseBeans*3*2}/>, or {money(baseBeans*3*2/(Number(rate)||10)*100)}. Admin maximum <B n={maxBeans}/> per $1.</p>
    <label className="dd-label">Maximum loss per player ($)<input type="number" aria-label="Maximum loss per player dollars" value={cap} min={1} max={1000000} step={1} onChange={e=>setCap(e.target.value)}/></label>
-   <p>Loss cap {money(Number(cap)*100||0)} (about <B n={(Number(cap)||0)*(Number(rate)||1000)}/>) is reserved from each wallet. Bids, bombs and spring multiply the score, but no one can lose more than the cap.</p>
+   <p>Loss cap {money(Number(cap)*100||0)} (about <B n={(Number(cap)||0)*(Number(rate)||10)}/>) is reserved from each wallet. Bids, bombs and spring multiply the score, but no one can lose more than the cap.</p>
    <label className="dd-check"><input type="checkbox" checked={isPublic} onChange={e=>setIsPublic(e.target.checked)}/><span>Public recruiting</span></label><p className="dd-note">Private by default. Public rooms appear in the recruiting list while they wait for players.</p>
    <button className="primary" disabled={disabled||!Number.isInteger(Number(rate))||Number(rate)<1||Number(rate)>maxBeans||!Number.isInteger(Number(cap))||Number(cap)<1||Number(cap)*100>(view?.wallet??0)} onClick={()=>void move("create",{beansPerDollar:Number(rate),maxLoss:Number(cap)*100,isPublic})}>Create room</button>
   </section><section><h2>Join friends</h2>

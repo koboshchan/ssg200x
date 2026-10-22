@@ -44,3 +44,11 @@ test("lowering maximum preserves waiting and active games, escrow and wallets",(
  changeDoudizhuMaxBeansPerDollar(r,admin,{maxBeansPerDollar:1,expectedMaxBeansPerDollar:1000000});
  assert.deepEqual(r.doudizhu,games);assert.deepEqual(r.members,members);
 });
+
+test("admin maximum accepts all room presets including the new default",()=>{
+ for(const maxBeansPerDollar of [10,50,100]){
+  const r=freshRoom();
+  changeDoudizhuMaxBeansPerDollar(r,admin,{maxBeansPerDollar,expectedMaxBeansPerDollar:1000000});
+  assert.equal(adminDoudizhuSnapshot(r,admin).maxBeansPerDollar,maxBeansPerDollar);
+ }
+});

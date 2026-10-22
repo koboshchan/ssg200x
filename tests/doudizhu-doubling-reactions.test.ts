@@ -10,7 +10,7 @@ function setup(){
   const input={type:"ready",requestId:randomUUID(),requestAt:now,version:r.doudizhu?.[0]?.version,...parts} as DoudizhuInput;
   applyDoudizhu(r,users[seat],input,now);assertRoom(r);return input;
  };
- move(0,{type:"create",maxLoss:12800});const g=r.doudizhu![0];
+ move(0,{type:"create",beansPerDollar:1000,maxLoss:12800});const g=r.doudizhu![0];
  move(1,{type:"join",code:g.code});move(2,{type:"join",code:g.code});
  for(let i=0;i<3;i++)move(i,{type:"ready"});move(0,{type:"bid",bid:3});
  return {r,g,move,time:(v:number)=>now=v};

@@ -18,3 +18,12 @@ test("idle countdown is only displayed near expiry between hands with nobody rea
  assert.match(src,/all reserved money returns to your wallets/);
  assert.match(src,/role="timer" aria-live="off"/);
 });
+
+test("room creation offers 1:10 by default, 1:50, 1:100 and bounded custom beans",()=>{
+ assert.match(src,/const PRESETS=\[10,50,100\]/);
+ assert.match(src,/\[rate,setRate\]=useState\("10"\)/);
+ assert.match(src,/aria-label=\{`USD to Happy Beans 1:\$\{n\}`\}/);
+ assert.match(src,/disabled=\{n>maxBeans\}/);
+ assert.match(src,/aria-label="Custom beans per dollar"/);
+ assert.match(src,/min=\{1\} max=\{maxBeans\} step=\{1\}/);
+});

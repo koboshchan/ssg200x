@@ -53,11 +53,11 @@ test("invalid stakes fail before debiting and one room per person",()=>{
  for(const base of [-1,0,NaN,Infinity,0.5,1000001,Number.MAX_SAFE_INTEGER]){const r=setup();assert.throws(()=>move(r,0,{type:"create",beansPerDollar:base}));assert.equal(r.members[0].wallet,100000);}
  const r=setup();move(r,0,{type:"create",beansPerDollar:1000,maxLoss:12800});assert.throws(()=>move(r,0,{type:"create",beansPerDollar:1000,maxLoss:12800}),/existing room/);
 });
-test("beans default to 1000 per dollar and current admin max fences new rooms",()=>{
+test("beans default to 10 per dollar and current admin max fences new rooms",()=>{
  const r=setup();r.doudizhuMaxBeansPerDollar=2000;
  assert.throws(()=>move(r,0,{type:"create",beansPerDollar:2001}),/maximum/);
- move(r,0,{type:"create"});const g=r.doudizhu![0];assert.equal(g.beansPerDollar,1000);assert.equal(g.maxLoss,10000);assert.equal(r.members[0].wallet,90000);
- const view=publicDoudizhu(r,users[0]);assert.equal(view.maxBeansPerDollar,2000);assert.equal(view.room!.beansPerDollar,1000);assert.equal(view.room!.maxLoss,10000);
+ move(r,0,{type:"create"});const g=r.doudizhu![0];assert.equal(g.beansPerDollar,10);assert.equal(g.maxLoss,10000);assert.equal(r.members[0].wallet,90000);
+ const view=publicDoudizhu(r,users[0]);assert.equal(view.maxBeansPerDollar,2000);assert.equal(view.room!.beansPerDollar,10);assert.equal(view.room!.maxLoss,10000);
 });
 test("losing landlord cap splits odd cent deterministically; winning landlord collects each farmer cap",()=>{
  for(const winner of [0,1]){
@@ -144,4 +144,17 @@ test("production rejects autoplay payloads and active leave without changing wal
  g.players[0].auto=true;assert.equal(tickDoudizhu(r,2000),false);
  assert.equal(publicDoudizhu(r,users[0]).room!.players[0].auto,false);
  move(r,0,{type:"play",cards:[g.players[0].hand[0]]});assertRoom(r);
+});
+
+test("new presets and custom rates respect the current admin cap without changing the base score",()=>{
+ for(const beansPerDollar of [10,50,100,37]){
+  const r=setup();r.doudizhuMaxBeansPerDollar=100;
+  move(r,0,{type:"create",beansPerDollar});
+  assert.equal(r.doudizhu![0].beansPerDollar,beansPerDollar);
+  assert.equal(r.doudizhu![0].baseBeans,1000);
+  assert.equal(publicDoudizhu(r,users[0]).room!.beansPerDollar,beansPerDollar);
+ }
+ const r=setup();r.doudizhuMaxBeansPerDollar=50;
+ assert.throws(()=>move(r,0,{type:"create",beansPerDollar:100}),/maximum/);
+ assert.equal(r.members[0].wallet,100000);
 });
