@@ -19,13 +19,13 @@ export class OandaQuarantine {
  readonly pending=new Map<string,{raw:unknown;received:number;mono:number;at:number;deadline:number}>();
  offer(raw:unknown,received:number,mono:number,symbols:string[]){
   const r=raw as {instrument?:string;time?:string};const symbol=r?.instrument?.replace("_","/")??"",at=Date.parse(r?.time??"");
-  if(!symbols.includes(symbol)||symbols.length>8||!Number.isFinite(at)||at<=received||at-received>1000||!parseOandaPrice(raw,at,mono))return false;
+  if(!symbols.includes(symbol)||symbols.length>8||!Number.isFinite(at)||at<=received||at-received>2000||!parseOandaPrice(raw,at,mono))return false;
   const old=this.pending.get(symbol);if(old&&old.at>=at)return true;
   if(!old&&this.pending.size>=8)return false;
-  this.pending.set(symbol,{raw,received,mono,at,deadline:mono+10000});return true;
+  this.pending.set(symbol,{raw,received,mono,at,deadline:mono+2000});return true;
  }
  release(now:number,mono:number){const out:OandaTick[]=[];for(const [s,p]of this.pending){
-  if(mono<p.mono||mono>=p.deadline||now-p.at>10000){this.pending.delete(s);continue;}
+  if(mono<p.mono||mono>p.deadline||mono-p.mono>=10000||now-p.at>10000||mono===p.deadline&&now<p.at){this.pending.delete(s);continue;}
   if(now<p.at)continue;
   this.pending.delete(s);const t=parseOandaPrice(p.raw,now,mono);if(t)out.push({...t,received:p.received,mono:p.mono});
  }return out;}
