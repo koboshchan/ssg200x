@@ -8,9 +8,11 @@ import {tickDoudizhu,doudizhuNeedsTick} from "../lib/doudizhu";
 import {readRoom} from "../lib/db";
 import {z} from "zod";
 if(process.env.MONGODB_DB!=="fakebucks_demo_doudizhu")throw Error("Isolated demo DB required");
-const users=["You","Mochi","Dango"].map((name,i)=>({id:"demo-dd-"+i,name,email:"demo"+i+"@invalid.test",admin:i===0}));
+const users=["You","Mochi","Dango","Spectator"].map((name,i)=>({id:"demo-dd-"+i,name,email:"demo"+i+"@invalid.test",admin:i===0}));
 const stamp={requestId:z.string().uuid(),requestAt:z.number().int(),code:z.string().max(100).optional(),version:z.number().int().nonnegative().optional()};
 const schema=z.discriminatedUnion("type",[
+ z.object({...stamp,type:z.literal("spectate")}).strict(),
+ z.object({...stamp,type:z.literal("watch"),watchSeat:z.number().int().min(0).max(2)}).strict(),
  z.object({...stamp,type:z.literal("double"),doubleMultiplier:z.union([z.literal(1),z.literal(2),z.literal(4)])}).strict(),
  z.object({...stamp,type:z.literal("reaction"),kind:z.enum(["emote","throw"]),value:z.string().max(20),target:z.number().int().min(0).max(2).optional(),targetId:z.string().regex(/^[a-f0-9]{16}$/).optional(),expectedPrice:z.number().int().nonnegative().optional()}).strict(),
  z.object({...stamp,type:z.literal("visibility"),isPublic:z.boolean(),version:z.number().int().nonnegative()}).strict(),
@@ -34,6 +36,6 @@ const server=createServer(async(req,res)=>{res.setHeader("Cache-Control","no-sto
  const path=req.url==="/demo.js"?"demo.js":req.url==="/demo.css"?"demo.css":req.url==="/"?"index.html":null;
  if(!path){res.writeHead(404).end();return;}res.setHeader("Content-Type",path.endsWith(".js")?"text/javascript":path.endsWith(".css")?"text/css":"text/html");res.end(readFileSync(resolve(root,path)));
 }catch(e){res.writeHead((e as any).status||400,{"Content-Type":"application/json"});res.end(JSON.stringify({error:e instanceof Error?e.message:"Error"}));}
-}).listen(39761,"0.0.0.0");
+}).listen(Number(process.env.PORT||39761),"0.0.0.0");
 server.on("error",error=>{console.error(error);process.exit(1);});
 setInterval(async()=>{try{const r=await readRoom();if(doudizhuNeedsTick(r,Date.now()))await mutate(r=>tickDoudizhu(r,Date.now()));}catch{}},1000);

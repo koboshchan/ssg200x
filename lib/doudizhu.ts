@@ -6,9 +6,9 @@ import {casinoLimits} from "./casino-limits";
 import {applyDoudizhuReaction,type DoudizhuReaction} from "./doudizhu-reactions";
 import {audit} from "./audit";
 import type {Room,Identity} from "./types";
-export type DoudizhuInput={type:"create"|"join"|"ready"|"bid"|"play"|"pass"|"leave"|"visibility"|"double"|"reaction";doubleMultiplier?:number;kind?:"emote"|"throw";value?:string;target?:number;targetId?:string;expectedPrice?:number;isPublic?:boolean;code?:string;beansPerDollar?:number;maxLoss?:number;cards?:string[];bid?:number;requestId:string;requestAt:number;version?:number};
+export type DoudizhuInput={type:"spectate"|"watch"|"create"|"join"|"ready"|"bid"|"play"|"pass"|"leave"|"visibility"|"double"|"reaction";watchSeat?:number;doubleMultiplier?:number;kind?:"emote"|"throw";value?:string;target?:number;targetId?:string;expectedPrice?:number;isPublic?:boolean;code?:string;beansPerDollar?:number;maxLoss?:number;cards?:string[];bid?:number;requestId:string;requestAt:number;version?:number};
 export type DoudizhuPlayer={userId:string;ready:boolean;auto:boolean;hand:string[];escrow:number;plays:number;doubleMultiplier?:1|2|4;doubleChosen?:boolean};
-export type DoudizhuRoom={code:string;ownerId?:string;isPublic?:boolean;base?:number;rate?:number;scoringMode?:"beans"|"legacy-rate";beansPerDollar?:number;baseBeans?:number;maxLoss:number;reactions?:DoudizhuReaction[];idleDeadline?:number|null;version:number;phase:"waiting"|"bidding"|"doubling"|"playing"|"revealing"|"finished";revealWinner?:number;handId:string;players:DoudizhuPlayer[];kitty:string[];turn:number;deadline:number|null;landlord:number|null;bid:number;bidder:number|null;bids:number;multiplier:number;trick:{cards:string[];combo:Combo;seat:number}|null;passes:number;settled:boolean;result:null|{winner:number;spring:boolean;unit:number;unitBeans?:number;beanDeltas?:number[];beanDeltaExact?:string[];deltas:number[];settlementId:string}};
+export type DoudizhuRoom={code:string;spectators?:{userId:string;seat:number|null;seenAt:number}[];ownerId?:string;isPublic?:boolean;base?:number;rate?:number;scoringMode?:"beans"|"legacy-rate";beansPerDollar?:number;baseBeans?:number;maxLoss:number;reactions?:DoudizhuReaction[];idleDeadline?:number|null;version:number;phase:"waiting"|"bidding"|"doubling"|"playing"|"revealing"|"finished";revealWinner?:number;handId:string;players:DoudizhuPlayer[];kitty:string[];turn:number;deadline:number|null;landlord:number|null;bid:number;bidder:number|null;bids:number;multiplier:number;trick:{cards:string[];combo:Combo;seat:number}|null;passes:number;settled:boolean;result:null|{winner:number;spring:boolean;unit:number;unitBeans?:number;beanDeltas?:number[];beanDeltaExact?:string[];deltas:number[];settlementId:string}};
 export const DOUDIZHU_REVEAL_MS=5_000;
 export const DOUDIZHU_TURN_MS=60_000;
 export const DOUDIZHU_IDLE_MS=5*60_000;
@@ -102,9 +102,9 @@ export function tickDoudizhu(r:Room,now:number){let changed=false;for(const g of
  else action(r,g,g.turn,"play",{cards:[[...p.hand].sort((a,b)=>rank(a)-rank(b)||a.localeCompare(b))[0]]},now);
  g.version++;changed=true;
  }}return changed;}
-function doudizhuFingerprint(input:DoudizhuInput){return JSON.stringify([input.type,input.code,input.version,input.requestAt,input.isPublic,input.beansPerDollar,input.maxLoss,input.cards,input.bid,input.doubleMultiplier,input.kind,input.value,input.target,input.targetId,input.expectedPrice]);}
+function doudizhuFingerprint(input:DoudizhuInput){return JSON.stringify([input.type,input.watchSeat,input.code,input.version,input.requestAt,input.isPublic,input.beansPerDollar,input.maxLoss,input.cards,input.bid,input.doubleMultiplier,input.kind,input.value,input.target,input.targetId,input.expectedPrice]);}
 export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.now()){
- ensure(input&&["create","join","ready","bid","play","pass","leave","visibility","double","reaction"].includes(input.type),"Unsupported game action.");
+ ensure(input&&["spectate","watch","create","join","ready","bid","play","pass","leave","visibility","double","reaction"].includes(input.type),"Unsupported game action.");
  ensure(!("auto" in input)&&!("bot" in input)&&!("simulate" in input),"Autoplay is not supported.");
  ensure(input&&typeof input.requestId==="string"&&/^[a-zA-Z0-9_-]{8,128}$/.test(input.requestId),"Invalid request ID.");
  ensure(Number.isSafeInteger(input.requestAt)&&now-input.requestAt>=-10_000&&now-input.requestAt<=120_000,"Request expired.",409);
@@ -114,8 +114,19 @@ export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.n
  const m=member(r,who.id);ensure(m.approved&&!m.accessRevoked,"Access denied.",403);
  const games=r.doudizhu??=[];let own=games.find(g=>g.players.some(p=>p.userId===who.id));
  const code=typeof input.code==="string"?input.code.trim().toLowerCase().replace(/[\s-]+/g," "):"";
- let g: DoudizhuRoom|undefined=code?games.find(g=>g.code===code):own;
- if(input.type==="create"){
+ let g: DoudizhuRoom|undefined=code?games.find(g=>g.code===code):own??games.find(g=>g.spectators?.some(s=>s.userId===who.id&&now-s.seenAt<DOUDIZHU_SPECTATOR_TTL));
+ if(input.type==="spectate"||input.type==="watch"){
+  ensure(g,"Room not found.",404);ensure(!own,"Leave your existing room first.",409);
+  const watching=(g.spectators??[]).find(s=>s.userId===who.id);
+  if(input.type==="watch"){ensure(watching&&now-watching.seenAt<DOUDIZHU_SPECTATOR_TTL,"Spectate this room first.",403);ensure(Number.isInteger(input.watchSeat)&&input.watchSeat!>=0&&input.watchSeat!<g.players.length,"Choose a seated player.");}
+  // At most one watched room per account. No reserve or wallet operation.
+  const live=(g.spectators??[]).filter(s=>s.userId!==who.id&&now-s.seenAt<DOUDIZHU_SPECTATOR_TTL);
+  ensure(live.length<200,"Too many spectators.",409);
+  for(const game of games)game.spectators=(game.spectators??[]).filter(s=>s.userId!==who.id);
+  g.spectators=[...live,{userId:who.id,seat:input.type==="watch"?input.watchSeat!:null,seenAt:now}];
+ }else if(input.type==="leave"&&g?.spectators?.some(s=>s.userId===who.id)&&!own){
+  g.spectators=g.spectators.filter(s=>s.userId!==who.id);
+ }else if(input.type==="create"){
   ensure(!own,"Leave your existing room first.",409);ensure(input.isPublic===undefined||typeof input.isPublic==="boolean","Visibility must be boolean.");ensure(!("rate" in input),"New rooms use beansPerDollar, not rate.");const beansPerDollar=input.beansPerDollar??10,maxLoss=input.maxLoss??10000;ensure(Number.isSafeInteger(beansPerDollar)&&beansPerDollar>=1&&beansPerDollar<=doudizhuMaxBeansPerDollar(r),"Beans per dollar exceeds the current admin maximum.");ensure(Number.isSafeInteger(maxLoss)&&maxLoss>=100&&maxLoss<=100000000,"Maximum loss must be 100 to 100000000 cents.");
   let newCode:string;do{newCode=Array.from({length:3},()=>wordlist[randomInt(wordlist.length)]).join(" ");}while(games.some(g=>g.code===newCode));
   ensure(games.length<200,"Too many rooms.",409);
@@ -158,17 +169,26 @@ export function applyDoudizhu(r:Room,who:Identity,input:DoudizhuInput,now=Date.n
    }
   }
  }
+ if(input.type==="join"||input.type==="create")for(const game of games)game.spectators=(game.spectators??[]).filter(s=>s.userId!==who.id);
  syncIdle(g!,now);
  g!.version++;
  audit(r,who,"doudizhu."+input.type,g!.handId,null,{code:g!.code,version:g!.version,requestId:input.requestId});
  r.doudizhuReceipts=[{id:input.requestId,userId:who.id,at:now,fingerprint:doudizhuFingerprint(input)},...retained];
 }
+export const DOUDIZHU_SPECTATOR_TTL=45_000;
+/** Poll heartbeat never changes gameplay version and never revives expired access. */
+export function touchDoudizhuSpectator(r:Room,userId:string,now=Date.now()){
+ for(const g of r.doudizhu??[]){const s=g.spectators?.find(s=>s.userId===userId&&now-s.seenAt<DOUDIZHU_SPECTATOR_TTL);if(s)s.seenAt=now;}
+}
 export function publicDoudizhu(r:Room,who:Identity,code?:string){
  const own=(r.doudizhu??[]).find(g=>g.players.some(p=>p.userId===who.id));
- // Codes reveal only the stake preview. Hands and player identities stay private until joining.
- const g=own&&(!code||own.code===code.trim().toLowerCase().replace(/[\s-]+/g," "))?own:undefined;
+ const now=Date.now(),watched=(r.doudizhu??[]).find(g=>g.spectators?.some(s=>s.userId===who.id&&now-s.seenAt<DOUDIZHU_SPECTATOR_TTL));
+ const accessible=own??watched;
+ // Knowing words alone only reveals the preview. Spectating explicitly grants one chosen POV.
+ const g=accessible&&(!code||accessible.code===code.trim().toLowerCase().replace(/[\s-]+/g," "))?accessible:undefined;
+ const spectator=g&&!own?g.spectators?.find(s=>s.userId===who.id):undefined;
  const preview=code?(r.doudizhu??[]).find(x=>x.code===code.trim().toLowerCase().replace(/[\s-]+/g," ")):undefined;
  const recruitingRooms=(r.doudizhu??[]).filter(x=>x.isPublic===true&&x.phase==="waiting"&&x.players.length>0&&x.players.length<3).map(x=>({code:x.code,count:x.players.length,scoringMode:x.scoringMode??"legacy-rate",beansPerDollar:x.beansPerDollar,baseBeans:x.baseBeans,rate:x.rate,maxLoss:x.maxLoss}));
- return {reactionPrices:{egg:casinoLimits(r).pokerEggPrice,tomato:casinoLimits(r).pokerTomatoPrice},recruitingRooms,preview:preview?{code:preview.code,scoringMode:preview.scoringMode??"legacy-rate",beansPerDollar:preview.beansPerDollar,baseBeans:preview.baseBeans,rate:preview.rate,maxLoss:preview.maxLoss,count:preview.players.length,phase:preview.phase}:null,houseRules:DOUDIZHU_RULES,maxBeansPerDollar:doudizhuMaxBeansPerDollar(r),maxRate:doudizhuMaxRate(r),wallet:r.members.find(m=>m.id===who.id)?.wallet??0,room:g?{code:g.code,isPublic:g.isPublic===true,isOwner:ownerOf(g)===who.id,ownerSeat:g.players.findIndex(p=>p.userId===ownerOf(g)),scoringMode:g.scoringMode??"legacy-rate",beansPerDollar:g.beansPerDollar,baseBeans:g.baseBeans,base:g.base,rate:g.rate,maxLoss:g.maxLoss,version:g.version,phase:g.phase,handId:g.handId,reactions:(g.reactions??[]).filter(e=>Date.now()-e.at<4000),players:g.players.map((p,seat)=>({seat,publicId:member(r,p.userId).publicId,doubleMultiplier:p.doubleMultiplier??1,doubleChosen:p.doubleChosen??false,name:member(r,p.userId).name,self:p.userId===who.id,ready:p.ready,auto:false,count:p.hand.length,...(p.userId===who.id||g.phase==="revealing"||g.phase==="finished"?{hand:[...p.hand]}:{}),escrow:p.escrow})),kitty:g.landlord!==null?[...g.kitty]:[],turn:g.turn,deadline:g.deadline,idleDeadline:g.idleDeadline??null,landlord:g.landlord,bid:g.bid,multiplier:g.multiplier,trick:g.trick?structuredClone(g.trick):null,settled:g.settled,result:g.result?structuredClone(g.result):null}:null};
+ return {reactionPrices:{egg:casinoLimits(r).pokerEggPrice,tomato:casinoLimits(r).pokerTomatoPrice},recruitingRooms,preview:preview?{code:preview.code,scoringMode:preview.scoringMode??"legacy-rate",beansPerDollar:preview.beansPerDollar,baseBeans:preview.baseBeans,rate:preview.rate,maxLoss:preview.maxLoss,count:preview.players.length,phase:preview.phase}:null,houseRules:DOUDIZHU_RULES,maxBeansPerDollar:doudizhuMaxBeansPerDollar(r),maxRate:doudizhuMaxRate(r),wallet:r.members.find(m=>m.id===who.id)?.wallet??0,room:g?{spectating:!!spectator,watchSeat:spectator?.seat??null,spectatorCount:(g.spectators??[]).filter(s=>now-s.seenAt<DOUDIZHU_SPECTATOR_TTL).length,code:g.code,isPublic:g.isPublic===true,isOwner:ownerOf(g)===who.id,ownerSeat:g.players.findIndex(p=>p.userId===ownerOf(g)),scoringMode:g.scoringMode??"legacy-rate",beansPerDollar:g.beansPerDollar,baseBeans:g.baseBeans,base:g.base,rate:g.rate,maxLoss:g.maxLoss,version:g.version,phase:g.phase,handId:g.handId,reactions:(g.reactions??[]).filter(e=>Date.now()-e.at<4000),players:g.players.map((p,seat)=>({seat,publicId:member(r,p.userId).publicId,doubleMultiplier:p.doubleMultiplier??1,doubleChosen:p.doubleChosen??false,name:member(r,p.userId).name,self:p.userId===who.id,ready:p.ready,auto:false,count:p.hand.length,...((spectator?seat===spectator.seat:p.userId===who.id||g.phase==="revealing"||g.phase==="finished")?{hand:[...p.hand]}:{}),escrow:p.escrow})),kitty:g.landlord!==null?[...g.kitty]:[],turn:g.turn,deadline:g.deadline,idleDeadline:g.idleDeadline??null,landlord:g.landlord,bid:g.bid,multiplier:g.multiplier,trick:g.trick?structuredClone(g.trick):null,settled:g.settled,result:g.result?structuredClone(g.result):null}:null};
 }
 export type PublicDoudizhu=ReturnType<typeof publicDoudizhu>;
