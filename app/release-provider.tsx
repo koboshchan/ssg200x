@@ -1,7 +1,7 @@
 "use client";
 import {createContext,useContext,useEffect,useMemo,useRef,useState} from "react";
 import {createReleaseObserver} from "../runtime/release.mjs";
-import {createFeatureRevisionObserver} from "../runtime/feature-revision.mjs";
+import {createFeatureRevisionObserver,createFeatureRevisionCheck} from "../runtime/feature-revision.mjs";
 import styles from "./release-provider.module.css";
 const CLIENT_RELEASE=process.env.NEXT_PUBLIC_SSG_RELEASE!;
 type ReleaseContext={observe:(payload:unknown)=>void;observeFeatures:(payload:unknown)=>void;check:()=>Promise<void>};
@@ -13,12 +13,13 @@ export default function ReleaseProvider({children}:{children:React.ReactNode}){
   const observe=createReleaseObserver(CLIENT_RELEASE,()=>setStale(true));
   let pending:Promise<void>|undefined;
   const observeFeatures=createFeatureRevisionObserver(()=>setFeaturesChanged(true));
+  const checkFeatures=createFeatureRevisionCheck(observeFeatures);
   return {observe,observeFeatures,check(){
    // Share overlapping initial/focus/reconnect checks. Failures are not evidence
    // of a mismatch; the next reconnect/focus/interval will retry.
-   return pending??=fetch("/api/release",{cache:"no-store",credentials:"same-origin",signal:AbortSignal.timeout(8000)})
+   return pending??=Promise.all([checkFeatures(),fetch("/api/release",{cache:"no-store",credentials:"same-origin",signal:AbortSignal.timeout(8000)})
     .then(async response=>{if(response.ok)observe(await response.json());})
-    .catch(()=>{}).finally(()=>{pending=undefined;});
+    .catch(()=>{})]).then(()=>{}).finally(()=>{pending=undefined;});
   }};
  },[]);
  useEffect(()=>{
@@ -28,7 +29,7 @@ export default function ReleaseProvider({children}:{children:React.ReactNode}){
   window.addEventListener("online",check);
   window.addEventListener("pageshow",check);
   document.addEventListener("visibilitychange",visible);
-  const timer=setInterval(visible,60000);
+  const timer=setInterval(visible,15000);
   return()=>{clearInterval(timer);window.removeEventListener("online",check);window.removeEventListener("pageshow",check);document.removeEventListener("visibilitychange",visible);};
  },[api]);
  return <Context.Provider value={api}>{children}{stale||featuresChanged?<RefreshRequired features={!stale}/>:null}</Context.Provider>;
