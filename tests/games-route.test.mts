@@ -32,3 +32,18 @@ test('Games rejects unknown fields before any debit and returns safe acknowledgm
  const before=room.members[0].wallet;
  const replay=await POST(request(first));assert.equal(replay.status,200);assert.equal((await replay.json()).actionGameId,null);assert.equal(room.members[0].wallet,before);
 });
+test('Chicken POST atomically charges and attempts lane one; duplicate and lost-reply replay preserve its result',async()=>{
+ room=freshRoom();register(room,who);
+ const input={...wager(),game:'chicken'};
+ const replies=await Promise.all(Array.from({length:8},()=>POST(request(input))));
+ assert.deepEqual(replies.map(r=>r.status),Array(8).fill(200));
+ for(const reply of replies){
+  const body=await reply.json(),g=body.games.find((g:any)=>g.id===input.requestId);
+  assert.equal(body.actionGameId,input.requestId);assert.equal(g.steps,1);
+  assert.ok(g.status==='active'||g.status==='lost');assert.equal(g.revision,0);
+ }
+ assert.equal(room.members[0].wallet,99500);assert.equal(room.miniGames!.length,1);
+ const saved=JSON.stringify(room.miniGames);
+ assert.equal((await POST(request(input))).status,200);
+ assert.equal(JSON.stringify(room.miniGames),saved);assert.equal(room.members[0].wallet,99500);assertRoom(room);
+});

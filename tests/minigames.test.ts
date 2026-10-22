@@ -4,7 +4,7 @@ import {createRequire} from 'node:module';
 const {marketPayload}=createRequire(import.meta.url)('../runtime/market-payload.mjs') as {marketPayload:(room:import('../lib/types').Room,userId:string)=>{leaderboard:{publicId:string;netWorth:number}[]}};
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {miniAction,miniSnapshot,miniAssets,miniPayout,PLINKO_WEIGHTS,type MiniInput} from '../lib/minigames';
+import {miniAction,miniSnapshot,miniAssets,miniPayout,CHICKEN_LANES,PLINKO_WEIGHTS,type MiniInput} from '../lib/minigames';
 import {freshRoom,register,assertRoom,totalChips} from '../lib/poker';
 import {publicRoom} from '../lib/public';
 import {leaderboardSnapshot} from '../lib/leaderboard';
@@ -14,11 +14,41 @@ const start=(game:'hilo'|'mines'|'chicken'|'dice'|'plinko',extra={})=>({...meta(
 const room=()=>{const r=freshRoom();register(r,who);register(r,other);return r;};
 test('Plinko exact binomial expected payout is 98% before cent rounding',()=>{const probs=[1,8,28,56,70,56,28,8,1];let payout=0;for(let path=0;path<256;path++){const r=room();let i=0;miniAction(r,who,start('plinko'),()=>path>>i++&1);assertRoom(r);payout+=r.miniGames![0].payout;}assert.ok(Math.abs(payout/256/1000-.98)<.001);assert.equal(probs.reduce((n,p,i)=>n+p*PLINKO_WEIGHTS[i],0),355);});
 test('dice strict roll boundaries and payout expected return',()=>{for(const direction of ['over','under'] as const)for(const target of [2,50,98]){let sum=0;for(let roll=1;roll<=100;roll++){const r=room();miniAction(r,who,start('dice',{target,direction}),()=>roll-1);const g=r.miniGames![0];assert.equal(g.status,(direction==='over'?roll>target:roll<target)?'won':'lost');assertRoom(r);sum+=g.payout;}assert.ok(Math.abs(sum/100/1000-.98)<.001);}});
-test('all multi-step games escrow principal without changing net worth or exposing secrets',()=>{for(const kind of ['hilo','mines','chicken'] as const){const r=room();miniAction(r,who,start(kind,{mines:3}),()=>0);assertRoom(r);assert.equal(miniAssets(r,who.id),1000);assert.equal(leaderboardSnapshot(r).rows[0].netWorth,100000);assert.equal(publicRoom(r,who).leaderboard[0].netWorth,100000);const s=JSON.stringify(miniSnapshot(r,who));assert.ok(!s.includes('bombs'));assert.ok(!s.includes('owner'));assert.deepEqual(miniSnapshot(r,other).games,[]);assert.equal(totalChips(r),200000);}});
+test('all multi-step games escrow principal without changing net worth or exposing secrets',()=>{for(const kind of ['hilo','mines','chicken'] as const){const r=room();miniAction(r,who,start(kind,{mines:3}),()=>kind==='chicken'?1:0);assertRoom(r);assert.equal(miniAssets(r,who.id),1000);assert.equal(leaderboardSnapshot(r).rows[0].netWorth,100000);assert.equal(publicRoom(r,who).leaderboard[0].netWorth,100000);const s=JSON.stringify(miniSnapshot(r,who));assert.ok(!s.includes('bombs'));assert.ok(!s.includes('owner'));assert.deepEqual(miniSnapshot(r,other).games,[]);assert.equal(totalChips(r),200000);}});
 test('hi-lo ties lose; safe move and cashout use exact fraction once',()=>{const r=room();miniAction(r,who,start('hilo'),()=>5);let g=r.miniGames![0];assert.equal(g.card,7);miniAction(r,who,{...meta(),type:'step',id:g.id,revision:0,choice:'high'},()=>6);assert.equal(g.status,'active');assert.equal(g.steps,1);assert.equal(miniPayout(g),1820);const cash={...meta(),type:'cashout' as const,id:g.id,revision:1};miniAction(r,who,cash);miniAction(r,who,cash);assert.equal(r.members[0].wallet,100820);assertRoom(r);const r2=room();miniAction(r2,who,start('hilo'),()=>5);g=r2.miniGames![0];miniAction(r2,who,{...meta(),type:'step',id:g.id,revision:0,choice:'high'},()=>5);assert.equal(g.status,'lost');assertRoom(r2);});
 test('mines persists hidden board, repeated cells and foreign sessions reject, lost board reveals all bombs only to its owner',()=>{const r=room();miniAction(r,who,start('mines',{mines:3}),()=>0);const g=r.miniGames![0];const safe=Array.from({length:25},(_,i)=>i).find(i=>!g.bombs!.includes(i))!;miniAction(r,who,{...meta(),type:'step',id:g.id,revision:0,cell:safe});assert.equal(g.payout,0);assert.equal(miniPayout(g),1113);assert.throws(()=>miniAction(r,who,{...meta(),type:'step',id:g.id,revision:1,cell:safe}));assert.throws(()=>miniAction(r,other,{...meta(),type:'cashout',id:g.id,revision:1}));miniAction(r,who,{...meta(),type:'step',id:g.id,revision:1,cell:g.bombs![0]});assert.equal(g.status,'lost');assert.deepEqual(miniSnapshot(r,who).games[0].bombs,g.bombs);assert.equal(miniSnapshot(r,other).games.length,0);assertRoom(r);});
-test('chicken safe lanes auto settle and stale revision fences racing steps',()=>{const r=room();miniAction(r,who,start('chicken'));const g=r.miniGames![0];for(let i=0;i<10;i++)miniAction(r,who,{...meta(),type:'step',id:g.id,revision:i},()=>1);assert.equal(g.status,'won');assert.equal(g.steps,10);assertRoom(r);assert.throws(()=>miniAction(r,who,{...meta(),type:'step',id:g.id,revision:9}));});
-test('malformed/over-limit/fractional/unsafe/insufficient bets and cross-payload receipt reuse reject',()=>{for(const amount of [0,-100,101,1.5,Number.MAX_SAFE_INTEGER,100100,Infinity,NaN]){const r=room();assert.throws(()=>miniAction(r,who,start('chicken',{amount})));}const r=room(),input=start('chicken');miniAction(r,who,input);miniAction(r,who,input);assert.equal(r.miniGames!.length,1);assert.equal(r.members[0].wallet,99000);assert.throws(()=>miniAction(r,who,{...input,amount:2000}));assert.throws(()=>miniAction(r,who,start('chicken')));assert.throws(()=>miniAction(r,who,{...meta(),type:'cashout',id:r.miniGames![0].id,revision:0}));assert.throws(()=>miniAction(r,who,{...start('dice'),requestAt:Date.now()-121000,target:50,direction:'over'}));assertRoom(r);});
+test('chicken starts with one atomic lane, stays active at ten and settles only at fifteen',()=>{
+ const r=room();miniAction(r,who,start('chicken'),()=>1);const g=r.miniGames![0];
+ assert.equal(CHICKEN_LANES,15);assert.equal(g.steps,1);assert.equal(g.revision,0);
+ for(let lane=2;lane<=CHICKEN_LANES;lane++){
+  miniAction(r,who,{...meta(),type:'step',id:g.id,revision:g.revision},()=>1);
+  assert.equal(g.steps,lane);assert.equal(g.status,lane===CHICKEN_LANES?'won':'active');assertRoom(r);
+ }
+ assert.throws(()=>miniAction(r,who,{...meta(),type:'step',id:g.id,revision:g.revision}));
+});
+test('chicken first lane success/loss replay never rerolls, double debits or repeats settlement',()=>{
+ for(const value of [0,1]){
+  const r=room(),input=start('chicken');let rolls=0;
+  miniAction(r,who,input,()=>{rolls++;return value;});const g=r.miniGames![0];
+  assert.equal(g.steps,1);assert.equal(g.status,value?'active':'lost');
+  assert.equal(g.result?.hit,value?undefined:1);assert.equal(r.members[0].wallet,99000);
+  const snapshot=structuredClone(r);
+  miniAction(r,who,input,()=>{throw Error('replay rerolled');});
+  assert.equal(rolls,1);assert.deepEqual(r,snapshot);assertRoom(r);
+  if(value){miniAction(r,who,{...meta(),type:'cashout',id:g.id,revision:0});assert.equal(g.payout,1225);}
+ }
+});
+test('chicken exact server fractions retain 98% return through all fifteen lanes with cent-floor payouts',()=>{
+ const r=room();miniAction(r,who,start('chicken'),()=>1);const g=r.miniGames![0];
+ for(let lane=1;lane<=CHICKEN_LANES;lane++){
+  if(lane>1)miniAction(r,who,{...meta(),type:'step',id:g.id,revision:g.revision},()=>1);
+  // Survival probability is (4/5)^lane. Check the rational expectation without float arithmetic.
+  assert.equal(BigInt(g.num)*4n**BigInt(lane)*100n,BigInt(g.den)*5n**BigInt(lane)*98n);
+  const exactNumerator=BigInt(g.bet)*BigInt(g.num),den=BigInt(g.den),paid=BigInt(miniPayout(g));
+  assert.ok(paid*den<=exactNumerator&&(paid+1n)*den>exactNumerator);assertRoom(r);
+ }
+});
+test('malformed/over-limit/fractional/unsafe/insufficient bets and cross-payload receipt reuse reject',()=>{for(const amount of [0,-100,101,1.5,Number.MAX_SAFE_INTEGER,100100,Infinity,NaN]){const r=room();assert.throws(()=>miniAction(r,who,start('chicken',{amount})));}const r=room(),input=start('chicken');miniAction(r,who,input,()=>1);miniAction(r,who,input,()=>1);assert.equal(r.miniGames!.length,1);assert.equal(r.members[0].wallet,99000);assert.throws(()=>miniAction(r,who,{...input,amount:2000}));assert.throws(()=>miniAction(r,who,start('chicken')));assert.throws(()=>miniAction(r,who,{...start('dice'),requestAt:Date.now()-121000,target:50,direction:'over'}));assertRoom(r);});
 test('full mines clear and six hilo guesses settle automatically',()=>{const r=room();miniAction(r,who,start('mines',{mines:10}),()=>0);let g=r.miniGames![0];for(const cell of Array.from({length:25},(_,i)=>i).filter(i=>!g.bombs!.includes(i)))miniAction(r,who,{...meta(),type:'step',id:g.id,revision:g.revision,cell});assert.equal(g.status,'won');assertRoom(r);const r2=room();miniAction(r2,who,start('hilo'),()=>0);g=r2.miniGames![0];for(let i=0;i<6;i++)miniAction(r2,who,{...meta(),type:'step',id:g.id,revision:g.revision,choice:i%2===0?'high':'low'},()=>i%2===0?12:0);assert.equal(g.status,'won');assertRoom(r2);});
 
 test('escrow survives market frames and navigation warning without leaking the board',()=>{const r=room();miniAction(r,who,start('mines',{mines:3}),()=>0);const pub=publicRoom(r,who);assert.equal(moneyInPlay(pub,'/games'),1000);assert.equal(moneyInPlay(publicRoom(r,other),'/games'),0);const wire=marketPayload(r,who.id);assert.equal(wire.leaderboard.find(x=>x.publicId===r.members[0].publicId)!.netWorth,100000);assert.ok(!JSON.stringify(wire).includes('bombs'));assertRoom(r);});

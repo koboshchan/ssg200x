@@ -9,6 +9,7 @@ import type {Room,Identity} from "./types";
 export type MiniKind="plinko"|"hilo"|"mines"|"dice"|"chicken";
 export type MiniGame={id:string;owner:string;kind:MiniKind;bet:number;status:"active"|"won"|"lost"|"cashed";revision:number;steps:number;payout:number;createdAt:number;num:number;den:number;card?:number;cards?:number[];revealed?:number[];mines?:number;bombs?:number[];target?:number;direction?:"over"|"under";result?:{path?:number[];slot?:number;roll?:number;hit?:number;card?:number}};
 export type MiniInput=FinanceInput&({type:"start";game:MiniKind;amount:number;mines?:number;target?:number;direction?:"over"|"under"}|{type:"step";id:string;revision:number;cell?:number;choice?:"high"|"low"}|{type:"cashout";id:string;revision:number});
+export const CHICKEN_LANES=15;
 export const PLINKO_WEIGHTS=[16,4,2,1,0.5,1,2,4,16] as const;
 // Binomial weights sum to 256; weighted raw payout is 355/256. Scale to 98% RTP.
 
@@ -26,6 +27,11 @@ function settle(r:Room,g:MiniGame,status:MiniGame["status"]){
  ensure(Number.isSafeInteger(m.wallet+g.payout)&&Number.isSafeInteger((r.house??0)+g.bet-g.payout),"Wallet limit reached.",409);
  m.wallet+=g.payout;r.house=(r.house??0)+g.bet-g.payout;
  m.activity=[`${g.kind} · ${g.status} · $${(g.payout/100).toFixed(2)} returned`,...(m.activity??[])].slice(0,200);
+}
+function chickenStep(r:Room,g:MiniGame,rng:(max:number)=>number){
+ g.steps++;
+ if(rng(5)===0){g.result={hit:g.steps};settle(r,g,"lost");}
+ else{fraction(g,5,4);if(g.steps===CHICKEN_LANES)settle(r,g,"won");}
 }
 function report(g:MiniGame){
  // Explicit allowlist. Only a lost Mines round reveals its board to its owner.
@@ -58,7 +64,8 @@ export function miniAction(r:Room,who:Identity,input:MiniInput,rng:(max:number)=
    ensure(input.direction==="over"||input.direction==="under","Choose over or under.");
    g.target=input.target;g.direction=input.direction;const roll=rng(100)+1;g.result={roll};const wins=g.direction==="over"?100-g.target!:g.target!-1;
    g.num=98;g.den=wins;settle(r,g,(g.direction==="over"?roll>g.target!:roll<g.target!)?"won":"lost");
-  }else if(g.kind==="hilo"){g.card=rng(13)+2;g.cards=[g.card];}
+  }else if(g.kind==="chicken"){chickenStep(r,g,rng);}
+  else if(g.kind==="hilo"){g.card=rng(13)+2;g.cards=[g.card];}
   else if(g.kind==="mines"){
    ensure(Number.isInteger(input.mines)&&input.mines!>=1&&input.mines!<=10,"Choose 1 to 10 mines.");g.mines=input.mines;g.revealed=[];
    const cells=Array.from({length:25},(_,i)=>i);for(let i=24;i>0;i--){const j=rng(i+1);[cells[i],cells[j]]=[cells[j],cells[i]];}g.bombs=cells.slice(0,g.mines);
@@ -75,7 +82,7 @@ export function miniAction(r:Room,who:Identity,input:MiniInput,rng:(max:number)=
    ensure(Number.isInteger(input.cell)&&input.cell!>=0&&input.cell!<25,"Choose a cell.");ensure(!g.revealed!.includes(input.cell!),"Cell already revealed.",409);
    if(g.bombs!.includes(input.cell!)){g.result={hit:input.cell};settle(r,g,"lost");}else{fraction(g,25-g.steps,25-g.mines!-g.steps);g.revealed!.push(input.cell!);g.steps++;if(g.steps===25-g.mines!)settle(r,g,"won");}
   }else if(g.kind==="chicken"){
-   g.steps++;if(rng(5)===0){g.result={hit:g.steps};settle(r,g,"lost");}else{fraction(g,5,4);if(g.steps===10)settle(r,g,"won");}
+   chickenStep(r,g,rng);
   }else ensure(false,"This game has already finished.",409);
   g.revision++;
  }
