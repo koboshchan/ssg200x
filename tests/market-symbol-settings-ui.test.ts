@@ -64,11 +64,13 @@ test("mounted market picker and admin symbol settings across viewport and theme,
    await stocks.waitFor();assert.match(await stocks.innerText(),/3 \/ 30 active/);assert.match(await crypto.innerText(),/2 active/);
    assert.equal(await stocks.getByRole("textbox").getAttribute("maxlength"),"15");assert.equal(await stocks.getByRole("textbox").getAttribute("pattern"),"[A-Z][A-Z0-9.\\-]{0,14}");
    // removal impact confirmation, dismiss then accept
-   let msg="";page.once("dialog",(d:any)=>{msg=d.message();void d.dismiss();});
-   await stocks.getByRole("button",{name:"Remove AAPL"}).click();await page.waitForTimeout(200);
-   assert.match(msg,/Remove AAPL/);assert.match(msg,/3 holdings and 2 open positions across 4 accounts/);assert.equal(posts.length,0);
-   page.once("dialog",(d:any)=>void d.accept());
-   await stocks.getByRole("button",{name:"Remove AAPL"}).click();await page.waitForFunction(()=>true);
+   await stocks.getByRole("button",{name:"Remove AAPL"}).click();
+   const confirm=page.getByRole("dialog",{name:"Remove AAPL?"});await confirm.waitFor();
+   const msg=await confirm.innerText();
+   assert.match(msg,/3 holdings and 2 open positions across 4 accounts/);assert.equal(posts.length,0);
+   await confirm.getByRole("button",{name:"Cancel"}).click();await confirm.waitFor({state:"hidden"});assert.equal(posts.length,0);
+   await stocks.getByRole("button",{name:"Remove AAPL"}).click();await confirm.waitFor();
+   await confirm.getByRole("button",{name:"Remove",exact:true}).click();
    await page.waitForTimeout(300);assert.equal(posts.length,1);assert.deepEqual({a:posts[0].action,k:posts[0].kind,s:posts[0].symbol,c:posts[0].confirmed,v:posts[0].expectedVersion},{a:"remove",k:"stocks",s:"AAPL",c:true,v:7});
    // add uppercases
    await stocks.getByRole("textbox").fill("nvda");assert.equal(await stocks.getByRole("textbox").inputValue(),"NVDA");
