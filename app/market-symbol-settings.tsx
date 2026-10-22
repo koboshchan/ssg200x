@@ -1,13 +1,14 @@
 "use client";
 import {getTabHeaders} from "@/lib/tab-identity";
 import {useCallback,useEffect,useState} from "react";
+import {ConfirmDialog} from "./confirm-dialog";
 type Kind="crypto"|"stocks"|"forex";
 type Affected={holdings:number;positions:number;accounts:number};
 type Data={marketSymbols:{crypto:string[];stocks:string[];forex?:string[];delisted:string[]};affected:Record<string,Affected>;version:number};
 import {MAX_ACTIVE_STOCKS as MAX_STOCKS} from "@/lib/symbol-registry";
 const kinds:{kind:Kind;label:string}[]=[{kind:"crypto",label:"Crypto"},{kind:"stocks",label:"Stocks"},{kind:"forex",label:"Forex"}];
 export default function MarketSymbolSettings(){
- const [data,setData]=useState<Data|null>(null),[hidden,setHidden]=useState(false),[error,setError]=useState(""),[busy,setBusy]=useState(false),[drafts,setDrafts]=useState<Record<Kind,string>>({crypto:"",stocks:"",forex:""});
+ const [data,setData]=useState<Data|null>(null),[hidden,setHidden]=useState(false),[error,setError]=useState(""),[busy,setBusy]=useState(false),[pendingRemove,setPendingRemove]=useState<{kind:Kind;symbol:string}|null>(null),[drafts,setDrafts]=useState<Record<Kind,string>>({crypto:"",stocks:"",forex:""});
  const load=useCallback(async()=>{
   try{const r=await fetch("/api/admin/symbols",{cache:"no-store"});
    if(r.status===403){setHidden(true);return;}
@@ -24,11 +25,8 @@ export default function MarketSymbolSettings(){
   }catch(e){setError(e instanceof Error?e.message:"Could not save.");}
   finally{setBusy(false);await load();}
  }
- function remove(kind:Kind,symbol:string){
-  const a=data?.affected[symbol]??{holdings:0,positions:0,accounts:0};
-  const ok=window.confirm(`Remove ${symbol}?\n\n${a.holdings} holdings and ${a.positions} open positions across ${a.accounts} accounts are affected.\n\nPlayer claims are retained. Redemption is manual at the cached USD price, and open positions are not closed automatically.`);
-  if(ok)void mutate("remove",kind,symbol,true);
- }
+ function remove(kind:Kind,symbol:string){setPendingRemove({kind,symbol});}
+ const pa=pendingRemove?data?.affected[pendingRemove.symbol]??{holdings:0,positions:0,accounts:0}:null;
  if(hidden)return null;
  return <section className="admin-block" aria-labelledby="market-symbols-title">
   <h2 id="market-symbols-title">Market symbols</h2>
@@ -45,6 +43,10 @@ export default function MarketSymbolSettings(){
    <ForexCadence/>
    {data.marketSymbols.delisted.length?<p className="admin-note">Delisted: {data.marketSymbols.delisted.join(", ")}</p>:null}
   </>}
+  <ConfirmDialog open={!!pendingRemove} title={"Remove "+(pendingRemove?.symbol??"")+"?"} confirmLabel="Remove" danger onCancel={()=>setPendingRemove(null)} onConfirm={()=>{const p=pendingRemove;setPendingRemove(null);if(p)void mutate("remove",p.kind,p.symbol,true);}}>
+   <p>{pa?.holdings??0} holdings and {pa?.positions??0} open positions across {pa?.accounts??0} accounts are affected.</p>
+   <p>Player claims are retained. Redemption is manual at the cached USD price, and open positions are not closed automatically.</p>
+  </ConfirmDialog>
   {error?<div className="error" role="alert">{error}<button aria-label="Dismiss error" onClick={()=>setError("")}>×</button></div>:null}
  </section>;
 }

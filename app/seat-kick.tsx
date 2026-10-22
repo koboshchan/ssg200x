@@ -31,14 +31,15 @@ export function KickVotePopup({vote,now,myPublicId,names,busy,onVote}:KickPopupP
  const pct=Math.min(100,100*left/total),secs=Math.ceil(left/1000);
  const label=useMemo(()=>vote?(vote.status==="passed"?"Vote passed":vote.status==="failed"?"Vote failed":vote.status==="expired"?"Vote expired":vote.status==="cancelled"?"Vote cancelled":""):"",[vote]);
  if(!vote)return null;
+ const eligibleTotal=vote.eligiblePublicIds.length+(vote.eligiblePublicIds.includes(vote.targetPublicId)?0:1),needed=Math.floor(eligibleTotal*0.51)+1;
  const target=names[vote.targetPublicId]||"a player",starter=names[vote.initiatorPublicId]||"A player";
  return <aside className={styles.popup+(visible?" "+styles.in:"")} aria-live="polite" aria-hidden={!visible} role="alertdialog" aria-label="Vote kick">
   <div className={styles.kicker}>VOTE KICK{vote.status==="active"?<span className={styles.count}>{secs}</span>:null}</div>
   {vote.status==="active"?<>
    <p className={styles.question}>{isTarget?"Players are voting to kick you":"Kick "+target+"?"}</p>
-   <p className={styles.sub}>Started by {starter} · {vote.yesPublicIds.length}/{vote.eligiblePublicIds.length} yes</p>
+   <p className={styles.sub}>Started by {starter} · {vote.yesPublicIds.length} yes · {needed} needed of {eligibleTotal} (more than 51%, target counts as no)</p>
    <div className={styles.bar} aria-hidden><i style={{width:pct+"%"}}/></div>
-   {isTarget?<p className={styles.sub}>You can't vote on your own kick.</p>
+   {isTarget?<p className={styles.sub}>Your vote is automatically NO.</p>
     :voted?<p className={styles.you}>You voted YES</p>
     :<div className={styles.buttons}><button type="button" className={styles.yes} disabled={!canAct} onClick={()=>onVote(vote,true)}><kbd>F1</kbd> Yes</button><button type="button" className={styles.no} disabled={!canAct} onClick={()=>onVote(vote,false)}><kbd>F2</kbd> No</button></div>}
   </>:<p className={styles.question}>{label}{vote.status==="passed"?" · "+target+" was removed":""}</p>}

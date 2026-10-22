@@ -14,11 +14,11 @@ function setup(n=4,id:'01'|'02'|'03'='01'){
 const pid=(r:Room,i:number)=>r.members.find(m=>m.id===who(i).id)!.publicId;
 function req(r:Room,target=3,id:'01'|'02'|'03'='01'):Extract<PokerKickRequest,{action:"start"}>{return {action:'start',tableId:id,requestId:randomUUID(),requestAt:now,targetPublicId:pid(r,target)};}
 function cast(r:Room,i:number,yes=true,at=now+1,id:'01'|'02'|'03'='01'){applyPokerKick(r,who(i),{action:'vote',tableId:id,requestId:randomUUID(),requestAt:at,voteId:r.pokerKickVotes![id]!.id,yes},at);assertRoom(r);}
-test('unanimous other seated voters only, initiator auto yes, atomic exact cashout and public-safe view',()=>{
+test('strict 51 percent of all seated players, initiator auto yes, atomic exact cashout and public-safe view',()=>{
  for(const id of ['01','02','03'] as const){
   const r=setup(4,id),before=totalChips(r);applyPokerKick(r,who(0),req(r,3,id),now);
-  const v=r.pokerKickVotes![id]!;assert.deepEqual(v.yesUserIds,[who(0).id]);assert.equal(v.eligibleUserIds.length,3);
-  assert.throws(()=>cast(r,3,true,now+1,id),/not eligible/);
+  const v=r.pokerKickVotes![id]!;assert.deepEqual(v.yesUserIds,[who(0).id]);assert.equal(v.eligibleUserIds.length,4);
+  assert.throws(()=>cast(r,3,true,now+1,id),/already voted/);
   assert.throws(()=>cast(r,4,true,now+1,id),/Only seated/);
   cast(r,1,true,now+1,id);assert.equal(v.status,'active');
   cast(r,2,true,now+2,id);assert.equal(v.status,'passed');
@@ -27,7 +27,7 @@ test('unanimous other seated voters only, initiator auto yes, atomic exact casho
   assert.ok(r.auditPending!.some(e=>e.what==='poker.kick'));assertRoom(r);
  }
 });
-test('no immediately fails; no target removal, no initiator second vote, one vote per table',()=>{
+test('no makes four-seat threshold unreachable; no target removal, no initiator second vote, one vote per table',()=>{
  const r=setup();applyPokerKick(r,who(0),req(r),now);
  assert.throws(()=>applyPokerKick(r,who(1),req(r,2),now),/already active/);
  assert.throws(()=>cast(r,0),/already voted/);

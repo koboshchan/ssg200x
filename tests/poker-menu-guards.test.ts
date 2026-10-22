@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 const menu=readFileSync("app/poker-player-menu.tsx","utf8"),mod=readFileSync("app/use-poker-moderation.ts","utf8"),room=readFileSync("app/room-client.tsx","utf8");
-test("admin kick confirms before dispatching the event",()=>{
- assert.ok(menu.indexOf("window.confirm")>0&&menu.indexOf("window.confirm")<menu.indexOf('"poker-kick-request"'));
+test("admin kick confirms in-app before dispatching the event",()=>{
+ assert.match(menu,/ConfirmDialog/);assert.doesNotMatch(menu,/window\.confirm/);
 });
 test("menu is fenced to its table and seat identity",()=>{assert.match(menu,/menu\.tableId===tableId&&room\.seats\[menu\.seat\]\?\.publicId===menu\.id/);});
 test("one listener, per-table pending ids, stale response guard",()=>{

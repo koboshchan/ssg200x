@@ -4,6 +4,7 @@ import {createPortal} from "react-dom";
 import {PokerEmoteMenuActions,PokerThrowMenuActions,type ReactionSeat} from "./poker-taunts";
 // Minimum a game must expose for the shared seat menu. Poker passes its PublicRoom.
 export type PokerMenuRoom={seats:readonly ReactionSeat[];pokerTableId?:string;me:{admin?:boolean}};
+import {ConfirmDialog} from "./confirm-dialog";
 
 export type PokerMenuTarget={seat:number;id:string;name:string};
 export type PokerMenuModeration={pending?:boolean;disabledReason?:string};
@@ -12,6 +13,8 @@ type OpenMenu=PokerMenuTarget&{x:number;y:number;trigger:HTMLElement;tableId:str
 // callback, while this component owns every menu item and the single popup.
 export function PokerPlayerMenu({room,children,moderation,kick=true}:{room:PokerMenuRoom;children:ReactNode;moderation?:PokerMenuModeration;kick?:boolean}){
  const [menu,setMenu]=useState<OpenMenu|null>(null),menuRef=useRef<HTMLDivElement>(null);
+ const [kickAsk,setKickAsk]=useState<OpenMenu|null>(null);
+ const sendKick=(t:OpenMenu,admin:boolean)=>window.dispatchEvent(new CustomEvent("poker-kick-request",{detail:{action:admin?"admin-kick":"start",targetPublicId:t.id,tableId:t.tableId,seat:t.seat}}));
  const close=()=>{setMenu(null);menu?.trigger.focus({preventScroll:true});};
 
  const target=(node:EventTarget|null)=>{const el=node instanceof Element?node.closest<HTMLElement>("[data-poker-seat]"):null;if(!el)return null;const i=Number(el.dataset.pokerSeat),seat=room.seats[i];return seat?{seat:i,id:seat.publicId,name:seat.name,trigger:el}:null;};
@@ -33,9 +36,10 @@ export function PokerPlayerMenu({room,children,moderation,kick=true}:{room:Poker
  const buttons=Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')??[]);
  if(["ArrowDown","ArrowUp","Home","End","Tab"].includes(e.key)){e.preventDefault();if(!buttons.length)return;const i=buttons.indexOf(document.activeElement as HTMLButtonElement);buttons[e.key==="Home"?0:e.key==="End"?buttons.length-1:(i+(e.key==="ArrowUp"||e.key==="Tab"&&e.shiftKey?-1:1)+buttons.length)%buttons.length]?.focus();}
  }}><div className="poker-player-menu-name">{menu.name}</div>{room.seats[menu.seat]?.isYou?<PokerEmoteMenuActions/>:<><PokerThrowMenuActions targetSeat={menu.seat} targetId={menu.id}/>{kick?<button role="menuitem" type="button" disabled={moderation?.pending||!!moderation?.disabledReason} title={moderation?.disabledReason} onClick={()=>{
- if(room.me.admin&&!window.confirm("Kick "+menu.name+" from this poker table?"))return;
- window.dispatchEvent(new CustomEvent("poker-kick-request",{detail:{action:room.me.admin?"admin-kick":"start",targetPublicId:menu.id,tableId:menu.tableId,seat:menu.seat}}));
+ if(room.me.admin){setKickAsk(menu);setMenu(null);return;}
+ sendKick(menu,false);
  setMenu(null);
  }}>{room.me.admin?"Kick":"Start vote kick"}</button>:null}{kick&&moderation?.disabledReason?<small>{moderation.disabledReason}</small>:null}</>}<button type="button" role="menuitem" className="poker-menu-dismiss" onClick={close}>Close</button></div></div>,document.body):null}
+ <ConfirmDialog open={kick&&!!kickAsk} title={"Kick "+(kickAsk?.name??"")+"?"} confirmLabel="Kick" danger onCancel={()=>setKickAsk(null)} onConfirm={()=>{const t=kickAsk;setKickAsk(null);if(kick&&t&&room.seats[t.seat]?.publicId===t.id&&t.tableId===tableId)sendKick(t,true);}}><p>They will be removed from this poker table and their stack returned.</p></ConfirmDialog>
  </div>;
 }
