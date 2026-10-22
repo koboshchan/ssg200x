@@ -35,7 +35,7 @@ export class OandaQuarantine {
  clear(){this.pending.clear();}
 }
 export class OandaStream{
- private controller:AbortController|null=null;private task:Promise<void>|null=null;private generation=0;private signature="";private next=0;private failures=0;private stopped=false;private lastByte=0;
+ private controller:AbortController|null=null;private task:Promise<void>|null=null;private generation=0;private signature="";private next=0;private failures=0;private stopped=false;private lastByte=0;private requestStarted=0;
  private identity=randomUUID();private lastFrameWall=0;private lastFrameMono=-1;private lastPublish=0;private refreshing=false;
  private health():OandaHealth{return {generation:this.identity+":"+this.generation,lastFrameWall:this.lastFrameWall,lastFrameMono:this.lastFrameMono};}
  private publish(ticks:OandaTick[],state:StreamState,valid?:()=>boolean){return this.o.publish(ticks,state,valid,this.health());}
@@ -53,7 +53,8 @@ export class OandaStream{
   const pairs=this.o.symbols(),signature=pairs.join(",");
   if(signature!==this.signature){this.signature=signature;this.revoke();this.next=0;}
   if(this.task){
-   if(this.o.mono()-this.lastByte>15000){diag({event:"watchdog_revoke",idleMs:this.o.mono()-this.lastByte});this.revoke();return;}
+   const established=this.lastFrameMono>=0;const idleMs=this.o.mono()-(established?this.lastByte:this.requestStarted);const limit=established?15000:60000;
+   if(idleMs>limit){diag({event:established?"watchdog_revoke":"handshake_timeout",idleMs});this.revoke();return;}
    if(this.state==="live"&&!this.refreshing&&this.o.mono()-this.lastPublish>=1000){
     this.refreshing=true;this.lastPublish=this.o.mono();const g=this.generation;
     try{await this.publish(this.fresh(),"live",()=>g===this.generation&&this.o.leader()&&!this.controller?.signal.aborted);}finally{this.refreshing=false;}
@@ -63,7 +64,7 @@ export class OandaStream{
   if(!this.o.token||!this.o.account){this.state="unconfigured";await this.publish([],"unconfigured");this.next=this.o.now()+30000;return;}
   if(!pairs.length)return;
   if(pairs.length>8||new Set(pairs).size!==pairs.length){await this.invalidate();return;}
-  const generation=++this.generation,controller=new AbortController();this.controller=controller;this.lastByte=this.o.mono();this.lastFrameMono=-1;this.lastFrameWall=0;
+  const generation=++this.generation,controller=new AbortController();this.controller=controller;this.requestStarted=this.o.mono();this.lastByte=this.requestStarted;this.lastFrameMono=-1;this.lastFrameWall=0;
   const active=()=>!this.stopped&&generation===this.generation&&this.o.leader()&&!controller.signal.aborted&&this.o.symbols().join(",")===signature;
   const scheduleRelease=()=>{if(this.releaseTimer||!this.quarantine.pending.size)return;
    this.releaseTimer=setTimeout(()=>{this.releaseTimer=undefined;void(async()=>{
