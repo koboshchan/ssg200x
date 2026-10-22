@@ -1,7 +1,7 @@
 import {normalizeCommit,serveCommit} from "./runtime/git-commit.mjs";
 import {createPolymarketPublic} from "./runtime/polymarket-public.mjs";
 const polyPublic=createPolymarketPublic();
-import {createPolymarketHistory,authorizePolymarketHistory} from "./runtime/polymarket-history.mjs";
+import {createPolymarketHistory,authorizePolymarketHistory,polymarketFinancialPins} from "./runtime/polymarket-history.mjs";
 import {createPolymarketStream,attachPolymarketPresence} from "./runtime/polymarket-stream.mjs";
 import {createPokerTaunts} from "./runtime/poker-taunts.mjs";
 import {subscribeMarket} from "./runtime/market-subscription.mjs";
@@ -49,7 +49,7 @@ const server=createServer(async(request,response)=>{
  if(request.method!=="POST"||a.length!==b.length||!timingSafeEqual(a,b)){response.writeHead(401).end();return;}
  let body="";
  try{
-  for await(const chunk of request){body+=chunk;if(Buffer.byteLength(body)>8192){response.writeHead(413).end();return;}}
+  for await(const chunk of request){body+=chunk;if(Buffer.byteLength(body)>8192||request.url!=="/internal-polymarket"&&Buffer.byteLength(body)>1024){response.writeHead(413).end();return;}}
   if(request.url==="/internal-polymarket"){
    const {tokenId,sync,history,publicData}=JSON.parse(body);
    if(publicData){
@@ -119,13 +119,19 @@ async function resolvePolyMarket(id){
 }
 let polyOwners=new Map(),polySyncBusy=false;
 async function syncPolyPositions(){
- const r=await collection.findOne({_id:'main'},{projection:{'polymarket.positions':1}}),positions=r?.polymarket?.positions??[];
+ const r=await collection.findOne({_id:'main'},{projection:{'polymarket.positions':1,'polymarket.orders':1}}),positions=polymarketFinancialPins(r?.polymarket);
  polyStream.syncPositions(positions);polyOwners=new Map();for(const p of positions){let ids=polyOwners.get(p.marketId);if(!ids){ids=new Set();polyOwners.set(p.marketId,ids);}ids.add(p.userId);}
 }
 await syncPolyPositions();
 const polyHistory=createPolymarketHistory({
  collection:client.db(process.env.MONGODB_DB||"pokerroom").collection('polymarket_history'),
  authorize:(marketId,demand)=>authorizePolymarketHistory({marketId,demand,collection,sockets:()=>io.sockets.sockets.values(),checkTab:tabLeases.check,checkSession:socket=>checkChatSession(socket)}),
+ canPersist:async id=>{
+  // Recheck durable state immediately before each realtime write. Cached owners may lag a close.
+  if(!polyOwners.has(id))return false;
+  const r=await collection.findOne({_id:'main'},{projection:{'polymarket.positions':1,'polymarket.orders':1}});
+  return polymarketFinancialPins(r?.polymarket).some(p=>p.marketId===id);
+ },
  resolveToken:async id=>(await resolvePolyMarket(id)).historyToken,
  fetchHistory:async tokenId=>(await polyPublic.get('https://clob.polymarket.com/prices-history?'+new URLSearchParams({market:tokenId,interval:'max',fidelity:'720'}),60000)).history
 });

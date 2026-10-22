@@ -1,12 +1,12 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
 // @ts-expect-error directly tested server runtime
-import {createPolymarketHistory,authorizePolymarketHistory} from '../runtime/polymarket-history.mjs';
+import {createPolymarketHistory,authorizePolymarketHistory,polymarketFinancialPins} from '../runtime/polymarket-history.mjs';
 class Store{
  docs=new Map<string,any>();writes=0;
  async findOne(query:any){return structuredClone(this.docs.get(query._id)??null);}
  async updateOne(query:any,update:any){this.writes++;let doc=this.docs.get(query._id);if(update.$setOnInsert&&!doc){doc=structuredClone(update.$setOnInsert);this.docs.set(query._id,doc);}if(doc&&update.$push){doc.points.push(...structuredClone(update.$push.points.$each));doc.points=doc.points.slice(update.$push.points.$slice);Object.assign(doc,update.$set);}return{matchedCount:doc?1:0};}
 }
-function setup(){let mode='none',calls=0,time=1700000000000;const store=new Store();const options={collection:store,authorize:async(id:string,demand:any)=>!!demand&&['viewed','held'].includes(mode),resolveToken:async()=> '11',fetchHistory:async()=>{calls++;return[{t:1699999999,p:.5},{t:1699999998,p:.4},{t:1699999998,p:.45}];},now:()=>time,maxPoints:3};return{store,options,create:()=>createPolymarketHistory(options),calls:()=>calls,mode:(m:string)=>mode=m,time:(n:number)=>time+=n};}
+function setup(){let mode='none',calls=0,time=1700000000000;const store=new Store();const options={collection:store,authorize:async(id:string,demand:any)=>!!demand&&['viewed','held'].includes(mode),canPersist:async()=>mode==='held'||mode==='order',resolveToken:async()=> '11',fetchHistory:async()=>{calls++;return[{t:1699999999,p:.5},{t:1699999998,p:.4},{t:1699999998,p:.45}];},now:()=>time,maxPoints:3};return{store,options,create:()=>createPolymarketHistory(options),calls:()=>calls,mode:(m:string)=>mode=m,time:(n:number)=>time+=n};}
 test('no demand means no fetch or metadata resolution, even arbitrary direct cold chart requests',async()=>{
  const s=setup();let resolutions=0;s.options.resolveToken=async()=>{resolutions++;return'11';};const service=s.create();await assert.rejects(()=>service.read('1','all',{userId:'attacker'}),/View or hold/);assert.equal(s.calls(),0);assert.equal(resolutions,0);assert.equal(s.store.docs.size,0);
 });
@@ -34,4 +34,34 @@ test('all chart routes use server demand bridge, no global history sweep, browse
  const data=readFileSync(new URL('../lib/polymarket-data.ts',import.meta.url),'utf8'),server=readFileSync(new URL('../server.mjs',import.meta.url),'utf8'),ui=readFileSync(new URL('../app/polymarket-client.tsx',import.meta.url),'utf8');
  assert.doesNotMatch(data,/prices-history/);assert.equal((server.match(/polyHistory\.read\(/g)||[]).length,1);assert.match(server,/if\(history\)/);assert.match(server,/if\(polyOwners.has\(id\)\)/);assert.doesNotMatch(ui,/https?:\/\/[^"' ]*polymarket\./);
  for(const route of ['../app/api/polymarket/chart/route.ts','../app/api/polymarket/markets/[id]/history/route.ts']){const source=readFileSync(new URL(route,import.meta.url),'utf8');assert.match(source,/userId:who.id/);assert.match(source,/x-tab-proof/);assert.doesNotMatch(source,/tokenId/);}
+});
+
+test('viewer backfill is durable but viewer-only realtime performs zero writes, even initialized or reconnected',async()=>{
+ const s=setup();s.mode('viewed');let service=s.create();const b={source:'stream',bids:[{price:'.4'}],asks:[{price:'.6'}]};
+ await service.append('1','11',b);assert.equal(s.store.writes,0);await service.read('1','all',{userId:'u'});assert.equal(s.store.writes,1,'historical REST backfill remains independently allowed');
+ const writes=s.store.writes;for(let i=0;i<3;i++){s.time(61000);service=s.create();await service.append('1','11',b);}assert.equal(s.store.writes,writes);assert.equal(s.calls(),1);
+});
+test('position/order demand starts realtime writes, final close stops them with viewers remaining, including reconnect',async()=>{
+ for(const pin of ['held','order']){const s=setup();s.mode('viewed');let service=s.create();await service.read('1','all',{userId:'u'});const b={source:'stream',bids:[{price:'.4'}],asks:[{price:'.6'}]};s.mode(pin);await service.append('1','11',b);assert.equal(s.store.writes,2);
+ s.mode('viewed');s.time(61000);await service.append('1','11',b);service=s.create();await service.append('1','11',b);assert.equal(s.store.writes,2,'close prevents writes while viewer still subscribed');
+ s.mode(pin);await service.append('1','11',b);assert.equal(s.store.writes,3,'financial demand survives service reconnect');}
+});
+test('financial pin removal during asynchronous Mongo read cancels pending tick write',async()=>{
+ const s=setup();s.mode('held');const service=s.create();await service.read('1','all',{userId:'u'});const original=s.store.findOne.bind(s.store);s.store.findOne=async q=>{const doc=await original(q);s.mode('viewed');return doc;};
+ await service.append('1','11',{source:'stream',bids:[{price:'.4'}],asks:[{price:'.6'}]});assert.equal(s.store.writes,1);
+});
+test('only positive durable positions and explicit active remaining orders create financial pins',()=>{
+ const base={marketId:'1',tokenId:'11'};
+ const pins=polymarketFinancialPins({positions:[{...base,shareMicros:1},{...base,shareMicros:0}],orders:['open','partially_filled','filled','cancelled','expired','pending'].map(status=>({...base,status,remainingShareMicros:2})).concat([{...base,status:'open',remainingShareMicros:0}])});assert.equal(pins.length,3);assert.deepEqual(pins.map((p:any)=>p.shareMicros),[1,2,2]);assert.deepEqual(polymarketFinancialPins({}),[]);
+});
+// @ts-expect-error server stream runtime tested without a browser
+import {createPolymarketStream} from '../runtime/polymarket-stream.mjs';
+test('actual shared socket reconnect keeps viewers live without persisting, financial pins alone toggle writes',async()=>{
+ class Wire extends EventTarget{readyState=0;send(_:string){}close(){this.readyState=3;this.dispatchEvent(new Event('close'));}open(){this.readyState=1;this.dispatchEvent(new Event('open'));}tick(){this.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({event_type:'book',asset_id:'11',market:'c',bids:[{price:'.4',size:'1'}],asks:[{price:'.6',size:'1'}]})}));}}
+ const s=setup();s.mode('viewed');const history=s.create();await history.read('1','all',{userId:'u'});let now=100000;const wires:Wire[]=[];const stream=createPolymarketStream({now:()=>now,connect:()=>{const w=new Wire();wires.push(w);return w;}});
+ const persist=async()=>{const book=stream.read('11');assert(book,'viewers receive fresh live book');await history.append('1','11',book);};
+ stream.setViewer('v','1',['11']);wires[0].open();wires[0].tick();await persist();assert.equal(s.store.writes,1);
+ s.mode('held');stream.syncPositions([{marketId:'1',tokenId:'11',shareMicros:1}]);await persist();assert.equal(s.store.writes,2);
+ wires[0].close();now+=501;stream.sweep();wires[1].open();wires[1].tick();s.time(61000);await persist();assert.equal(s.store.writes,3,'held reconnect resumes persistence');
+ s.mode('viewed');stream.syncPositions([]);wires[1].close();now+=501;stream.sweep();wires[2].open();wires[2].tick();s.time(61000);await persist();assert.equal(s.store.writes,3);assert.equal(stream.diagnostics().markets[0].viewers,1);stream.stop();
 });
