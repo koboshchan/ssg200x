@@ -29,3 +29,16 @@ test("legacy players on 0-5 show actual ids 0-5 plus one join seat, not canonica
  const ids=visibleSeatIds(mk([0,1,2,3,4,5]));assert.equal(ids.length,7);for(let i=0;i<6;i++)assert.ok(ids.includes(i));assert.ok(ids.includes(6));
  assert.equal(isLegacyLayout(visibleSeatIds(mk([0,1,2,3,4]))),true);
 });
+import {readFileSync} from "node:fs";import {denseMobileLayout,denseTableHeight} from "../lib/poker-table-selection";
+test("stadium ring: every 7-12 desktop seat sits on the rounded-rectangle outline, wide of the board",()=>{
+ for(let n=7;n<=12;n++)for(const s of denseSeatSlots(n)){assert.ok(s.x>=11&&s.x<=89&&s.y>=10&&s.y<=85,"n="+n);assert.ok(s.x<=11.01||s.x>=88.99||s.y<=10.01||s.y>=84.99,"on outline n="+n);}
+});
+test("phone ring: seats in two columns plus top/bottom centre, board band stays clear",()=>{
+ for(let n=7;n<=12;n++){const l=denseMobileLayout(n);assert.equal(l.slots.length,n);const ys=l.slots.map(s=>s.y);
+  for(const s of l.slots)assert.ok(Math.abs(s.y-l.boardY)>=85+0,"seat clear of board band n="+n);
+  for(let i=0;i<n;i++)for(let j=i+1;j<n;j++)if(l.slots[i].x===l.slots[j].x)assert.ok(Math.abs(ys[i]-ys[j])>=110,"column spacing n="+n);}
+});
+test("six-seat phone seats and bets keep clear of each other",()=>{
+ const css=readFileSync(new URL("../app/globals.css",import.meta.url),"utf8");
+ assert.match(css,/\.seat-2\{top:450px;right:0\}/);assert.match(css,/\.seat-3\{bottom:112px/);assert.match(css,/felt-wrapper:not\(\.dense\) \.seat:not\(\.seat-3\)/);
+});

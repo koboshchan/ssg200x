@@ -182,10 +182,10 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
  .seat{width:calc((100% - 20px)/3);min-width:0;max-width:135px}
  .seat-0{top:130px;left:0;right:auto;transform:none}
  .seat-1{top:130px;right:0;left:auto;transform:none}
- .seat-2{top:425px;right:0}
- .seat-5{top:425px;left:0}
- .seat-3{bottom:130px;right:0;left:auto;transform:none}
- .seat-4{bottom:130px;left:0;right:auto;transform:none}
+ .seat-2{top:450px;right:0}
+ .seat-5{top:450px;left:0}
+ .seat-3{bottom:112px;right:0;left:auto;transform:none}
+ .seat-4{bottom:112px;left:0;right:auto;transform:none}
  .seat-6{top:0}
  .felt-mark{top:175px}
  .board{top:235px}
@@ -273,3 +273,6 @@ html:has(.chat-toggle) body{height:calc(100dvh - 46px - env(safe-area-inset-bott
 
 /* Keep reactions alongside the table caption without a separate hint band. */
 .table-caption{align-items:center;gap:8px;flex-wrap:wrap}.table-caption>span:nth-child(2){margin-left:auto}.poker-taunt-controls{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin:0;letter-spacing:0}.poker-taunt-controls>button{padding:6px 0;min-height:32px;border:0;background:none;color:var(--muted);font-size:10px;font-weight:500;white-space:nowrap}.poker-taunt-controls>small{max-width:180px;margin:0;font-size:10px}
+
+/* Six-seat desktop: the bet chip sits fully below the hole cards instead of clipping them (bottom seats keep it above). */
+@media(min-width:561px){.felt-wrapper:not(.dense) .seat:not(.seat-3):not(.seat-4):not(.seat-7) .seat-bet{bottom:-21px}}
