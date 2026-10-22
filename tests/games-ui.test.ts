@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url),{chromium}=require(process.env.PLAYWRIGHT_MODULE||'/home/kit/out/cal-browser-evidence/node_modules/playwright'),{build}=require('esbuild');
 const STUBS:Record<string,string>={
+ link:'import React from "react";export default function Link(props){return React.createElement("a",props)}',
  clerk:'import {useSyncExternalStore} from "react";const subs=new Set();export function useUser(){const id=useSyncExternalStore(cb=>{subs.add(cb);return()=>subs.delete(cb)},()=>window.__uid);return {user:id?{id}:null}};window.__setUid=id=>{window.__uid=id;subs.forEach(f=>f())};',
  live:'export function useLive(){return {connection:"connected",emit(){}}}',
  tab:'export function getTabHeaders(){return {}}',
 };
 async function bundle(){
  const out=await build({stdin:{contents:'import React from "react";import {createRoot} from "react-dom/client";import GamesClient from "./app/games-client";createRoot(document.getElementById("root")).render(<GamesClient/>);',resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,format:'iife',platform:'browser',jsx:'automatic',loader:{'.css':'empty'},plugins:[{name:'stubs',setup(b:any){
-  const map:[RegExp,string][]=[[/^@clerk\/nextjs$/,'clerk'],[/live-provider$/,'live'],[/tab-identity$/,'tab']];
+  const map:[RegExp,string][]=[[/^next\/link$/,'link'],[/^@clerk\/nextjs$/,'clerk'],[/live-provider$/,'live'],[/tab-identity$/,'tab']];
   for(const [f,n] of map){b.onResolve({filter:f},()=>({path:n,namespace:'stub'}));}
   b.onLoad({filter:/.*/,namespace:'stub'},(a:any)=>({contents:STUBS[a.path],resolveDir:process.cwd(),loader:'js'}));
   b.onLoad({filter:/\.module\.css$/},()=>({contents:'export default new Proxy({}, {get:(_,k)=>String(k)})',loader:'js'}));}}]});
