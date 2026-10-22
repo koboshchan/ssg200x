@@ -19,3 +19,22 @@ test('each risk has symmetric positive integer fractions with exactly 98% binomi
  assert.ok(t.low[4].multiplier<1&&t.low[0].multiplier>1&&t.high[0].multiplier>10);
  assert.ok(isPlinkoRisk('low'));assert.ok(!isPlinkoRisk('LOW'));assert.ok(!isPlinkoRisk(null));
 });
+test('risk variance strictly increases and exact weighted cent-floor loss is in [0,1)',()=>{
+ // Rational arithmetic throughout: compare second moments, since means match.
+ const moments=PLINKO_RISKS.map(risk=>{
+  let n=0n,d=1n;
+  for(const [k,b] of PLINKO_RISK_TABLES[risk].entries()){
+   const bn=BigInt(b.numerator),bd=BigInt(b.denominator);
+   n=n*bd*bd+BigInt(PLINKO_BINOMIAL[k])*bn*bn*d;d*=bd*bd;
+  }
+  return {n,d};
+ });
+ for(let i=1;i<moments.length;i++)assert.ok(moments[i].n*moments[i-1].d>moments[i-1].n*moments[i].d);
+ for(const risk of PLINKO_RISKS)for(const bet of [1n,99n,100n,1000n,99900n]){
+  const weightedPaid=PLINKO_RISK_TABLES[risk].reduce((sum,b,k)=>
+   sum+BigInt(PLINKO_BINOMIAL[k])*(bet*BigInt(b.numerator)/BigInt(b.denominator)),0n);
+  // E[payout]=weightedPaid/256. Strict lower bound .98*B-1.
+  assert.ok(weightedPaid*100n<=98n*bet*256n);
+  assert.ok(weightedPaid*100n>(98n*bet-100n)*256n);
+ }
+});
