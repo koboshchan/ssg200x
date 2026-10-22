@@ -14,5 +14,6 @@ export const financeSchema=z.discriminatedUnion("type",[
  z.object({...base,type:z.literal("spot"),symbol,side:z.enum(["buy","sell"]),amount:money}).strict(),
  z.object({...base,type:z.literal("open"),symbol,side:z.enum(["long","short"]),margin:money,leverage:z.number().int().min(1).max(200),expectedOpeningFeePpm:z.number().int().min(0).max(1000).optional(),expectedClosingFeePpm:z.number().int().min(0).max(1000000).optional(),expectedClosingFeeMode:z.enum(["notional","profit"]).optional(),expectedFeePpm:z.number().int().min(0).max(1000).optional(),...openTriggers}).strict(),
  z.object({...base,type:z.literal("triggers"),positionId:z.string().uuid(),...editTriggers}).strict(),
+ z.object({...base,type:z.literal("close-all"),positionIds:z.array(z.string().uuid()).min(1).max(1000).refine(ids=>new Set(ids).size===ids.length,"Duplicate position.")}).strict(),
  z.object({...base,type:z.literal("close"),positionId:z.string().uuid()}).strict(),
 ]);

@@ -2,7 +2,7 @@ import {createHash} from "node:crypto";
 import {ensure} from "./errors";
 import type {Room} from "./types";
 export type FinanceInput={requestId:string;requestAt:number;[key:string]:unknown};
-export type FinanceReceipt={id:string;userId:string;fingerprint:string;at:number;outcome:"committed"|"cancelled"|"expired"};
+export type FinanceReceipt={id:string;userId:string;fingerprint:string;at:number;outcome:"committed"|"cancelled"|"expired";closeAll?:import("./perps-close-all").CloseAllResult};
 const RETAIN=24*60*60*1000;
 function canonical(value:unknown):string {
  if(Array.isArray(value))return "["+value.map(canonical).join(",")+"]";

@@ -1,3 +1,4 @@
+import {closeAllPerps} from "@/lib/perps-close-all";
 import {financeSchema as schema} from "@/lib/finance-input";
 import {checkFinanceRequest,recordFinanceRequest} from "@/lib/finance-requests";
 import {openingFeeCents,roomFeeRates,closingFeeMode} from "../../../runtime/perp-fee-policy.mjs";
@@ -22,6 +23,11 @@ export const POST=(request:Request)=>endpoint(request,async who=>{
  else if(input.type==="redeem-legacy"){
   const result=redeemLegacyHolding(r,who,input.symbol);
   audit(r,who,"finance-legacy-redeem",input.symbol,{requestId:input.requestId,...result.old},{requestId:input.requestId,units:0,returned:result.returned,quote:result.quote,wallet:result.wallet});
+ }
+ else if(input.type==="close-all"){
+  const result=closeAllPerps(r,who,input.positionIds,input.requestId);
+  recordFinanceRequest(r,who.id,input,"committed");
+  r.financeReceipts![0].closeAll=result;return;
  }
  else if(input.type==="sell-all-spot")sellAllSpot(r,who,input.symbol);
  else if(input.type==="spot")spot(r,who,input.symbol,input.side,input.amount);
