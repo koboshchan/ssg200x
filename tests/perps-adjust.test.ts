@@ -56,3 +56,18 @@ test("strict bounded schema prohibits client price/leverage/user fields",()=>{
  const base={...input({id:randomUUID()},{type:"partial-close",percentBps:1000}),requestAt:1000};assert.ok(financeSchema.safeParse(base).success);
  for(const patch of [{percentBps:0},{percentBps:10001},{percentBps:1.5},{expectedRevision:-1},{mark:1},{leverage:1},{userId:"other"}])assert.equal(financeSchema.safeParse({...base,...patch}).success,false);
 });
+test("reached triggers and inherited liquidation override reject unsafe increases",()=>{
+ for(const trigger of ["takeProfit","stopLoss","liquidationOverride"] as const){const {r,p}=setup();
+ if(trigger==="takeProfit")r.quotes!.BTC!.micro=p.takeProfit!;else if(trigger==="stopLoss")r.quotes!.BTC!.micro=p.stopLoss!;else p.liquidationOverride=r.quotes!.BTC!.micro;
+ const before=structuredClone(r);assert.throws(()=>adjustPerp(r,who,input(p,{type:"increase",margin:1000}),1000));assert.deepEqual(r,before);
+ }
+});
+test("large integer allocations and many splits conserve posted collateral plus fee",()=>{
+ for(const margin of [1,2,99,100,9985,99999999,100000000])for(const fee of [0,1,37,19999])for(const bps of [1,99,1000,3333,5000,9999,10000]){
+ const p={id:randomUUID(),symbol:"BTC",side:"long" as const,leverage:200,entry:1,opened:0,margin,collateral:margin,postedMargin:margin+fee,openingFee:fee};
+ if(BigInt(margin)*BigInt(bps)<10000n){assert.throws(()=>positionSlice(p,bps));continue;}
+ const {slice,remainder}=positionSlice(p,bps);
+ for(const key of ["margin","collateral","postedMargin","openingFee"] as const)assert.equal(slice[key]!+remainder[key]!,p[key]);
+ assert.equal(slice.postedMargin!,slice.collateral!+slice.openingFee!);assert.equal(remainder.postedMargin!,remainder.collateral!+remainder.openingFee!);assert.ok(slice.openingFee!>=0);assert.ok(remainder.openingFee!>=0);
+ }
+});

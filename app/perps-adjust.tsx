@@ -8,9 +8,10 @@ type Position=PublicRoom["positions"][number];
 type Props={position:Position;room:PublicRoom;busy:boolean;disabled:boolean;post:(path:string,body:object)=>Promise<void>};
 const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(n/100);
 export default function PerpsAdjust({position,room,busy,disabled,post}:Props){
- const dialog=useRef<HTMLDialogElement>(null),cancel=useRef<HTMLButtonElement>(null),lock=useRef(false),snapshot=useRef(position),title=useId(),description=useId();
+ const dialog=useRef<HTMLDialogElement>(null),cancel=useRef<HTMLButtonElement>(null),lock=useRef(false),title=useId(),description=useId();
+ const [selected,setSelected]=useState(position);
  const [kind,setKind]=useState<"increase"|"partial-close">("increase"),[amount,setAmount]=useState("100"),[bps,setBps]=useState(5000),[working,setWorking]=useState(false),[error,setError]=useState("");
- const p=snapshot.current,mark=room.quotes[p.symbol]?.micro;
+ const p=selected,mark=room.quotes[p.symbol]?.micro;
  const cents=Math.round(Number(amount)*100),fee=Number.isSafeInteger(cents)&&cents>=100&&cents<=100_000_000?openingFeeCents(cents,p.leverage,p.openingFeePpm??p.feePpm??0):0;
  let preview:string|null=null,valid=false;
  if(kind==="increase"){
@@ -23,7 +24,7 @@ export default function PerpsAdjust({position,room,busy,disabled,post}:Props){
   }catch{preview="Selected portion is below one cent of margin. Increase the percentage.";}
  }
  function open(kind:"increase"|"partial-close"){
-  if(busy||lock.current||disabled)return;snapshot.current={...position};setKind(kind);setAmount("100");setBps(5000);setError("");dialog.current?.showModal();cancel.current?.focus();
+  if(busy||lock.current||disabled)return;setSelected({...position});setKind(kind);setAmount("100");setBps(5000);setError("");dialog.current?.showModal();cancel.current?.focus();
  }
  async function execute(){
   if(busy||lock.current||!valid)return;lock.current=true;setWorking(true);setError("");
