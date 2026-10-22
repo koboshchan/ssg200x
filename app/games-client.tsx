@@ -7,6 +7,7 @@ import CasinoAmountInput from "./casino-amount-input";
 import {casinoInputCents} from "@/lib/casino-amount";
 import styles from "./games.module.css";
 import {PLINKO_RISKS,PLINKO_RISK_TABLES,LEGACY_PLINKO_TABLE,isPlinkoRisk,type PlinkoRisk,type PlinkoBucket} from "@/lib/plinko-risk";
+import {createPlinkoAnimation,samplePlinkoAnimation} from "@/lib/plinko-animation";
 
 type Kind="plinko"|"hilo"|"mines"|"dice"|"chicken";
 type Status="active"|"won"|"lost"|"cashed";
