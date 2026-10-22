@@ -253,3 +253,13 @@ html:has(.chat-toggle){height:100%;overflow:hidden}
 html:has(.chat-toggle) body{height:calc(100dvh - 46px - env(safe-area-inset-bottom));min-height:0;overflow-y:auto;overscroll-behavior:contain}
 .chat-toggle{left:0;right:0;bottom:0;width:auto;height:calc(46px + env(safe-area-inset-bottom));padding:0 18px env(safe-area-inset-bottom) 0;border-radius:0;border-width:1px 0 0;box-shadow:none;display:flex;justify-content:flex-end;align-items:center}
 }
+
+.perps-close-control{position:relative;max-width:100%;min-width:0}
+.perps-close-control [role="status"]{max-width:24rem;overflow-wrap:anywhere}
+.perps-close-menu{position:relative;width:max-content;margin-left:auto}
+.perps-close-menu summary{list-style:none;cursor:pointer;border:1px solid var(--line);border-radius:8px;padding:10px 16px;min-height:44px;display:flex;align-items:center;gap:12px;font-size:14px}
+.perps-close-menu summary::-webkit-details-marker{display:none}
+.perps-close-menu summary[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
+.perps-close-menu summary:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.perps-close-options{position:absolute;right:0;top:calc(100% + 6px);z-index:20;display:grid;gap:4px;min-width:210px;padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 8px 24px #0002}
+.perps-close-options button{text-align:left;white-space:nowrap;min-height:44px}
