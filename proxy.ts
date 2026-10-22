@@ -33,7 +33,7 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
   // shared root shell can show signed-in nav, and anonymous visitors remain public. The root shell
   // excludes public routes from maintenance; unconfigured Clerk falls through to NextResponse.next().
   // Independently authenticated with a per-process secret, never Clerk cookies.
-  if(request.nextUrl.pathname==="/api/internal-live")return NextResponse.next();
+  if(request.nextUrl.pathname==="/api/features"||request.nextUrl.pathname==="/api/internal-live")return NextResponse.next();
   if (!clerkKeys()) {
     if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "Clerk setup required." }, { status: 503 });
     if (!publicPages.has(request.nextUrl.pathname)) return new NextResponse("Authentication unavailable", { status: 503 });
