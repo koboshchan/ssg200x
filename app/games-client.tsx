@@ -133,16 +133,16 @@ export default function GamesClient(){
  const trail=useMemo(()=>{const seen=new Set<string>(),out:GameView[]=[];for(const g of [...results,...(snap?.games||[]).filter(g=>g.kind==="plinko"&&g.status!=="active").sort((a,b)=>b.createdAt-a.createdAt)]){if(seen.has(g.id)||balls.some(b=>b.id===g.id))continue;seen.add(g.id);out.push(g);}return out.slice(0,8);},[results,snap,balls]);
  const cents=casinoInputCents(amount),maxBet=snap?.maxBet??0;
  const betOk=cents!==null&&cents>0&&cents<=maxBet&&cents<=(snap?.wallet??0);
+ const busy=!snap||connection!=="connected"||working||!!pending||(kind==="plinko"&&(drops.length>0||balls.length>0));
  const betProps={amount,setAmount,cents,betOk:betOk&&(kind!=="plinko"||cents!<=free),maxBet};
  return <main className={styles.games}>
   <header className={styles.head}><div><h1>Games</h1><p>{Math.round((snap?.houseEdge??0.02)*100)}% house edge, payouts round down to the cent.</p></div><div className={styles.wallet}><span>Wallet</span><strong>{snap?money(snap.wallet):"—"}</strong></div></header>
   <div className={styles.tabs} role="tablist" aria-label="Games">{KINDS.map(k=>{const a=byKind.get(k.kind)?.status==="active";return <button key={k.kind} role="tab" aria-selected={kind===k.kind} className={styles.tab} onClick={()=>setKind(k.kind)}>{k.label}{a?<i className={styles.dot} aria-label="In progress"/>:null}</button>;})}</div>
   <p className={styles.blurb}>{KINDS.find(k=>k.kind===kind)!.blurb}</p>
-  {connection!=="connected"?<p className={styles.note} role="status">Reconnecting. Games are paused until the connection returns.</p>:null}
-  {kind!=="plinko"&&pending&&working?<p className={styles.note} role="status">Working…</p>:null}
-  {kind!=="plinko"&&pending&&!working?<div className={styles.note+" "+styles.warn} role="alert"><span>{error||"Your last action is unconfirmed."} ({pending.label})</span><button className="primary" disabled={working||connection!=="connected"} onClick={()=>void run(pending,true)}>{working?"Retrying…":"Retry"}</button></div>:kind!=="plinko"&&error?<p className={styles.note+" "+styles.warn} role="alert">{error}</p>:null}
+  {kind!=="plinko"&&pending&&!working?<div className={styles.note+" "+styles.warn} role="alert"><span>{error||"Your last action is unconfirmed."} ({pending.label})</span><button className="primary" disabled={working||connection!=="connected"} onClick={()=>void run(pending,true)}>Retry</button></div>:kind!=="plinko"&&error?<p className={styles.note+" "+styles.warn} role="alert">{error}</p>:null}
   {kind==="plinko"&&plinkoError?<p className={styles.note+" "+styles.warn} role="alert">{plinkoError}</p>:null}
-  <section className={styles.stage} key={kind} aria-label={KINDS.find(k=>k.kind===kind)!.label}>
+  <section className={styles.stage} key={kind} aria-label={KINDS.find(k=>k.kind===kind)!.label} aria-busy={busy}>
+   {busy?<span className={styles.gameSpinner} role="status" aria-label="Game in progress"/>:null}
    {kind==="plinko"?<Plinko balls={balls} drops={drops} trail={trail} onDone={ballDone} onRetry={runDrop} blocked={connection!=="connected"}/>:null}
    {kind==="hilo"?<HiLo game={game} blocked={blocked} send={send}/>:null}
    {kind==="mines"?<Mines game={game} blocked={blocked} send={send}/>:null}
@@ -150,7 +150,7 @@ export default function GamesClient(){
    {kind==="chicken"?<Chicken game={game} blocked={blocked} send={send} animKey={animId}/>:null}
    {kind!=="plinko"&&game&&done(game)?<p className={styles.outcome+" "+(game.status==="lost"?styles.lose:styles.win)} role="status">{game.status==="lost"?"Lost "+money(game.bet):(game.status==="cashed"?"Cashed out ":"Won ")+money(game.payout)+" at "+mult(game.multiplier)}</p>:null}
   </section>
-  {kind==="plinko"?<StartPanel kind={kind} blocked={dropBlocked} send={send} drop={drop} inflight={drops.length} {...betProps}/>:active?<ActiveBar game={active} blocked={blocked} send={send}/>:<StartPanel kind={kind} blocked={blocked} send={send} {...betProps}/>}
+  {kind==="plinko"?<StartPanel kind={kind} blocked={dropBlocked} send={send} drop={drop} {...betProps}/>:active?<ActiveBar game={active} blocked={blocked} send={send}/>:<StartPanel kind={kind} blocked={blocked} send={send} {...betProps}/>}
  </main>;
 }
 type Send=(label:string,payload:object)=>void;
@@ -159,7 +159,7 @@ function ActiveBar({game,blocked,send}:{game:GameView;blocked:boolean;send:Send}
  return <div className={styles.panel}><div className={styles.stat}><span>Bet</span><strong>{money(game.bet)}</strong></div><div className={styles.stat}><span>Multiplier</span><strong>{mult(game.multiplier)}</strong></div><div className={styles.stat}><span>Cash out</span><strong>{money(game.payout)}</strong></div>
   <button className={"primary "+styles.go} disabled={blocked||!can} onClick={()=>send("Cash out",{type:"cashout",id:game.id,revision:game.revision})}>{can?"Cash out":"Take a step first"}</button></div>;
 }
-function StartPanel({kind,blocked,send,drop,inflight,amount,setAmount,cents,betOk,maxBet}:{drop?:(amount:number)=>void;inflight?:number;kind:Kind;blocked:boolean;send:Send;amount:string;setAmount:(v:string)=>void;cents:number|null;betOk:boolean;maxBet:number}){
+function StartPanel({kind,blocked,send,drop,amount,setAmount,cents,betOk,maxBet}:{drop?:(amount:number)=>void;kind:Kind;blocked:boolean;send:Send;amount:string;setAmount:(v:string)=>void;cents:number|null;betOk:boolean;maxBet:number}){
  const [mines,setMines]=useState(3),[target,setTarget]=useState(50),[dir,setDir]=useState<"over"|"under">("over");
  const extra:object=kind==="mines"?{mines}:kind==="dice"?{target,direction:dir}:{};
  const chance=dir==="over"?100-target:target-1;
@@ -170,7 +170,6 @@ function StartPanel({kind,blocked,send,drop,inflight,amount,setAmount,cents,betO
   {kind==="dice"?<><div className={styles.seg} role="group" aria-label="Direction">{(["over","under"] as const).map(d=><button key={d} aria-pressed={dir===d} onClick={()=>setDir(d)}>Roll {d}</button>)}</div>
    <label className={styles.field}><span>Target {target} · about {chance}% to win · ≈{(98/chance).toFixed(2)}×</span><input type="range" min={2} max={98} value={target} onChange={e=>setTarget(Number(e.target.value))} aria-label="Target number"/></label></>:null}
   <button className={"primary "+styles.go} disabled={blocked||!betOk} onClick={()=>kind==="plinko"&&drop?drop(cents!):send("Start "+kind,{type:"start",game:kind,amount:cents,...extra})}>{kind==="dice"?"Roll":kind==="plinko"?"Drop":"Start"}</button>
-  {kind==="plinko"&&(inflight??0)>=MAX_DROPS?<small className={styles.hint+" "+styles.hintMuted}>{MAX_DROPS} drops in flight. Wait for one to land.</small>:null}
   {cents!==null&&cents>maxBet?<small className={styles.hint}>Max bet is {money(maxBet)}.</small>:null}
  </div>;
 }
@@ -194,10 +193,9 @@ function Plinko({balls,drops,trail,onDone,onRetry,blocked}:{balls:Ball[];drops:D
  const [flash,setFlash]=useState<number|null>(null);
  useEffect(()=>{if(slot===undefined||!last)return;setFlash(slot);const t=setTimeout(()=>setFlash(null),900);return()=>clearTimeout(t);},[last?.id,slot]);
  const idle=!balls.length&&!drops.length&&!trail.length;
- const busy=balls.length>0||drops.length>0,unconfirmed=drops.filter(d=>d.state==="unconfirmed");
+ const unconfirmed=drops.filter(d=>d.state==="unconfirmed");
  return <div>
   <div className={styles.plinko} role="img" aria-label={last?"Last ball landed in slot "+((slot??0)+1)+", "+mult(PLINKO[slot??0]):"Plinko board"}>
-   {busy?<span className={styles.plinkoSpinner} role="status" aria-label="Plinko in progress"/>:null}
    {Array.from({length:rows},(_,r)=>Array.from({length:r+1},(_,c)=><i key={r+"-"+c} className={styles.peg} style={{left:50+(c-r/2)*(100/9)+"%",top:(r+1)*(88/rows)-4+"%"}}/>))}
    {balls.map(b=><PlinkoBall key={b.id} game={b.game} onDone={onDone}/>)}
    <div className={styles.slots}>{Array.from({length:rows+1},(_,i)=><b key={i} className={flash===i?styles.hit:""} aria-label={"Slot "+(i+1)+", "+mult(PLINKO[i])}>{PLINKO[i].toFixed(2)}×</b>)}</div>

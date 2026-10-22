@@ -40,9 +40,19 @@ test('hydrated Games UI reconciles identical receipts, restoration, concurrent d
  const storage=(p:any,k='ssg-games-v1:userA')=>p.evaluate((k:string)=>sessionStorage.getItem(k),k);
  const quiet=async(p:any)=>{assert.equal(await p.locator('[role=alert]').count(),0);assert.equal(await p.getByText(/unconfirmed/i).count(),0);};
  const ready=async(p:any)=>{await p.getByRole('tab',{name:/Hi-Lo/}).click();await p.waitForFunction(()=>!(document.querySelector('button.primary') as HTMLButtonElement)?.disabled);};
+ // Every game's held action shares one card-corner spinner, without loading labels.
+ for(const [tab,button] of [['Plinko','Drop'],['Hi-Lo','Start'],['Mines','Start'],['Dice','Roll'],['Chicken Road','Start']]){
+  const g=await mount();await g.getByRole('tab',{name:tab,exact:true}).click();
+  await g.getByRole('button',{name:button,exact:true}).click();await count(g,1);
+  assert.equal(await g.getByRole('status',{name:'Game in progress'}).count(),1);
+  assert.equal(await g.getByText(/Working…|Retrying…|Dropping…|drops in flight/).count(),0);
+  assert.equal(await g.getByRole('region',{name:tab,exact:true}).getAttribute('aria-busy'),'true');
+  await reply(g,0,200,snap(2,[]));await g.waitForFunction(()=>!document.querySelector('[aria-label="Game in progress"]'));
+  assert.equal(await g.getByRole('region',{name:tab,exact:true}).getAttribute('aria-busy'),'false');await g.close();
+ }
  // Delayed success has only neutral progress; transport loss automatically replays once.
  const p=await mount();await ready(p);await p.getByRole('button',{name:'Start',exact:true}).click();await count(p,1);
- await p.getByText('Working…').waitFor();await quiet(p);
+ await p.getByRole('status',{name:'Game in progress'}).waitFor({state:'attached'});await quiet(p);
  const first=await body(p,0),id=JSON.parse(first).requestId;
  await reply(p,0,200,snap(2,[hilo(id)],{actionGameId:id}));await p.getByRole('button',{name:/Higher/}).waitFor();
  assert.equal(await storage(p),null);await quiet(p);
@@ -64,13 +74,13 @@ test('hydrated Games UI reconciles identical receipts, restoration, concurrent d
  await r.waitForFunction(()=>sessionStorage.getItem('ssg-games-v1:userA')===null);await quiet(r);await r.close();
  // Out-of-order Plinko results retain both identities despite snapshot version ordering.
  const d=await mount();const drop=d.getByRole('button',{name:'Drop',exact:true});await drop.click();await drop.click();await count(d,2);
- assert.equal(await d.getByRole('status',{name:'Plinko in progress'}).count(),1);
+ assert.equal(await d.getByRole('status',{name:'Game in progress'}).count(),1);
  assert.equal(await d.getByText(/Dropping/i).count(),0);
  const ids=[JSON.parse(await body(d,0)).requestId,JSON.parse(await body(d,1)).requestId];assert.notEqual(ids[0],ids[1]);
  await reply(d,1,200,snap(5,[plinko(ids[1],0,11.31)],{actionGameId:ids[1]}));
  await reply(d,0,200,snap(4,[plinko(ids[0],4,.35)],{actionGameId:ids[0]}));
  await d.waitForFunction(()=>document.querySelectorAll('[aria-label="Recent drops"] li').length===2);
- await d.waitForFunction(()=>!document.querySelector('[aria-label="Plinko in progress"]'));
+ await d.waitForFunction(()=>!document.querySelector('[aria-label="Game in progress"]'));
  const trail=await d.locator('[aria-label="Recent drops"]').innerText();assert.match(trail,/11\.31×/);assert.match(trail,/0\.35×/);
  assert.equal(await storage(d,'ssg-games-plinko-v1:userA'),null);await quiet(d);
  // Plinko retries exactly once and leaves an identical manual receipt after repeated loss.
@@ -105,7 +115,7 @@ test('hydrated Games UI reconciles identical receipts, restoration, concurrent d
  await a.evaluate(()=>(window as any).__setUid('userB'));
  await a.waitForFunction(()=>!(document.querySelector('button.primary') as HTMLButtonElement)?.disabled);
  await a.getByRole('button',{name:'Start',exact:true}).click();await count(a,2);
- await reject(a,0);await a.getByText('Working…').waitFor();await quiet(a);
+ await reject(a,0);await a.getByRole('status',{name:'Game in progress'}).waitFor({state:'attached'});await quiet(a);
  assert.ok(await storage(a,'ssg-games-v1:userB'));
  const ab=JSON.parse(await body(a,1));await reply(a,1,200,snap(2,[hilo(ab.requestId)]));
  await a.waitForFunction(()=>sessionStorage.getItem('ssg-games-v1:userB')===null);await quiet(a);await a.close();

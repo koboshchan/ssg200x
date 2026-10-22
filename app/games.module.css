@@ -6,7 +6,7 @@
 .dot{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:var(--ok)}
 .blurb{color:var(--muted);margin:0 0 12px}
 .note{display:flex;gap:12px;align-items:center;justify-content:space-between;background:var(--surface-2);border-radius:10px;padding:10px 14px;margin:0 0 12px;font-size:14px}.warn{color:var(--red)}
-.stage{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;min-height:280px;display:flex;flex-direction:column;justify-content:center;animation:in .25s var(--ease)}
+.stage{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;min-height:280px;display:flex;flex-direction:column;justify-content:center;animation:in .25s var(--ease)}
 @keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .outcome{text-align:center;font-weight:600;font-size:18px;margin:14px 0 0}.win{color:var(--ok)}.lose{color:var(--red)}
 .panel{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-top:14px}.field{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);min-width:140px}.field input[type=range]{width:100%}
@@ -54,6 +54,6 @@
 @keyframes hop{50%{transform:translateY(-14px)}}
 @media(max-width:560px){.lanes{height:92px}.lane{font-size:8.5px}.curb{font-size:8.5px}.chick{font-size:22px;top:24px}.roadStats strong{font-size:14px}.choices{flex-wrap:wrap}.choices button{flex:1}.drops li,.trail li{font-size:11px}.trail li{min-width:54px}}
 
-.plinkoSpinner{position:absolute;top:8px;left:8px;width:14px;height:14px;box-sizing:border-box;border:2px solid var(--line);border-top-color:var(--muted);border-radius:50%;animation:plinkoSpin .8s linear infinite;pointer-events:none}
-@keyframes plinkoSpin{to{transform:rotate(360deg)}}
-@media(prefers-reduced-motion:reduce){.plinkoSpinner{animation:none}}
+.gameSpinner{position:absolute;top:8px;left:8px;width:14px;height:14px;box-sizing:border-box;border:2px solid var(--line);border-top-color:var(--muted);border-radius:50%;animation:gameSpin .8s linear infinite;pointer-events:none}
+@keyframes gameSpin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.gameSpinner{animation:none}}
