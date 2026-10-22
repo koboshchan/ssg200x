@@ -1,0 +1,27 @@
+/** Explicit opt-in only. NODE_ENV and credential presence never enable streams. */
+export function forexStreamOptions(env:Readonly<Record<string,string|undefined>>=process.env){
+ const environment=env.FX_STREAM_ENV?.trim()??"";
+ const enabled=env.FX_STREAM_ENABLED?.trim().toLowerCase()==="true"&&/^[a-zA-Z0-9_-]{1,64}$/.test(environment);
+ return {enabled,environment,leaseId:`oanda-feed:${environment||"disabled"}`};
+}
+/** A provider connection has its own environment-scoped lease, independent of crypto. */
+export class ForexIsolation {
+ private held=false;private until=0;
+ constructor(private o:{options:()=>ReturnType<typeof forexStreamOptions>;now:()=>number;claim:(id:string)=>Promise<boolean>;release:(id:string)=>Promise<void>;step:()=>Promise<void>;revoke:()=>void}){}
+ private id="";
+ leader(){return this.held&&this.o.options().enabled&&this.id===this.o.options().leaseId&&this.o.now()<this.until-1000;}
+ leaseUntil(){return this.until-1000;}
+ leaseId(){return this.id||this.o.options().leaseId;}
+ async stop(){this.o.revoke();const id=this.id;this.held=false;this.until=0;this.id="";if(id)await this.o.release(id);}
+ async step(){
+  const config=this.o.options();
+  if(!config.enabled||this.id&&this.id!==config.leaseId){await this.stop();if(!config.enabled)return;}
+  if(!this.held||this.until-this.o.now()<5000){
+   const id=config.leaseId,begin=this.o.now();this.id=id;
+   let claimed=false;try{claimed=await this.o.claim(id);}catch{}
+   if(!claimed||!this.o.options().enabled||this.o.options().leaseId!==id||this.o.now()>=begin+14000){await this.stop();return;}
+   this.held=true;this.until=begin+15000;
+  }
+  await this.o.step();
+ }
+}

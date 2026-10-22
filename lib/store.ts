@@ -71,13 +71,13 @@ export const requestId = randomUUID;
  * Mongo replica-set support is required; uncertainty never falls back to an
  * unfenced write. Ordinary mutations/payments retain their existing behavior.
  */
-export async function mutateStockPublication(owner:string,fn:(room:Room)=>void,candles?: (session:import("mongodb").ClientSession)=>Promise<void>){
+export async function mutateStockPublication(owner:string,fn:(room:Room)=>void,candles?: (session:import("mongodb").ClientSession)=>Promise<void>,leaseId="coinbase-feed"){
  const database=await db(),session=database.client.startSession();
  try{
   await session.withTransaction(async()=>{
    const now=Date.now();
    const lease=await database.collection<{_id:string;owner:string;until:number}>("workers").updateOne(
-    {_id:"coinbase-feed",owner,until:{$gt:now+1000}},
+    {_id:leaseId,owner,until:{$gt:now+1000}},
     {$inc:{stockPublications:1}},{session});
    ensure(lease.matchedCount===1,"Stock worker lease revoked.",503);
    const c=database.collection<Room>("rooms");

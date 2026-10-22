@@ -9,3 +9,31 @@ Native price is not USD value. Spot holdings retain base units and are valued in
 Perpetual positions retain native entries, fixed base exposure and current USD-per-quote conversion. USD P/L equals base exposure times native price change times current USD-per-quote conversion, with the position direction applied. In particular USD/JPY is inverse USD P/L, not a constant-dollar mark, and AUD/JPY retains its JPY exposure rather than silently becoming an AUD/USD contract. Closing fees use current converted USD notional. Increases combine exposure-weighted native entries; partial closes split base exposure in the same proportion as margin. Cross liquidation display is indicative at the latest conversion; settlement always checks fresh native and conversion quotes.
 
 Configuration uses server-only OANDA_API_TOKEN and OANDA_ACCOUNT_ID. Credentials never enter browser responses. Optional OANDA_OBSERVATION_FILE writes sanitized timestamps only to the private /home/kit/forex-evidence directory. No provider account actions or real trading endpoints are used.
+
+## Deployment isolation and provider limits
+
+FX streaming defaults OFF in every environment, even with credentials and
+NODE_ENV=production. Explicitly set FX_STREAM_ENABLED=true AND FX_STREAM_ENV
+(a stable 1-64 character alphanumeric, underscore or hyphen deployment namespace)
+to opt in. Any other value, missing namespace, or missing credentials fails closed.
+Demos must remain FX_STREAM_ENABLED=false unless intentionally testing. Never
+infer deployment identity from NODE_ENV; a built demo also uses production mode.
+Use separate databases for environments. The FX worker holds a dedicated
+`oanda-feed:<FX_STREAM_ENV>` lease and releases only that exact ID and owner;
+crypto's lease does not authorize an OANDA connection. Disable is checked on each
+worker step, aborts the connection, discards prices/held frames/timers and releases
+the owned FX lease. Deployment environment changes require a process restart.
+
+OANDA's development guide documents **20 active streams per requesting IP** and
+at most **2 new connections/second**. It does not document a one-stream-per-token
+or per-account limit. The comparison page separately says “Streams per user:
+Aggregate of 20 connections”, so do not assume different tokens or accounts exempt
+a shared egress IP from the documented IP cap. Separate practice accounts/tokens
+are recommended for dev to isolate credentials/account activity; different tokens
+for the same account are not an isolation guarantee, nor are separate accounts a
+way around IP quotas. Our environment leases only coordinate our own processes,
+not provider quotas across deployments.
+
+Sources checked for this release:
+https://developer.oanda.com/rest-live-v20/development-guide/
+https://developer.oanda.com/rest-live-v20/api-comparison/

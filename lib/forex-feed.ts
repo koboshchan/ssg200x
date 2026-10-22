@@ -18,7 +18,7 @@ export function convertedForexQuotes(ticks:OandaTick[],pairs:string[]):Record<st
   out[symbol]={micro,nativeMicro:micro,usdMicro,quoteUsd:usd/t.price,at:Math.min(...legs.map(l=>l.at)),received:t.received,receiptMono:t.mono,source:"oanda",quoteCurrency:symbol.slice(4),legs:legs.map(l=>({at:l.at,received:l.received,receiptMono:l.mono,generation:l.generation}))};
  }return out;
 }
-export function createForexStream(o:{owner:string;symbols:()=>string[];leader:()=>boolean;leaseUntil:()=>number;request?:typeof fetch;observe?:(tick:OandaTick)=>void}){
+export function createForexStream(o:{owner:string;leaseId?:()=>string;symbols:()=>string[];leader:()=>boolean;leaseUntil:()=>number;request?:typeof fetch;observe?:(tick:OandaTick)=>void}){
  return new OandaStream({symbols:o.symbols,token:process.env.OANDA_API_TOKEN??"",account:process.env.OANDA_ACCOUNT_ID??"",leader:o.leader,now:Date.now,mono:forexMonotonic,request:o.request??fetch,observe:o.observe,
  publish:async(ticks,state,valid=()=>true,health)=>{
   if(!valid()||!o.leader())return; // Lost owners cannot clear a new owner's stream state.
@@ -32,6 +32,6 @@ export function createForexStream(o:{owner:string;symbols:()=>string[];leader:()
    for(const [symbol,q] of Object.entries(room.forexQuotes))if(forexDecision(symbol,q,status,now,mono,forexClockDomain).executable)snapshots[symbol]={micro:q.micro,at:q.at};
    for(const member of room.members)for(const p of member.positions??[]){const q=room.forexQuotes[p.symbol];if(p.fx&&q&&forexDecision(p.symbol,q,status,now,mono,forexClockDomain).executable)p.fx={...p.fx,quoteUsd:q.quoteUsd!};}
    applyMarketTick(room,snapshots,now);
-  },session=>candleUpdate(snapshots,session));
+  },session=>candleUpdate(snapshots,session),o.leaseId?.());
  }});
 }

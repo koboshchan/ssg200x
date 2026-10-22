@@ -8,6 +8,8 @@ services:
       APP_ORIGIN: ${APP_ORIGIN:?Set exact browser origin}
       MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0&directConnection=true
       MONGODB_DB: pokerroom
+      FX_STREAM_ENABLED: ${FX_STREAM_ENABLED:-false}
+      FX_STREAM_ENV: ${FX_STREAM_ENV:-}
       OANDA_API_TOKEN: ${OANDA_API_TOKEN:-}
       OANDA_ACCOUNT_ID: ${OANDA_ACCOUNT_ID:-}
     networks: [default, backend]
