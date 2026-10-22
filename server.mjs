@@ -1,4 +1,5 @@
 import {normalizeCommit,serveCommit} from "./runtime/git-commit.mjs";
+import {createPolymarketHistory,authorizePolymarketHistory} from "./runtime/polymarket-history.mjs";
 import {createPolymarketStream,attachPolymarketPresence} from "./runtime/polymarket-stream.mjs";
 import {createPokerTaunts} from "./runtime/poker-taunts.mjs";
 import {subscribeMarket} from "./runtime/market-subscription.mjs";
@@ -48,7 +49,11 @@ const server=createServer(async(request,response)=>{
  try{
   for await(const chunk of request){body+=chunk;if(Buffer.byteLength(body)>1024){response.writeHead(413).end();return;}}
   if(request.url==="/internal-polymarket"){
-   const {tokenId,sync}=JSON.parse(body);
+   const {tokenId,sync,history}=JSON.parse(body);
+   if(history){
+    try{const result=await polyHistory.read(history.marketId,history.range,history);response.writeHead(200,{"Content-Type":"application/json"}).end(JSON.stringify(result));}
+    catch(error){response.writeHead(error.status||503,{"Content-Type":"application/json"}).end(JSON.stringify({error:error.status===403?error.message:'Price history unavailable.'}));}return;
+   }
    if(sync===true){await syncPolyPositions();response.writeHead(200,{"Content-Type":"application/json"}).end('{"ok":true}');return;}
    if(typeof tokenId!=="string"||!/^\d{1,80}$/.test(tokenId)){response.writeHead(400).end();return;}
    const book=polyStream.read(tokenId);
@@ -101,6 +106,9 @@ async function resolvePolyMarket(id){
   const response=await fetch('https://gamma-api.polymarket.com/markets/'+id,{signal:AbortSignal.timeout(6000),redirect:'error'});
   if(!response.ok)throw new Error('Unavailable');const text=await response.text();if(text.length>200000)throw new Error('Oversized');const market=JSON.parse(text);if(String(market.id)!==id)throw new Error('Identity mismatch');
   const value={tokens:typeof (market.version==='v2'?market.positionIds:market.clobTokenIds)==='string'?JSON.parse(market.version==='v2'?market.positionIds:market.clobTokenIds):(market.version==='v2'?market.positionIds:market.clobTokenIds)};
+  const labels=typeof market.outcomes==='string'?JSON.parse(market.outcomes):market.outcomes;
+  const yes=Array.isArray(labels)?labels.findIndex(label=>/^yes$/i.test(label)):-1;
+  value.historyToken=value.tokens?.[yes<0?0:yes];
   slot.value=value;slot.until=Date.now()+60000;return value;
  })();try{return await slot.pending;}finally{slot.pending=null;}
 }
@@ -110,10 +118,17 @@ async function syncPolyPositions(){
  polyStream.syncPositions(positions);polyOwners=new Map();for(const p of positions){let ids=polyOwners.get(p.marketId);if(!ids){ids=new Set();polyOwners.set(p.marketId,ids);}ids.add(p.userId);}
 }
 await syncPolyPositions();
+const polyHistory=createPolymarketHistory({
+ collection:client.db(process.env.MONGODB_DB||"pokerroom").collection('polymarket_history'),
+ authorize:(marketId,demand)=>authorizePolymarketHistory({marketId,demand,collection,sockets:()=>io.sockets.sockets.values(),checkTab:tabLeases.check,checkSession:socket=>checkChatSession(socket)}),
+ resolveToken:async id=>(await resolvePolyMarket(id)).historyToken
+});
 const polySyncTimer=setInterval(async()=>{if(polySyncBusy)return;polySyncBusy=true;try{await syncPolyPositions();}catch{console.warn('Prediction pins refresh deferred');}finally{polySyncBusy=false;}},2000);polySyncTimer.unref();
 const polyStreamTimer=setInterval(()=>{
  polyStream.sweep();
- for(const id of polyDirty){const update=polyStream.status(id);update.books=update.books.map(book=>({...book,bids:book.bids.slice(0,12),asks:book.asks.slice(0,12)}));for(const socket of io.sockets.sockets.values()){
+ for(const id of polyDirty){
+  if(polyOwners.has(id))for(const book of polyStream.status(id).books)void polyHistory.append(id,book.asset_id,book).catch(()=>console.warn('Prediction tick persistence deferred'));
+  const update=polyStream.status(id);update.books=update.books.map(book=>({...book,bids:book.bids.slice(0,12),asks:book.asks.slice(0,12)}));for(const socket of io.sockets.sockets.values()){
   if(!socket.connected||socket.data.expires<=Date.now())continue;
   if(socket.data.polyMarketId===id)socket.emit('polymarket:price',update);
   if(polyOwners.get(id)?.has(socket.data.identity.id))socket.emit('polymarket:positions',{marketId:id});

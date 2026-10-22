@@ -30,7 +30,7 @@ const ago=(t:number)=>{const s=Math.max(0,(Date.now()-t)/1000);return s<60?"just
 const SORTS=[["trending","Trending"],["volume","Volume"],["new","New"],["ending","Ending soon"]] as const;
 
 async function api<T>(path:string,init?:RequestInit):Promise<T>{
- const r=await fetch("/api/polymarket"+path,{cache:"no-store",...init,headers:{...(init?.method==="POST"?{"Content-Type":"application/json",...getTabHeaders()}:{}),...init?.headers}});
+ const r=await fetch("/api/polymarket"+path,{cache:"no-store",...init,headers:{...getTabHeaders(),...(init?.method==="POST"?{"Content-Type":"application/json",...getTabHeaders()}:{}),...init?.headers}});
  const d=await r.json().catch(()=>({}));
  if(!r.ok)throw Object.assign(new Error(d.error||"Something went wrong."),{status:r.status});
  return d as T;
@@ -88,9 +88,9 @@ function EventCard({e,onOpen}:{e:PEvent;onOpen:(id:string)=>void}){
  </button>;
 }
 
-function Chart({marketId}:{marketId:string}){
+function Chart({marketId,ready}:{marketId:string;ready:boolean}){
  const [range,setRange]=useState("1w"),[pts,setPts]=useState<{t:number;p:number}[]|null>(null),[hover,setHover]=useState<number|null>(null);
- useEffect(()=>{let live=true;setPts(null);api<{points:{t:number;p:number}[]}>("/markets/"+encodeURIComponent(marketId)+"/history?range="+range).then(d=>live&&setPts(d.points)).catch(()=>live&&setPts([]));return()=>{live=false;};},[marketId,range]);
+ useEffect(()=>{let live=true;setPts(null);if(!ready)return;api<{points:{t:number;p:number}[]}>("/markets/"+encodeURIComponent(marketId)+"/history?range="+range).then(d=>live&&setPts(d.points)).catch(()=>live&&setPts([]));return()=>{live=false;};},[marketId,range,ready]);
  const W=600,H=220;
  const path=useMemo(()=>{if(!pts||pts.length<2)return null;const t0=pts[0].t,t1=pts[pts.length-1].t||t0+1;const xy=pts.map(p=>[(p.t-t0)/((t1-t0)||1)*W,H-p.p*H] as const);return {xy,d:xy.map((v,i)=>(i?"L":"M")+v[0].toFixed(1)+" "+v[1].toFixed(1)).join("")};},[pts]);
  const h=hover!=null&&pts&&path?pts[hover]:null,last=pts&&pts.length?pts[pts.length-1]:null;
@@ -127,7 +127,7 @@ function EventView({id,portfolio,settings,onBack,onTraded}:{id:string;portfolio:
   {ev&&<div className={styles.detail}>
    <div className={styles.main}>
     <div className={styles.cardTop}>{ev.image?<img className={styles.thumb} src={ev.image} alt="" width={56} height={56}/>:<span className={styles.thumb} aria-hidden="true"/>}<div><h2>{ev.title}</h2><div className={styles.meta}><span>{compact(ev.volume)} Vol.</span>{ev.endDate&&<span>Ends {new Date(ev.endDate).toLocaleDateString([],{month:"short",day:"numeric",year:"numeric"})}</span>}{ev.category&&<span>{ev.category}</span>}{ev.closed&&<span>Closed</span>}</div></div></div>
-    {market&&<Chart marketId={market.id}/>}
+    {market&&<Chart marketId={market.id} ready={liveStream?.marketId===market.id}/>}
     {ev.markets.length>1&&<ul className={styles.outcomes} aria-label="Outcomes">{ev.markets.map(m=><li key={m.id}><button aria-pressed={m.id===mid} onClick={()=>setMid(m.id)}><span>{m.question}</span><b>{pct(yes(m))}</b></button></li>)}</ul>}
     {market&&<><div className={styles.tabs2} role="tablist">{(["book","activity","about"] as const).map(t=><button key={t} role="tab" aria-selected={tab===t} onClick={()=>setTab(t)}>{t==="book"?"Order book":t==="activity"?"Activity":"About"}</button>)}</div>
     {tab==="book"?<BookView market={market} stream={liveStream}/>:tab==="activity"?<ActivityView id={market.id}/>:<div className={styles.about}><p>{ev.description||"No description."}</p>{ev.resolutionSource&&<p className={styles.muted}>Resolution source: {ev.resolutionSource}</p>}<p className={styles.muted}>Markets settle automatically when the real market resolves.</p></div>}</>}

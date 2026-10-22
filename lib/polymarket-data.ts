@@ -90,10 +90,12 @@ export async function syncPolymarketPins(){
  const response=await fetch(`http://127.0.0.1:${Number(process.env.PORT||3000)}/internal-polymarket`,{method:"POST",headers:{"content-type":"application/json","x-internal-live-secret":process.env.INTERNAL_LIVE_SECRET||""},body:JSON.stringify({sync:true}),signal:AbortSignal.timeout(3000)});
  ensure(response.ok,"Prediction stream sync unavailable.",503);
 }
-export async function polyChart(tokenId:string,interval="1d"){
- polyToken.parse(tokenId);polyInterval.parse(interval);
- const x=record(await get(CLOB+"/prices-history?"+new URLSearchParams({market:tokenId,interval,fidelity:interval==="max"?"720":interval==="1w"||interval==="1m"?"60":"5"}),30_000));
- return{history:array(x.history).slice(-5000).flatMap(v=>{const p=record(v);return Number.isSafeInteger(p.t)&&Number(p.t)>0&&Number.isFinite(p.p)&&Number(p.p)>=0&&Number(p.p)<=1?[{t:Number(p.t),p:Number(p.p)}]:[];}),asOf:Date.now()};
+/** Durable demand-authorized history; no direct CLOB history fetch in route workers. */
+export async function polyChart(marketId:string,range:string,demand:{userId:string;tabId:string|null;tabProof:string|null}){
+ polyId.parse(marketId);ensure(["1d","1w","1m","all"].includes(range),"Invalid history range.");
+ const response=await fetch(`http://127.0.0.1:${Number(process.env.PORT||3000)}/internal-polymarket`,{method:"POST",headers:{"content-type":"application/json","x-internal-live-secret":process.env.INTERNAL_LIVE_SECRET||""},body:JSON.stringify({history:{marketId,range,...demand}}),signal:AbortSignal.timeout(15000),cache:"no-store"}).catch(()=>null);
+ ensure(response,"Price history unavailable.",503);const data=await response.json();ensure(response.ok,data.error||"Price history unavailable.",response.status);
+ return data as {points:{t:number;p:number}[];stored:boolean;asOf:number};
 }
 /** Closed alone, an end date, and a price near 1 are NEVER resolution evidence. */
 export function normalizePolyResolution(market:PolyMarket,clob:unknown,now=Date.now()):PolyResolution|null{
