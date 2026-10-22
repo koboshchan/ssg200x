@@ -59,7 +59,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    if(closed)return;
    socket=io({path:"/socket.io",transports:["websocket"],reconnection:true,reconnectionDelayMax:10000,auth:cb=>{tokenRef.current({skipCache:true}).then(token=>cb({token,...getTabIdentity(),route:routeRef.current,pokerTableId:readPokerTableId()})).catch(()=>cb({}));}});
    socketRef.current=socket;
-   socket.on(RELEASE_EVENT,release.observe);
+   socket.on(RELEASE_EVENT,release.observe);socket.on("features:state",release.observeFeatures);
    disposeAuth=attachSocketAuthClient(socket,()=>tokenRef.current({skipCache:true}));
    socket.on("connect",()=>{receiver.clear();latest.current.clear();void release.check();attempts=0;setConnection("connected");socket?.emit("poker:subscribe",readPokerTableId());report();});
    socket.on("disconnect",()=>{receiver.clear();latest.current.clear();setConnection("disconnected");later();});

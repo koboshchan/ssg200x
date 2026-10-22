@@ -1,0 +1,20 @@
+const {chromium}=require("playwright");const U="http://localhost:45317";
+(async()=>{const b=await chromium.launch();const p=await b.newPage();const errs=[];p.on("pageerror",e=>errs.push(String(e)));p.on("console",m=>m.type()==="error"&&errs.push(m.text()));
+const j=async u=>(await fetch(U+u)).json();await fetch(U+"/reset");const out={};
+await p.goto(U+"/");await p.waitForSelector("text=Features");await p.waitForTimeout(1200);
+const sec=p.locator("section.admin-features");const boxes=sec.locator("fieldset input[type=checkbox]");
+const n=await boxes.count();await boxes.nth(0).click();await boxes.nth(1).click();await p.waitForTimeout(1200);
+const s=await j("/fprobe");out.toggles=n;out.putsAfterToggle=s.puts;out.serverUnchanged=JSON.stringify(s.features)===JSON.stringify((await (await fetch(U+"/fprobe")).json()).features)&&s.rev===1;
+out.bar=await sec.locator("[role=group]").innerText();out.bannerBeforeConfirm=await p.locator("dialog[open]").count();
+await sec.getByRole("button",{name:"Discard"}).click();out.afterDiscard=await sec.locator("[role=group] .fine").innerText();
+await boxes.nth(0).click();await boxes.nth(1).click();
+// conflict: another admin changes first
+await fetch(U+"/external");await sec.getByRole("button",{name:"Confirm and apply"}).click();await p.waitForTimeout(600);
+out.conflictAlert=await sec.locator("[role=alert]").innerText();out.editsKeptOnConflict=await sec.locator("[role=group] .fine").innerText();out.putsAfterConflict=(await j("/fprobe")).puts;
+await p.waitForTimeout(1000);out.bannerFromExternal=await p.locator("dialog[open]").count();
+await p.reload();await p.waitForSelector("text=Features");await p.waitForTimeout(1200);
+const b2=p.locator("section.admin-features fieldset input[type=checkbox]");await b2.nth(0).click();await b2.nth(1).click();
+await p.locator("section.admin-features").getByRole("button",{name:"Confirm and apply"}).click();await p.waitForTimeout(1500);
+const f=await j("/fprobe");out.batchPuts=f.puts;out.finalRev=f.rev;out.pendingCleared=await p.locator("section.admin-features [role=group] .fine").innerText();
+out.bannerText=await p.locator("dialog[open]").innerText();out.stillShownAfter3s=(await p.waitForTimeout(3000),await p.locator("dialog[open]").count());
+out.autoReloaded=await p.evaluate(()=>performance.getEntriesByType("navigation").length);out.errs=errs;console.log(JSON.stringify(out,null,1));await b.close();})();
