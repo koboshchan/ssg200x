@@ -70,3 +70,9 @@
 .diceTarget span{min-height:18px;line-height:18px}
 .diceTarget input[type=range]{display:block;margin:0;width:100%}
 @media(max-width:560px){.diceTarget span{min-height:36px}}
+
+.road{min-width:0;width:100%}.roadViewport{position:relative;overflow-x:auto;overflow-y:hidden;width:100%;overscroll-behavior-x:contain;scrollbar-width:thin}
+.roadViewport .lanes{width:960px;min-width:100%}
+.roadViewport .curb{width:calc(100%/16 - 2px)}
+.road>.choices{min-height:48px}
+@media(max-width:560px){.roadViewport .lanes{width:800px}}

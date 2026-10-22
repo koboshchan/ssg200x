@@ -238,7 +238,7 @@ function DiceView({game,animKey}:{game?:GameView;animKey:string|null}){
   {target?<div className={styles.bar} aria-hidden="true"><i className={styles.zone+" "+(over?styles.over:styles.under)} style={over?{left:target+"%",right:0}:{left:0,width:target+"%"}}/>{shown!==null?<b className={styles.marker} style={{left:shown+"%"}}/>:null}</div>:null}
   <p className={styles.empty}>{target?"Roll "+game?.direction+" "+target:"Choose a target and roll."}</p></div>;
 }
-const CHICKEN_LANES=10,chickenMult=(n:number)=>0.98*Math.pow(1.25,n);
+const CHICKEN_LANES=15,chickenMult=(n:number)=>0.98*Math.pow(1.25,n);
 function ChickenSvg({dead}:{dead:boolean}){return <svg viewBox="0 0 32 32" width="1em" height="1em" aria-hidden="true"><ellipse cx="14" cy="19" rx="10" ry="8" fill={dead?"currentColor":"#f5f5f7"} stroke="currentColor" strokeWidth="2"/><circle cx="22" cy="10" r="5" fill={dead?"currentColor":"#f5f5f7"} stroke="currentColor" strokeWidth="2"/><path d="M27 10l4 2-4 2z" fill="#f5a623"/><path d="M21 4c1-2 3-2 3 0" stroke="#ff3b30" strokeWidth="2" fill="none"/><circle cx="23" cy="9" r="1" fill="#000"/></svg>;}
 function Chicken({game,blocked,send,animKey}:{game?:GameView;blocked:boolean;send:Send;animKey:string|null}){
  const lanes=CHICKEN_LANES,act=game?.status==="active",lost=game?.status==="lost",won=game?.status==="won"||game?.status==="cashed";
@@ -248,23 +248,31 @@ function Chicken({game,blocked,send,animKey}:{game?:GameView;blocked:boolean;sen
  const pos=lost?crashLane:steps;
  const next=chickenMult(steps+1);
  const full=steps>=lanes;
+ const viewport=useRef<HTMLDivElement>(null);
+ useEffect(()=>{
+  const el=viewport.current;if(!el)return;
+  const lane=el.querySelector<HTMLElement>('[data-lane="'+Math.min(pos+1,lanes)+'"]');
+  if(!lane)return;
+  const left=Math.max(0,lane.offsetLeft-el.clientWidth*.55);
+  el.scrollTo({left,behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"instant":"smooth"});
+ },[pos,lanes,game?.id]);
  return <div className={styles.road}>
-  <p className={styles.rule}>Each lane is a 1 in 5 risk. Auto cash-out after crossing all 10.</p>
+  <p className={styles.rule}>Each lane is a 1 in 5 risk. Auto cash-out after crossing all 15.</p>
   <div className={styles.roadStats} aria-live="polite">
    <div><span>Lane</span><strong>{game?Math.min(steps,lanes)+" / "+lanes:"0 / "+lanes}</strong></div>
    <div><span>{act&&!full?"Next lane":"Multiplier"}</span><strong>{mult(act&&!full?next:game?game.multiplier:chickenMult(1))}</strong></div>
    <div><span>{lost?"Lost":"Safe payout"}</span><strong className={lost?styles.lose:""}>{game?money(lost?game.bet:game.payout):"—"}</strong></div>
   </div>
-  <div className={styles.lanes}>
+  <div className={styles.roadViewport} ref={viewport} role="region" aria-label="Chicken road lanes" tabIndex={0}><div className={styles.lanes}>
    <span className={styles.curb} aria-hidden="true">Start</span>
    {Array.from({length:lanes},(_,i)=>{const n=i+1,crash=lost&&n===crashLane,passed=n<=steps,cur=act&&n===steps+1;
-    return <span key={i} className={styles.lane+(passed?" "+styles.passed:"")+(crash?" "+styles.crash:"")+(cur?" "+styles.cur:"")} aria-label={"Lane "+n+(passed?", crossed":crash?", hit by a car":cur?", next":"")+", "+mult(chickenMult(n))}>
+    return <span key={i} data-lane={n} className={styles.lane+(passed?" "+styles.passed:"")+(crash?" "+styles.crash:"")+(cur?" "+styles.cur:"")} aria-label={"Lane "+n+(passed?", crossed":crash?", hit by a car":cur?", next":"")+", "+mult(chickenMult(n))}>
      <i className={styles.dash} aria-hidden="true"/>
      {crash?<svg className={styles.car} viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="8" width="22" height="18" rx="5" fill="currentColor"/><rect x="9" y="11" width="14" height="6" rx="2" fill="#fff" opacity=".7"/></svg>:null}
      <small>{passed?"✓":mult(chickenMult(n))}</small>
     </span>;})}
    <span className={styles.chick+(lost?" "+styles.dead:"")+(won?" "+styles.safeEnd:"")+(play?" "+styles.hop:"")} style={{left:"calc("+pos/(lanes+1)*100+"% + 4px)"}} aria-label="Chicken"><ChickenSvg dead={lost}/></span>
-  </div>
+  </div></div>
   {act&&game?<div className={styles.choices}>
    <button className="primary" disabled={blocked||full} onClick={()=>send("Cross lane",{type:"step",id:game.id,revision:game.revision})}>Cross next lane</button>
    <button disabled={blocked||game.steps<1} onClick={()=>send("Cash out",{type:"cashout",id:game.id,revision:game.revision})}>{game.steps>=1?"Cash out "+money(game.payout):"Cash out"}</button>
