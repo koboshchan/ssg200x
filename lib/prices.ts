@@ -1,4 +1,5 @@
-import {pollForex} from "./forex-feed";
+import {forexObserver} from "./forex-observation";
+import {createForexStream} from "./forex-feed";
 import {quoteFresh} from "./price-policy";
 import {marketSymbols} from "./symbol-registry";
 import {StockRuntime} from "./stock-runtime";
@@ -32,11 +33,12 @@ export async function persistExchangeTicks(ticks:Tick[]){
 export function startPriceWorker(){
  if(globalWorker.exchangePriceWorker)return globalWorker.exchangePriceWorker;
  const owner=randomUUID();
- let running=false,leaseUntil=0,stopped=false,forexRunning=false,forexChecked=0;
+ let running=false,leaseUntil=0,stopped=false;
  let feed:ExchangeFeed;
  let symbols=marketSymbols();
  const makeFeed=()=>new ExchangeFeed({symbols:()=>symbols.crypto,socket:()=>{if(stopped||Date.now()>=leaseUntil-1000)throw new Error("Price lease unavailable");return new WebSocket("wss://ws-feed.exchange.coinbase.com");},apply:async ticks=>{if(stopped||Date.now()>=leaseUntil)throw new Error("Price lease expired");await persistExchangeTicks(ticks);},log:message=>console.warn(message)});
  feed=makeFeed();
+ const forex=createForexStream({observe:forexObserver(),owner,symbols:()=>symbols.forex,leader:()=>!stopped&&Date.now()<leaseUntil-1000,leaseUntil:()=>leaseUntil-1000});
  const stocks=new StockRuntime({
   symbols:()=>symbols.stocks,env:process.env,leaseUntil:()=>leaseUntil-1000,isLeader:()=>!stopped&&Date.now()<leaseUntil-1000,
   socket:url=>new WebSocket(url) as unknown as StockSocket,fetch,now:Date.now,
@@ -59,27 +61,27 @@ export function startPriceWorker(){
     await locks.updateOne({_id:"coinbase-feed"},{$setOnInsert:{owner:"",until:0}},{upsert:true}).catch(e=>{if(e.code!==11000)throw e;});
     const claim=await locks.updateOne({_id:"coinbase-feed",$or:[{owner},{until:{$lte:now}}]},{$set:{owner,until:now+15000}});
     // An acknowledged claim can already be expired after a delayed database response.
-    if(stopped||!claim.matchedCount||Date.now()>=now+15000-1000){stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;return;}
+    if(stopped||!claim.matchedCount||Date.now()>=now+15000-1000){forex.revoke();stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;return;}
     leaseUntil=now+15000;
     }catch{
      // Renewal uncertainty immediately revokes the existing connection, not just after expiry.
-     stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;return;
+     forex.revoke();stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;return;
     }
    }
    symbols=marketSymbols(await readRoom());
-   if(!forexRunning&&now-forexChecked>=5000){forexRunning=true;forexChecked=now;void pollForex(()=>!stopped&&Date.now()<leaseUntil-1000,owner).catch(()=>{}).finally(()=>{forexRunning=false;});}
+   await forex.step();
    void stocks.step();
    feed.step();feed.retryPending();
    // No executable REST fallback. The v2 rates body has no provider event time:
    // changing values, HTTP Date/Age and receipt time cannot establish freshness.
    // Keep reconnecting the verified WS source; expired marks pause all execution.
 
-  }catch{stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;}
+  }catch{forex.revoke();stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;}
   finally{running=false;}
  }
- const timer=setInterval(()=>{if(leaseUntil&&Date.now()>=leaseUntil-1000){stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;}void step();},100);timer.unref();
+ const timer=setInterval(()=>{if(leaseUntil&&Date.now()>=leaseUntil-1000){forex.revoke();stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;}void step();},100);timer.unref();
  const worker:Worker={runOnce:step,ready:Promise.resolve(),owner,get feed(){return feed;},timer,stop(){
-  stopped=true;clearInterval(timer);stocks.stop();feed.stop();delete globalWorker.exchangePriceWorker;
+  stopped=true;clearInterval(timer);forex.stop();stocks.stop();feed.stop();delete globalWorker.exchangePriceWorker;
   void db().then(d=>d.collection<{_id:string;owner:string;until:number}>("workers").updateOne({_id:"coinbase-feed",owner},{$set:{until:0}})).catch(()=>{});
  }};
  globalWorker.exchangePriceWorker=worker;

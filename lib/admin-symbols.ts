@@ -1,5 +1,4 @@
 import {validForexPair} from "./forex-policy";
-import {reserveForexCredits} from "./forex-feed";
 import {ensure} from "./errors";
 import {audit} from "./audit";
 import {marketSymbols,SYMBOL_PATTERN,MAX_ACTIVE_STOCKS,type MarketSymbols} from "./symbol-registry";
@@ -22,12 +21,11 @@ export function adminSymbolSnapshot(room:Room,who:Identity){
 export async function validateProviderSymbol(kind:SymbolChange["kind"],symbol:string,request:typeof fetch=fetch,env:Readonly<Record<string,string|undefined>>=process.env){
  ensure(kind==="forex"?validForexPair(symbol):SYMBOL_PATTERN.test(symbol),"Use a valid uppercase symbol.");
  if(kind==="forex"){
-  ensure(env.TWELVEDATA_API_KEY,"Twelve Data API key required to validate new pairs.",503);
-  ensure(await reserveForexCredits(1),"Shared forex provider budget paused.",503);
-  const url=new URL("https://api.twelvedata.com/exchange_rate");url.searchParams.set("symbol",symbol);
-  const response=await request(url,{headers:{Authorization:"apikey "+env.TWELVEDATA_API_KEY},signal:AbortSignal.timeout(5000),cache:"no-store",redirect:"error"});
-  ensure(response.ok,"Forex pair unavailable at provider.",503);const v=await response.json();
-  ensure(v.symbol===symbol&&typeof v.rate==="number"&&v.rate>0&&Number.isFinite(v.rate),"Forex pair unavailable at provider; no substitutions.");return;
+  ensure(env.OANDA_API_TOKEN&&env.OANDA_ACCOUNT_ID,"OANDA credentials required to validate pairs.",503);
+  const url=new URL("https://api-fxpractice.oanda.com/v3/accounts/"+encodeURIComponent(env.OANDA_ACCOUNT_ID)+"/instruments");url.searchParams.set("instruments",symbol.replace("/","_"));
+  const response=await request(url,{headers:{Authorization:"Bearer "+env.OANDA_API_TOKEN},signal:AbortSignal.timeout(5000),cache:"no-store",redirect:"error"});
+  ensure(response.ok,"Forex metadata validation unavailable.",503);const v=await response.json();
+  ensure(Array.isArray(v.instruments)&&v.instruments.some((i:{name?:string;type?:string})=>i.name===symbol.replace("/","_")&&i.type==="CURRENCY"),"Unsupported OANDA practice pair; no substitutions.");return;
  }
  let response:Response;
  if(kind==="crypto"){
@@ -51,14 +49,14 @@ export function changeMarketSymbol(room:Room,who:Identity,input:SymbolChange){
  if(input.action==="add"){
   ensure(![...next.crypto,...next.stocks,...next.forex].includes(symbol),"Symbol is already listed.",409);
   if(input.kind==="stocks")ensure(next.stocks.length<MAX_ACTIVE_STOCKS,"At most 30 active stocks.",409);
-  if(input.kind==="forex")ensure(next.forex.length<6,"At most six forex pairs within the shared Basic budget.",409);
+  if(input.kind==="forex")ensure(next.forex.length<8,"At most eight active forex pairs.",409);
   next[input.kind].push(symbol);next.delisted=next.delisted.filter(s=>s!==symbol);
   // Re-listing must not make old cached stock execution state executable.
   if(room.stockExecution)delete room.stockExecution[symbol];
  }else{
   ensure(next[input.kind].includes(symbol),"Symbol is not listed.",404);
   ensure(input.confirmed===true,"Confirm removal and affected claims first.",409);
-  if(input.kind==="forex"){const impact=symbolImpact(room,symbol);ensure(impact.holdings===0&&impact.positions===0,"Forex pair has open claims. Close positions and sell holdings using fresh live rates before removal.",409);}
+  if(input.kind==="forex"){const impact=symbolImpact(room,symbol);if(symbol==="USD/JPY"&&next.forex.includes("AUD/JPY")){const dependent=symbolImpact(room,"AUD/JPY");ensure(!dependent.holdings&&!dependent.positions,"Conversion pair supports open AUD/JPY claims.",409);}ensure(impact.holdings===0&&impact.positions===0,"Forex pair has open claims. Close positions and sell holdings using fresh live rates before removal.",409);}
   // Empty markets are supported. Never dispose of holdings, positions or quote cache.
   next[input.kind]=next[input.kind].filter(s=>s!==symbol);
   if(!next.delisted.includes(symbol))next.delisted.push(symbol);

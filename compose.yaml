@@ -8,7 +8,8 @@ services:
       APP_ORIGIN: ${APP_ORIGIN:?Set exact browser origin}
       MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0&directConnection=true
       MONGODB_DB: pokerroom
-      TWELVEDATA_API_KEY: ${TWELVEDATA_API_KEY:-}
+      OANDA_API_TOKEN: ${OANDA_API_TOKEN:-}
+      OANDA_ACCOUNT_ID: ${OANDA_ACCOUNT_ID:-}
     networks: [default, backend]
     ports:
       - "127.0.0.1:${APP_PORT:-43891}:3000"

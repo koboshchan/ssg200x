@@ -1,4 +1,4 @@
-import {forexLiveConfigured} from "./forex-config";
+import {forexLiveConfigured,forexMonotonic,forexClockDomain} from "./forex-config";
 import {forexDecision} from "./forex-policy";
 import {forexSymbol} from "./symbol-registry";
 import {quoteFresh} from "./price-policy";
@@ -20,20 +20,20 @@ export type Quote={micro:number;at:number};
 export type Holding={symbol:Symbol;units:number;cost:number};
 /** New positions size notional on margin after opening fees; postedMargin records the wallet debit.
  * Absent collateral retains the pre-migration wallet-paid opening fee behavior. */
-export type Position={id:string;symbol:Symbol;side:"long"|"short";margin:number;postedMargin?:number;collateral?:number;leverage:number;entry:number;opened:number;feePpm?:number;openingFeePpm?:number;closingFeePpm?:number;closingFeeMode?:"notional"|"profit";openingFee?:number;maintenance?:number;liquidationOverride?:number;takeProfit?:number;stopLoss?:number;revision?:number;closingFeeRoundUp?:boolean};
+export type Position={fx?:{units:number;quoteUsd:number};id:string;symbol:Symbol;side:"long"|"short";margin:number;postedMargin?:number;collateral?:number;leverage:number;entry:number;opened:number;feePpm?:number;openingFeePpm?:number;closingFeePpm?:number;closingFeeMode?:"notional"|"profit";openingFee?:number;maintenance?:number;liquidationOverride?:number;takeProfit?:number;stopLoss?:number;revision?:number;closingFeeRoundUp?:boolean};
 export type ClosedPosition={id:string;symbol:Symbol;side:"long"|"short";leverage:number;entry:number;exit:number;margin:number;postedMargin?:number;collateral?:number;realizedPnl:number;openingFeePpm?:number;closingFeePpm?:number;closingFeeMode?:"notional"|"profit";openingFee?:number;closingFee?:number;assessedClosingFee?:number;waivedClosingFee?:number;reason:"TP"|"SL"|"Liq"|"Manual";closedAt:number};
 export type Spin={id:string;number:number;stake:number;returned:number;at:number};
 export function portfolio(m:Member){m.holdings??=[];m.positions??=[];m.spins??=[];m.closedPositions??=[];return m;}
 export function value(units:number,micro:number){return Number(BigInt(units)*BigInt(micro)/1_000_000_000_000n);}
 export function unitsFor(cents:number,micro:number){return Number(BigInt(cents)*1_000_000_000_000n/BigInt(micro));}
-export function pnl(p:Position,mark:number){return Math.floor(p.margin*p.leverage*(mark-p.entry)/p.entry*(p.side==="long"?1:-1));}
-export function liqPrice(p:Position){if(p.liquidationOverride!=null)return p.liquidationOverride;const m=(p.maintenance||0)+closingFeeReserve(p);return p.side==="long"?p.entry*(1-(p.collateral??p.margin)/(p.margin*p.leverage))/(1-m):p.entry*(1+(p.collateral??p.margin)/(p.margin*p.leverage))/(1+m);}
+export function pnl(p:Position,mark:number){if(p.fx)return Math.floor(p.fx.units*(mark-p.entry)/1e6*(p.symbol.startsWith("USD/")?1e6/mark:p.fx.quoteUsd)*(p.side==="long"?1:-1));return Math.floor(p.margin*p.leverage*(mark-p.entry)/p.entry*(p.side==="long"?1:-1));}
+export function liqPrice(p:Position){if(p.liquidationOverride!=null)return p.liquidationOverride;const m=(p.maintenance||0)+closingFeeReserve(p);if(p.fx){const sign=p.side==="long"?1:-1,Q=p.fx.units,C=p.collateral??p.margin;if(p.symbol.startsWith("USD/")){const d=C+sign*Q-m*Q;return d===0?Infinity:Math.max(0,sign*Q*p.entry/d);}const k=Q*p.fx.quoteUsd/1e6;return Math.max(0,(sign*k*p.entry-C)/(k*(sign-m)));}return p.side==="long"?p.entry*(1-(p.collateral??p.margin)/(p.margin*p.leverage))/(1-m):p.entry*(1+(p.collateral??p.margin)/(p.margin*p.leverage))/(1+m);}
 export function liquidatable(p:Position,mark:number){return p.side==="long"?mark<=liqPrice(p):mark>=liqPrice(p);}
 export function netPnl(p:Position,mark:number){const gross=equity(p,mark),fee=closingFeeCents(p,mark,pnl(p,mark),liquidatable(p,mark));return (liquidatable(p,mark)?0:Math.max(0,gross-fee))-(p.postedMargin??p.margin)-(p.collateral===undefined?(p.openingFee||0):0);}
 export function equity(p:Position,mark:number){return Math.max(0,(p.collateral??p.margin)+pnl(p,mark));}
 /** Same server guard for every stock settlement path; unknown state preserves claims. */
 export function stockExecutable(r:Room,symbol:string,now=Date.now()){
- if(forexSymbol(symbol,r)){const q=r.forexQuotes?.[symbol],mark=r.quotes?.[symbol];return forexLiveConfigured()&&forexDecision(symbol,q,r.forexStatus,now).executable&&!!q&&mark?.micro===q.micro&&mark.at===q.at;}
+ if(forexSymbol(symbol,r)){const q=r.forexQuotes?.[symbol],mark=r.quotes?.[symbol];return forexLiveConfigured()&&forexDecision(symbol,q,r.forexStatus,now,forexMonotonic(),forexClockDomain).executable&&!!q&&!!mark&&mark.micro===q.micro&&mark.at===q.at;}
  if(!stockSymbol(symbol,r))return true;
  const state=(r as Room & {stockExecution?:Partial<Record<string,StockExecutionState>>}).stockExecution?.[symbol];
  const quote=r.quotes?.[symbol as Symbol];
@@ -41,7 +41,7 @@ export function stockExecutable(r:Room,symbol:string,now=Date.now()){
    !!state.tick&&quote.micro===Math.round(state.tick.price*1e6)&&quote.at===state.tick.timestamp;
 }
 export function requireQuote(r:Room,symbol:Symbol,now=Date.now()){
- ensure(!forexSymbol(symbol,r)||stockExecutable(r,symbol,now),"Forex paused: fresh live USD quote required; non-USD pairs are read-only.",503);
+ ensure(!forexSymbol(symbol,r)||stockExecutable(r,symbol,now),"Forex paused: fresh live stream and USD conversion required.",503);
  ensure(stockExecutable(r,symbol,now),"Stock market closed or verified live state unavailable.",503);
  const q=r.quotes?.[symbol];ensure(q&&Number.isSafeInteger(q.micro)&&q.micro>0&&quoteFresh(q.at,now,stockSymbol(symbol,r)),"Live price unavailable. Trading is paused.",503);return q.micro;
 }
@@ -85,10 +85,12 @@ export function liquidate(r:Room,now=Date.now()){
  const q=r.quotes?.[p.symbol];if(stockExecutable(r,p.symbol,now)&&activeSymbol(p.symbol,r)&&q&&Number.isSafeInteger(q.micro)&&q.micro>0&&quoteFresh(q.at,now,stockSymbol(p.symbol,r))&&liquidatable(p,q.micro))settle(r,m,p,q.micro,"Liq",now);
  }}
 }
+export function spotMark(r:Room,symbol:string){return forexSymbol(symbol,r)?r.forexQuotes?.[symbol]?.usdMicro:r.quotes?.[symbol]?.micro;}
+export function requireSpotQuote(r:Room,symbol:Symbol,now=Date.now()){requireQuote(r,symbol,now);const price=spotMark(r,symbol);ensure(price&&Number.isSafeInteger(price)&&price>0,"Fresh USD conversion unavailable.",503);return price;}
 export function spot(r:Room,who:Identity,symbol:Symbol,side:"buy"|"sell",amount:number,now=Date.now()){
  ensure(activeSymbol(symbol,r),"Asset is delisted. New orders are disabled.",410);
  const m=portfolio(register(r,who));
- const price=requireQuote(r,symbol,now);
+ const price=requireSpotQuote(r,symbol,now);
  ensure(Number.isSafeInteger(amount)&&amount>=100&&amount<=100_000_000,"Use $1–$1,000,000 per order.");
  ensure(amount<=(r.limits?.maxTrade??1000000)*100,"Order exceeds the host’s trade limit.");
  let h=m.holdings!.find(h=>h.symbol===symbol);
@@ -116,7 +118,7 @@ export function openPosition(r:Room,who:Identity,symbol:Symbol,side:"long"|"shor
  const collateral=margin-openingFee;
  ensure(collateral>0,"Posted margin cannot cover the opening fee.");
  ensure(collateral>collateral*leverage*((r.maintenance||0)+reserve),"Chosen leverage leaves insufficient collateral after opening fee and closing fee reserve.");
- const position:Position={postedMargin:margin,collateral,openingFeePpm,closingFeePpm,...(mode==="profit"?{closingFeeMode:mode}:{}),openingFee,id,symbol,side,margin:collateral,leverage,entry,opened:now,maintenance:r.maintenance||0,...(triggers.takeProfit!=null?{takeProfit:triggers.takeProfit}:{}),...(triggers.stopLoss!=null?{stopLoss:triggers.stopLoss}:{})};
+ const position:Position={...(forexSymbol(symbol,r)?{fx:{units:collateral*leverage/(entry/1e6*r.forexQuotes![symbol].quoteUsd!),quoteUsd:r.forexQuotes![symbol].quoteUsd!}}:{}),postedMargin:margin,collateral,openingFeePpm,closingFeePpm,...(mode==="profit"?{closingFeeMode:mode}:{}),openingFee,id,symbol,side,margin:collateral,leverage,entry,opened:now,maintenance:r.maintenance||0,...(triggers.takeProfit!=null?{takeProfit:triggers.takeProfit}:{}),...(triggers.stopLoss!=null?{stopLoss:triggers.stopLoss}:{})};
  validateTriggers(position);
  m.wallet-=margin;r.house=(r.house||0)+openingFee;m.positions!.push(position);
 }
@@ -151,4 +153,4 @@ export function spin(r:Room,who:Identity,bets:Bet[],n=randomInt(37),id:string=ra
 export function assetsBook(m:Member){return (m.holdings||[]).reduce((n,h)=>n+h.cost,0)+(m.positions||[]).reduce((n,p)=>n+(p.collateral??p.margin),0);}
 export function assetsMarket(r:Room,m:Member){
  const quotes={...r.quotes};for(const symbol of Object.keys(quotes) as Symbol[])if(delistedSymbol(symbol,r)&&!legacyQuote(r,symbol))delete quotes[symbol];
- r={...r,quotes};return (m.holdings||[]).reduce((n,h)=>n+(r.quotes?.[h.symbol]?value(h.units,r.quotes[h.symbol]!.micro):h.cost),0)+(m.positions||[]).reduce((n,p)=>n+(r.quotes?.[p.symbol]?equity(p,r.quotes[p.symbol]!.micro):(p.collateral??p.margin)),0);}
+ r={...r,quotes};return (m.holdings||[]).reduce((n,h)=>n+(r.quotes?.[h.symbol]?value(h.units,spotMark(r,h.symbol)!):h.cost),0)+(m.positions||[]).reduce((n,p)=>n+(r.quotes?.[p.symbol]?equity(p,r.quotes[p.symbol]!.micro):(p.collateral??p.margin)),0);}

@@ -45,6 +45,7 @@ export function closingFeeReserve(position){return closingFeeMode(position)==="p
 export function closingFeeCents(position,mark,grossPnl,liquidated=false){
  const ppm=positionFeeRates(position).closingFeePpm;
  if(closingFeeMode(position)!=="profit"){
+  if(position.fx){const conversion=position.symbol.startsWith("USD/")?1e6/mark:position.fx.quoteUsd;const fee=position.fx.units*mark/1e6*conversion*ppm/1e6;if(!Number.isFinite(fee)||fee<0)throw new Error("Invalid forex fee basis.");return position.closingFeeRoundUp?Math.ceil(fee):Math.round(fee);}
   if(position.closingFeeRoundUp){const n=BigInt(position.margin)*BigInt(position.leverage)*BigInt(mark)*BigInt(ppm),d=BigInt(position.entry)*1000000n;return Number((n+d-1n)/d);}
   return feeCents(position.margin,position.leverage,position.entry,mark,ppm);
  }

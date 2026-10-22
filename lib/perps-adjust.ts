@@ -27,6 +27,7 @@ export function adjustPerp(r:Room,who:Identity,input:Adjustment,now=Date.now()){
   ensure(m.wallet>=amount,"Not enough cash.");
   const fee=openingFeeCents(amount,p.leverage,rate),added=amount-fee;
   const next:Position={...p,...positionFeeRates(p),margin:p.margin+added,collateral:(p.collateral??p.margin)+added,postedMargin:(p.postedMargin??p.margin)+amount,openingFee:(p.openingFee??0)+fee,entry:increasedEntry(p,added,mark),revision:(p.revision??0)+1};
+  if(p.fx){const conversion=r.forexQuotes![p.symbol].quoteUsd!,units=added*p.leverage/(mark/1e6*conversion),total=p.fx.units+units;next.entry=Math.round((p.fx.units*p.entry+units*mark)/total);next.fx={units:total,quoteUsd:conversion};}
   // Legacy fees were wallet-paid, not part of posted margin. Keep that model
   // rather than silently migrating its sunk fee into modern cost attribution.
   if(p.collateral===undefined){delete next.collateral;next.margin=p.margin+added;next.postedMargin=(p.postedMargin??p.margin)+added;}
@@ -41,6 +42,7 @@ export function adjustPerp(r:Room,who:Identity,input:Adjustment,now=Date.now()){
   ensure(Number.isInteger(input.percentBps)&&input.percentBps>=1&&input.percentBps<=10000,"Choose more than 0% and at most 100%.");
   ensure(BigInt(p.margin)*BigInt(input.percentBps)>=10000n,"Selected portion is below one cent of margin. Increase the percentage.");
   const {slice,remainder}=positionSlice(p,input.percentBps);
+  if(p.fx){slice.fx={...p.fx,units:p.fx.units*slice.margin/p.margin};remainder.fx={...p.fx,units:p.fx.units-slice.fx.units};}
   // A detached slice cannot remove its parent. Unique history IDs keep every
   // realization distinct, while the live position retains its stable ID.
   if(remainder.margin>0)slice.id=randomUUID();
