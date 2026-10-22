@@ -75,6 +75,8 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    // TableTalk's encrypted protocol and invalidation hints stay untouched.
    socket.on("chat:changed",(p:unknown)=>dispatch("chat:changed",p));
    // Payload-free hint that a direct message or block changed for this user.
+   socket.on("polymarket:price",(p:unknown)=>dispatch("polymarket:price",p));
+   socket.on("polymarket:positions",(p:unknown)=>dispatch("polymarket:positions",p));
    socket.on("dm:changed",(p:unknown)=>dispatch("dm:changed",p));
   }).catch(()=>setConnection("disconnected"));
   return()=>{closed=true;clearInterval(reportTimer);document.removeEventListener("visibilitychange",report);window.removeEventListener("pageshow",report);receiver.clear();latest.current.clear();clearTimeout(retry);disposeAuth?.();socket?.disconnect();socketRef.current=undefined;};
