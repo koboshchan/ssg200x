@@ -15,3 +15,18 @@ test("all game deep links select Games, unrelated sections never do",()=>{
  for(const path of ["/poker","/poker/table","/blackjack","/doudizhu","/roulette","/games"])assert.equal(isGamePath(path),true);
  for(const path of ["/markets","/wallet","/polymarket","/gamesmanship","/"])assert.equal(isGamePath(path),false);
 });
+test("minigames have dedicated pages, legacy queries use Next redirects, and single pages hide tabs",async()=>{
+ const {readFileSync}=await import("node:fs");
+ for(const game of HUB_GAMES.slice(4))assert.equal(game.href,"/games/"+game.key);
+ const page=readFileSync("app/(room)/games/[game]/page.tsx","utf8");
+ assert.match(page,/<GamesClient initialKind={kind} singleGame/);
+ assert.match(readFileSync("app/(room)/games/page.tsx","utf8"),/redirect\("\/games\/"/);
+ assert.match(readFileSync("app/games-client.tsx","utf8"),/!singleGame\?<div className={styles.tabs}/);
+});
+test("cards are inline SVG only, hover is pointer gated and reduced motion neutralizes transforms",async()=>{
+ const {readFileSync}=await import("node:fs");
+ const hub=readFileSync("app/games-hub.tsx","utf8"),css=readFileSync("app/games-hub.module.css","utf8");
+ assert.match(hub,/<svg /);assert.doesNotMatch(hub,/<img|<image|url\(|data:image/);
+ assert.match(css,/@media\(hover:hover\) and \(pointer:fine\)/);
+ assert.match(css,/@media\(prefers-reduced-motion:reduce\)/);
+});
