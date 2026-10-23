@@ -3,7 +3,6 @@
 .word-entry-textbox{position:relative;min-width:0}
 .word-entry-textbox>input{display:block;min-width:0;width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;color:var(--ink);background:var(--surface-2);font:inherit;font-size:16px}
 .word-entry-textbox>input:disabled{opacity:.5}
-.word-entry-mirror{position:absolute;visibility:hidden;pointer-events:none;white-space:pre;top:0;left:0}
-.word-entry-suggestions{position:absolute;bottom:calc(100% + 5px);width:160px;max-width:100%;max-height:128px;overflow-y:auto;overscroll-behavior:contain;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 4px 20px #0002;z-index:10;padding:4px}
-.word-entry-suggestions>button{display:block;width:100%;text-align:left;padding:8px 10px;min-height:36px;background:transparent;border:0;border-radius:6px;font:inherit;color:var(--ink)}
+.word-entry-suggestions{position:absolute;left:0;bottom:calc(100% + 5px);width:160px;max-width:100%;max-height:128px;overflow-y:auto;overscroll-behavior:contain;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 4px 20px #0002;z-index:10;padding:4px}
+.word-entry-suggestions>button{display:block;width:100%;text-align:left;padding:8px 10px;min-height:44px;touch-action:manipulation;background:transparent;border:0;border-radius:6px;font:inherit;color:var(--ink)}
 .word-entry-suggestions>button[aria-selected=true]{background:var(--seg);color:var(--blue)}
