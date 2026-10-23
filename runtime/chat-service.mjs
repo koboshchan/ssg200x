@@ -23,7 +23,7 @@ export function createChatService(db,{now=Date.now,clerk,roomId='main',canSend=(
   return {room,members,directory,state};
  }
  async function fence(s,user,{retryRoomContention=false}={}){
-  // Only identity reads may retry an economic-room CAS miss. Every attempt
+  // Unsigned identity/state/history reads may retry an economic-room CAS miss. Every attempt
   // rechecks authorization and the original chat revision/epoch, never replays
   // a signed mutation or silently accepts a membership/key change.
   const attempts=retryRoomContention?8:1;
@@ -91,7 +91,7 @@ export function createChatService(db,{now=Date.now,clerk,roomId='main',canSend=(
    const rows=await wraps.find({toUserId:user,toDeviceId:{$in:s.directory.filter(d=>d.userId===user).map(d=>d.deviceId)},...(p.beforeWrap?{_id:{$gt:p.beforeWrap}}:{})}).sort({_id:1}).limit(513).toArray();
    const ws=rows.slice(0,512),nextWrapCursor=rows.length>512?ws[ws.length-1]._id:null;
    if(!p.beforeWrap&&s.state.bootstrap?.toUserId===user&&s.directory.some(d=>d.userId===user&&d.deviceId===s.state.bootstrap.toDeviceId)&&!ws.some(w=>w._id===s.state.bootstrap._id))ws.push(s.state.bootstrap);
-   await fence(s,user);
+   await fence(s,user,{retryRoomContention:true});
    return {...view(s,user,await wrapViews(ws)),nextWrapCursor};
   }
   if(event==='register'){
@@ -142,7 +142,7 @@ export function createChatService(db,{now=Date.now,clerk,roomId='main',canSend=(
   if(event==='history'){
    shape(p,['v','epoch','deviceId'],['before','limit']);uuid(p.epoch);await device(user,p.deviceId);if(!await hasWrap(p.epoch,user,p.deviceId))fail('waiting');
    const limit=p.limit??50;if(!Number.isSafeInteger(limit)||limit<1||limit>50)fail();if(p.before!==undefined&&(!Number.isSafeInteger(p.before)||p.before<1))fail();
-   const docs=await messages.find({epoch:p.epoch,...(p.before===undefined?{}:{cursor:{$lt:p.before}})}).sort({cursor:-1}).limit(limit+1).toArray();await fence(s,user);const more=docs.length>limit;const page=docs.slice(0,limit);return {messages:page.reverse().map(cleanMessage),nextCursor:more?page[0].cursor:null};
+   const docs=await messages.find({epoch:p.epoch,...(p.before===undefined?{}:{cursor:{$lt:p.before}})}).sort({cursor:-1}).limit(limit+1).toArray();await fence(s,user,{retryRoomContention:true});const more=docs.length>limit;const page=docs.slice(0,limit);return {messages:page.reverse().map(cleanMessage),nextCursor:more?page[0].cursor:null};
   }
   fail('unknown_event');
  }

@@ -533,3 +533,37 @@ test('admin reset while words are displayed discards stale setup rather than pub
   assert.notEqual((await store.getSetup('a'))!.identity.deviceId,first.identity.deviceId);
  }finally{c.close();}
 });
+
+test("transient bootstrap contention is visible instead of remaining Connecting forever",async()=>{
+ for(const code of ["stale_revision","busy"]){
+  const store=new MemoryStore();let contended=true,calls=0;
+  const client=new ChatClient("bootstrap-contention",async()=>{
+   calls++;if(contended)throw Error(code);return {identity:null};
+  },store,Date.now,openMessage,store.budget);
+  try{
+   await client.start();
+   assert.equal(client.getSnapshot().phase,"waiting",code);
+   assert.equal(client.getSnapshot().error,"sync_retry",code);
+   // Repeated recoverable rejection must not reset to an unexplained loading state.
+   await client.start();assert.equal(client.getSnapshot().phase,"waiting");
+   contended=false;await client.start();
+   assert.equal(calls,3);assert.equal(client.getSnapshot().phase,"setup");
+   assert.equal(client.getSnapshot().error,null);
+  }finally{client.close();}
+ }
+});
+
+test("a remount during an account cooldown shows why chat is waiting without another request",async()=>{
+ let clock=1,calls=0;const budget=createRequestBudget(()=>clock,()=>0),store=new MemoryStore();
+ await assert.rejects(budget.request("cooldown-remount","keys:get",{},async()=>{
+  throw Object.assign(Error("rate_limited"),{retryAfterMs:30000});
+ }));
+ const client=new ChatClient("cooldown-remount",async()=>{calls++;return {identity:null};},store,()=>clock,openMessage,budget);
+ try{
+  await client.start();assert.equal(calls,0);
+  assert.equal(client.getSnapshot().phase,"waiting");
+  assert.equal(client.getSnapshot().error,"rate_limited");
+  clock=30001;await client.start();assert.equal(calls,1);
+  assert.equal(client.getSnapshot().phase,"setup");
+ }finally{client.close();}
+});

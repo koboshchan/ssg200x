@@ -71,7 +71,7 @@ export class ChatClient{
   if(this.closed)return Promise.resolve();
   const budget=this.budget.status(this.user);
   if(budget.stopped){this.set({phase:"waiting",error:"sync_incomplete"});return Promise.resolve();}
-  if(budget.until>this.now()){this.later(budget.until-this.now());return Promise.resolve();}
+  if(budget.until>this.now()){this.set({phase:"waiting",error:"rate_limited"});this.later(budget.until-this.now());return Promise.resolve();}
   if(this.syncing)return this.syncing;
   const p=this.run(()=>this.sync()).finally(()=>{if(this.syncing===p)this.syncing=undefined;if(this.hinted&&!this.closed){this.hinted=false;clearTimeout(this.hintTimer);this.hint();}});
   this.syncing=p;return p;
@@ -86,7 +86,7 @@ export class ChatClient{
   if(this.closed)return;
   const b=this.budget.status(this.user);
   if(b.stopped){this.set({phase:"waiting",error:"sync_incomplete"});return;}
-  if(b.until>this.now()){this.later(b.until-this.now());return;}
+  if(b.until>this.now()){this.set({phase:"waiting",error:"rate_limited"});this.later(b.until-this.now());return;}
   try{
    // Check the server generation BEFORE publishing any staged setup or showing
    // cached words. An admin reset must never replay a pre-reset reservation.
@@ -136,7 +136,12 @@ export class ChatClient{
    return;
   }
   if(code==="waiting")return this.set({phase:"waiting",error:null}),this.later(4000);
-  if(code==="stale_revision"||code==="busy"||code==="rate_limited")return this.later(code==="rate_limited"?15000:Math.min(15000,800*2**Math.min(this.staleFailures++,5)));
+  if(code==="stale_revision"||code==="busy"){
+   // Contention is retryable, not an indefinite initial Connecting state. Keep
+   // existing history visible and distinguish retrying sync from missing keys.
+   this.set({phase:"waiting",error:"sync_retry"});
+   this.later(Math.min(15000,800*2**Math.min(this.staleFailures++,5)));return;
+  }
   this.set({phase:"error",error:code});this.later(10000);
  }
  private async converge(me:Identity){
