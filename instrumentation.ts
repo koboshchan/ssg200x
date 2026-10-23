@@ -1,4 +1,6 @@
+import {assertIsolatedQa} from "./runtime/isolated-qa.mjs";
 export async function register() {
+ assertIsolatedQa();
  if(process.env.NEXT_RUNTIME==="nodejs"&&process.env.NEXT_PHASE!=="phase-production-build") {
   await import("socket.io"); // Include standalone custom-server runtime dependencies in tracing.
   const {tickRoom}=await import("./lib/store");
