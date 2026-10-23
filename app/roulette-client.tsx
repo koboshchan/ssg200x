@@ -12,11 +12,13 @@ const money=(n:number)=>new Intl.NumberFormat('en-US',{style:'currency',currency
 
 type Props={room:PublicRoom;busy:boolean;post:(path:string,body:object)=>Promise<void>};
 export default function Roulette({room,busy,post}:Props){
+ // Subscribe on every render, including null tables and non-betting phases.
+ const {features}=useFeatures();
  const table=room.roulette;
  const [amount,setAmount]=useState(500),[now,setNow]=useState(room.serverNow);
  useEffect(()=>{const server=room.serverNow,local=Date.now();setNow(server);const timer=setInterval(()=>setNow(server+Date.now()-local),100);return()=>clearInterval(timer);},[room.serverNow]);
  if(!table)return <section><h2>Roulette</h2><p>Opening the shared table…</p></section>;
- const phase=roulettePhase(table,now),locked=phase!=='betting'||useFeatures().features.roulette===false,seconds=Math.max(0,Math.ceil((phaseDeadline(table,now)-now)/1000)),mine=table.bets.filter(w=>w.isYou),stake=mine.reduce((n,w)=>n+w.bet.amount,0),lastStake=table.lastBets.reduce((n,b)=>n+b.amount,0);
+ const phase=roulettePhase(table,now),locked=phase!=='betting'||features.roulette===false,seconds=Math.max(0,Math.ceil((phaseDeadline(table,now)-now)/1000)),mine=table.bets.filter(w=>w.isYou),stake=mine.reduce((n,w)=>n+w.bet.amount,0),lastStake=table.lastBets.reduce((n,b)=>n+b.amount,0);
  const maxTotal=room.casinoLimits.rouletteMaxTotal;
  const disabled=busy||locked||amount>room.me.wallet||stake+amount>maxTotal;
  const send=(action:object)=>post('/api/roulette',{...action,round:table.round,requestId:crypto.randomUUID(),requestAt:Date.now()});
