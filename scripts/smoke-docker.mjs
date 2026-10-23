@@ -17,7 +17,7 @@ try{
   "-e","APP_ORIGIN=http://localhost:3000",
   "-e","CLERK_PUBLISHABLE_KEY="+process.env.CLERK_PUBLISHABLE_KEY,
   "-e","CLERK_SECRET_KEY=sk_test_cGFja2FnaW5nLXNtb2tl",image);
- const probe=`const paths=["/","/leaderboard"];for(const path of paths){const r=await fetch("http://127.0.0.1:3000"+path);if(r.status!==200)throw Error(path+" HTTP "+r.status);await r.text();console.log(path+" HTTP "+r.status)}`;
+ const probe=`const paths=["/","/games","/polymarket","/doudizhu","/api/version","/socket.io/socket.io.js"];for(const path of paths){const r=await fetch("http://127.0.0.1:3000"+path);if(r.status!==200)throw Error(path+" HTTP "+r.status);await r.text();console.log(path+" HTTP "+r.status)}`;
  let http;
  for(let n=0;;n++){try{http=docker("exec",app,"node","--input-type=module","-e",probe);break;}catch(error){if(n>=90)throw error;await delay(500);}}
  const websocket=docker("exec",app,"node","--input-type=module","-e",`
@@ -27,9 +27,20 @@ try{
   s.on("connect",()=>s.write("GET /socket.io/?EIO=4&transport=websocket HTTP/1.1\\r\\nHost: localhost:3000\\r\\nOrigin: http://localhost:3000\\r\\nConnection: Upgrade\\r\\nUpgrade: websocket\\r\\nSec-WebSocket-Version: 13\\r\\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\\r\\n\\r\\n"));
   s.once("data",data=>{const status=data.toString().split("\\r\\n")[0];if(!status.includes(" 101 "))throw Error(status);console.log(status);s.destroy()});
  `);
+ const engineHandshake=docker("exec",app,"node","--input-type=module","-e",`
+  const ws=new WebSocket("ws://127.0.0.1:3000/socket.io/?EIO=4&transport=websocket");
+  const timeout=setTimeout(()=>{console.error("Engine handshake timed out");process.exit(1)},10000);
+  ws.onmessage=event=>{const text=String(event.data);if(text.startsWith("0")){const open=JSON.parse(text.slice(1));if(!open.sid||open.pingInterval!==25000)throw Error("Invalid Engine.IO open");console.log("Engine.IO open PASS");clearTimeout(timeout);ws.close()}};
+  ws.onerror=()=>{console.error("Engine handshake failed");process.exit(1)};
+ `);
+ const dependencies=docker("exec",app,"node","--input-type=module","-e",`
+  for(const name of ["next","socket.io","@scure/bip39/wordlists/english.js","@clerk/backend","mongodb","sharp"]){await import(name);console.log("resolved "+name)}
+  const sharp=(await import("sharp")).default; await sharp({create:{width:1,height:1,channels:3,background:"red"}}).png().toBuffer();
+  console.log(JSON.stringify({node:process.version,modules:process.versions.modules,napi:process.versions.napi,arch:process.arch,platform:process.platform,glibc:process.report.getReport().header.glibcVersionRuntime,sharp:sharp.versions}));
+ `);
  const logs=docker("logs",app);
  if(/Cannot find module|Failed to load external|instrumentation hook/.test(logs))throw Error("Instrumentation boot failure");
- console.log(JSON.stringify({image,id:docker("image","inspect",image,"--format","{{.Id}}"),http,websocket,container:app,result:"PASS"}));
+ console.log(JSON.stringify({image,id:docker("image","inspect",image,"--format","{{.Id}}"),http,websocket,engineHandshake,dependencies,container:app,result:"PASS"}));
 }catch(error){
  try{console.error(docker("logs",app));}catch{}
  throw error;

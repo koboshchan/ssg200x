@@ -21,3 +21,22 @@ test("every Docker entry point pins the October security release",()=>{
   for (const image of images) assert.match(image,/^24\.22\.1-(bookworm-slim|alpine)$/,`${name} must use a patched, explicit runtime`);
  }
 });
+test('prebuilt image installs locked production dependencies before traced Next aliases',()=>{
+ const file=readFileSync('Dockerfile.prebuilt','utf8');
+ assert.match(file,/npm ci --omit=dev --ignore-scripts/);
+ assert.ok(file.indexOf('COPY --from=production-deps')<file.indexOf('COPY --chown=node:node .next/standalone'));
+ for(const name of ['Dockerfile','Dockerfile.prebuilt'])assert.match(readFileSync(name,'utf8'),/CMD \["node","dist\/server.mjs"\]/);
+});
+test('custom server bundle includes pure JS dependencies and inventories every external',async()=>{
+ const {bundleServer,optionalExternals}=await import('../scripts/bundle-server.mjs');
+ const result=await bundleServer();
+ assert.deepEqual(Object.keys(result.metafile.outputs),['dist/server.mjs']);
+ const names=Object.keys(result.metafile.inputs);
+ for(const name of ['accepts','socket.io','socket.io-adapter','socket.io-parser','engine.io-parser','cors','debug','@clerk/backend','mongodb','@scure/bip39'])assert.ok(names.some(x=>x.startsWith('node_modules/'+name+'/')),name);
+ const manifest=JSON.parse(readFileSync('dist/server-manifest.json','utf8'));
+ assert.ok(manifest.externals.includes('next'));
+ assert.deepEqual(manifest.optionalExternals,optionalExternals);
+ assert.ok(!manifest.externals.includes('socket.io'));
+ assert.ok(!manifest.externals.includes('@scure/bip39'));
+ assert.ok(readFileSync('client-dist/socket.io.js').length>1000);
+});

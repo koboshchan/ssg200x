@@ -1,11 +1,18 @@
-FROM node:24.22.1-alpine
+FROM node:24.22.1-bookworm-slim AS production-deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+FROM node:24.22.1-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000
+# Next route externals still need the complete locked production dependency graph.
+COPY --from=production-deps --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node .next/standalone ./
+RUN find node_modules -type f -name '*.map' -delete && rm -rf node_modules/@next/swc-*
 COPY --chown=node:node .next/static ./.next/static
 COPY --chown=node:node public ./public
-COPY --chown=node:node server.mjs ./server.mjs
-COPY --chown=node:node runtime ./runtime
+COPY --chown=node:node dist ./dist
+COPY --chown=node:node client-dist ./client-dist
 USER node
 EXPOSE 3000
-CMD ["node","server.mjs"]
+CMD ["node","dist/server.mjs"]

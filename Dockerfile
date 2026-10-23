@@ -24,8 +24,8 @@ RUN node --input-type=module -e "await Promise.all(['next', 'socket.io', '@clerk
 COPY --from=builder --chown=node:node /app/.next/GIT_COMMIT ./.next/GIT_COMMIT
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --from=builder --chown=node:node /app/public ./public
-COPY --from=builder --chown=node:node /app/server.mjs ./server.mjs
-COPY --from=builder --chown=node:node /app/runtime ./runtime
+COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --from=builder --chown=node:node /app/client-dist ./client-dist
 USER node
 EXPOSE 3000
-CMD ["node","server.mjs"]
+CMD ["node","dist/server.mjs"]

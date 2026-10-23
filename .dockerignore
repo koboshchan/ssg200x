@@ -6,3 +6,7 @@ node_modules
 out
 
 data
+
+dist
+client-dist
+demo-public
