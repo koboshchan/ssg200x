@@ -24,9 +24,9 @@ test("net worth matches signed-in standings across poker phases, marks and game 
   const expected=publicRoom(structuredClone(r),alice).leaderboard;
   assert.deepEqual(snapshot.rows.map(({name,netWorth})=>({name,netWorth})),expected.map(({name,netWorth})=>({name,netWorth})));
   assert.equal(snapshot.updatedAt,123);
-  for(const row of snapshot.rows)assert.deepEqual(Object.keys(row).sort(),["advancements","avatar","name","netWorth","rank"]);
+  for(const row of snapshot.rows)assert.deepEqual(Object.keys(row).sort(),["advancements","avatar","name","netWorth","publicId","rank"]);
   const json=JSON.stringify(snapshot);
-  for(const secret of [alice.id,bob.id,alice.email,bob.email,r.members[0].publicId,"secret-position","secret-bet","As","privateMetadata","wallet","holdings"])assert.equal(json.includes(secret),false,secret);
+  for(const secret of [alice.id,bob.id,alice.email,bob.email,"secret-position","secret-bet","As","privateMetadata","wallet","holdings"])assert.equal(json.includes(secret),false,secret);
  }
 });
 test("empty snapshot, ranked descending and deterministic name tie break, safe names and avatars",()=>{
@@ -57,7 +57,7 @@ test("public page reads the Clerk session without gating, stays outside maintena
  assert.doesNotMatch(proxy,/pathname\s*===\s*"\/leaderboard"/);
  assert.match(proxy,/startsWith\("\/api\/"\)/);
  assert.match(proxy,/return clerk\(request, event\)/);
- assert.doesNotMatch(page,/LiveProvider|MaintenanceGate|useUser|publicId|dangerouslySetInnerHTML/);
+ assert.doesNotMatch(page,/LiveProvider|MaintenanceGate|useUser|dangerouslySetInnerHTML/);
  assert.doesNotMatch(page,/RoomClient|currentUser|privateMetadata/);
  assert.match(read("app/layout.tsx"),/<RoomClient configured=\{configured\(\)\}>/);
  assert.match(client,/isPublicPage\(path\)/);

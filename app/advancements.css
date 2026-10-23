@@ -7,3 +7,19 @@
 .hand-reveal .card{animation:poker-card-flip .55s ease both}.hand-reveal .card:nth-child(2){animation-delay:.09s}@keyframes poker-card-flip{from{transform:rotateY(90deg)}to{transform:rotateY(0)}}@media(prefers-reduced-motion:reduce){.hand-reveal .card{animation:none}}
 
 .play .payment-coins{animation:payment-coins-rise .65s cubic-bezier(.2,.6,.25,1) both}@keyframes payment-coins-rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}@media(prefers-reduced-motion:reduce){.play .payment-coins{animation:none}}
+
+.profile-performance{padding:28px 24px 24px;border-bottom:1px solid var(--line);min-width:0}
+.profile-performance-head{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.profile-performance h2{font-size:18px;letter-spacing:-.02em;margin:0}
+.profile-periods{display:flex;gap:3px;padding:3px;background:var(--seg);border-radius:8px}
+.profile-periods button{padding:7px 13px;background:transparent;border-radius:5px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.profile-periods button[aria-pressed=true]{background:var(--paper);color:var(--ink);box-shadow:0 1px 3px #0001}
+.profile-periods button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.profile-return{display:flex;flex-direction:column;gap:8px;margin:28px 0 22px;min-height:112px}
+.profile-return>span{font-size:13px;color:var(--muted)}
+.profile-return>strong{font-size:38px;line-height:1.15;letter-spacing:-.04em;font-weight:500;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.profile-return>strong.profile-return-unavailable{font-size:25px;color:var(--muted);letter-spacing:-.02em}
+.profile-return p{font-size:14px;color:var(--muted)}
+.profile-return p button{padding:4px 8px;font-size:13px}
+.profile-performance-note{font-size:12px;color:var(--muted);line-height:1.65;max-width:680px;margin:8px 0 0}
+@media(max-width:600px){.profile-performance{padding:24px 20px}.profile-performance-head{gap:16px}.profile-periods{width:100%}.profile-periods button{flex:1}.profile-return>strong{font-size:32px}.adv-profile-toolbar{padding:16px 20px}.adv-profile-toolbar strong{overflow-wrap:anywhere;min-width:0}}

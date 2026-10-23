@@ -6,6 +6,8 @@ export async function register() {
   const {tickRoom}=await import("./lib/store");
   const {startPriceWorker}=await import("./lib/prices");
   startPriceWorker();
+  const {startTradingPerformanceWorker}=await import("./lib/trading-performance-store");
+  startTradingPerformanceWorker();
   const {startPolymarketWorker}=await import("./lib/polymarket-store");
   startPolymarketWorker();
   const g=globalThis as typeof globalThis & {pokerTimer?:ReturnType<typeof setInterval>};

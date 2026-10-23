@@ -60,6 +60,7 @@ export function redeemLegacyHolding(r:Room,who:Identity,symbol:Symbol,now=Date.n
  const q=requireLegacyQuote(r,symbol,now),returned=value(h.units,q.micro);
  ensure(Number.isSafeInteger(returned)&&returned>0&&returned<1e12,"Cached valuation cannot redeem this claim. Claim retained.",503);
  const old={...h,quote:{...q},wallet:m.wallet};
+ m.realizedSpotPnl=(m.realizedSpotPnl??0)+returned-h.cost;
  m.wallet+=returned;r.house=(r.house||0)+h.cost-returned;
  m.holdings=m.holdings!.filter(x=>x!==h);
  m.activity=[`Redeemed delisted ${symbol} · ${(returned/100).toFixed(2)} returned · cached USD quote ${q.micro} at ${q.at}`,...(m.activity||[])].slice(0,40);
@@ -100,7 +101,7 @@ export function spot(r:Room,who:Identity,symbol:Symbol,side:"buy"|"sell",amount:
  ensure(h&&h.units>0,"No holding to sell.");
  const units=Math.min(h.units,unitsFor(amount,price));ensure(units>0,"Order too small.");
  const cost=units===h.units?h.cost:Math.floor(h.cost*units/h.units),returned=value(units,price);
- ensure(Number.isSafeInteger(returned)&&returned>0,"Order too small or too large.");ensure(Number.isSafeInteger(m.wallet+returned),"Wallet exceeds simulation limit.");h.units-=units;h.cost-=cost;m.wallet+=returned;r.house=(r.house||0)+cost-returned;
+ ensure(Number.isSafeInteger(returned)&&returned>0,"Order too small or too large.");ensure(Number.isSafeInteger(m.wallet+returned),"Wallet exceeds simulation limit.");m.realizedSpotPnl=(m.realizedSpotPnl??0)+returned-cost;h.units-=units;h.cost-=cost;m.wallet+=returned;r.house=(r.house||0)+cost-returned;
  if(h.units===0)m.holdings=m.holdings!.filter(x=>x!==h);
  }
 }
