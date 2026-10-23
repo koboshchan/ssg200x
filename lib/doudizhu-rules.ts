@@ -97,7 +97,7 @@ export function beats(play:Combo,previous:Combo):boolean {
 
 
 // Black 78 has the exact comparison rank of four threes, despite using two cards.
-export const comboLabel=(combo:Combo)=>combo.special==="black78"?"Black 78":combo.kind.replaceAll("-"," ");
+export const comboLabel=(combo:Combo)=>combo.special==="black78"?"Black 78":combo.kind==="triple-pair"?"triple with pair":combo.kind.replaceAll("-"," ");
 /** Candidate special plays for hints/agents, validated by the same server rules.
  * Does not inspect opponents' hidden cards. Keep all suit combinations available.
  */
