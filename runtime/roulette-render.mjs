@@ -60,7 +60,7 @@ function ballRadius(R){return R*0.022;}
 /* each design draws one frame */
 export function drawWood(ctx,w,h,pose){
   const R=Math.min(w,h)*0.47,cx=w/2,cy=h/2,pal=PAL.wood;
-  ctx.fillStyle=radial(ctx,cx,cy,R*.5,R*1.9,[[0,'#2f6a45'],[1,'#0e2418']]);ctx.fillRect(0,0,w,h); // felt
+  // felt is painted by the parent .felt so the wheel area is continuous
   disc(ctx,cx+R*.04,cy+R*.06,R*1.02,'rgba(0,0,0,.4)');
   drawBowl(ctx,cx,cy,R,pal,true);drawDeflectors(ctx,cx,cy,R,pal);
   drawPockets(ctx,cx,cy,R,pose.W,pal);drawCone(ctx,cx,cy,R,pose.W,pal);

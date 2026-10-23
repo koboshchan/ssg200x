@@ -64,13 +64,20 @@ async function prepareRound(state:RouletteState){
  throw new Error('Unable to publish a future roulette launch');
 }
 
-function canonical(value:unknown):string{
- if(value===null||typeof value!=="object")return JSON.stringify(value);
- if(Array.isArray(value))return "["+value.map(canonical).join(",")+"]";
- return "{"+Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>JSON.stringify(k)+":"+canonical(v)).join(",")+"}";
+function canonical(value:unknown):unknown{
+ if(Array.isArray(value))return value.map(canonical);
+ if(value!==null&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical((value as Record<string,unknown>)[key])]));
+ return value;
 }
+function rouletteFingerprint(action:RouletteAction,round:number,requestAt:number){
+ // Transport fields do not belong to the semantic action envelope.
+ const semantic=action.type==='bet'?{type:action.type,bet:action.bet}:action.type==='change'?{type:action.type,betId:action.betId,bet:action.bet}:action.type==='cancel'?{type:action.type,betId:action.betId}:{type:action.type};
+ return createHash('sha256').update(JSON.stringify(canonical({action:semantic,round,requestAt}))).digest('hex');
+}
+
 export async function rouletteMove(who:Identity,action:RouletteAction,round:number,requestId:string,requestAt:number){
- const fingerprint=createHash("sha256").update(canonical({action,round,requestAt})).digest("hex");
+ const fingerprint=rouletteFingerprint(action,round,requestAt);
+
  return (await mutate(r=>{
   register(r,who);const now=Date.now();ensure(now-requestAt>=-10_000&&now-requestAt<=120_000,'Request expired.',409);
   const receipt=r.receipts.find(x=>x.id===requestId);if(receipt){ensure(receipt.userId===who.id&&receipt.rouletteFingerprint===fingerprint,'Invalid request.',409);return;}
