@@ -1,6 +1,25 @@
 import {closingFeeCents,closingFeeReserve} from "./perp-fee-policy.mjs";
 import {hideFromLeaderboard} from "./leaderboard-privacy.mjs";
 import {roomFeeRates,positionFeeRates} from "./perp-fee-policy.mjs";
+/** Provider calendar metadata only, independent of quote/worker freshness.
+ * Unknown is deliberately not "closed": never infer NYSE holidays from weekdays.
+ * This is shared with the TS client helper; keep this module browser-safe.
+ */
+export function stockCalendarHours(state,now=Date.now()) {
+ const unknown={calendarAvailable:false,closed:null,nextOpen:null,sessionOpen:null,sessionClose:null,validUntil:0,timeZone:"America/New_York"};
+ const clock=state?.clock,sessions=state?.sessions;
+ if(!Number.isFinite(now)||!clock||!Array.isArray(sessions)||!sessions.length||
+  ![clock.timestamp,clock.receivedAt,clock.nextOpen,clock.nextClose].every(Number.isSafeInteger)||
+  typeof clock.isOpen!=="boolean"||now<clock.receivedAt||
+  now-clock.receivedAt>60000||Math.abs(now-clock.timestamp)>60000||
+  !sessions.every(s=>Number.isSafeInteger(s.open)&&Number.isSafeInteger(s.close)&&s.close>s.open))return unknown;
+ const session=sessions.find(s=>now>=s.open&&now<s.close);
+ const next=sessions.filter(s=>s.open>now).sort((a,b)=>a.open-b.open)[0];
+ // Clock and sessions must agree. A missing future session is not a weekend guess.
+ if(session?(!clock.isOpen||clock.nextClose!==session.close):(clock.isOpen||!next||clock.nextOpen!==next.open))return unknown;
+ const validUntil=Math.min(clock.receivedAt+60001,clock.timestamp+60001,session?.close??next.open);
+ return {calendarAvailable:true,closed:!session,nextOpen:next?.open??null,sessionOpen:session?.open??null,sessionClose:session?.close??null,validUntil,timeZone:"America/New_York"};
+}
 // Socket identities are supplied only by verified Clerk claims, never client messages.
 export function marketPayload(room,userId,now=Date.now()) {
  const member=room.members.find(m=>m.id===userId);if(!member)return null;
@@ -27,8 +46,9 @@ export function marketPayload(room,userId,now=Date.now()) {
   const session=state?.sessions?.find(s=>now>=s.open&&now<s.close);
   const validUntil=Math.min(state?.leaseUntil||0,(tick?.timestamp||0)+60000,(tick?.receivedAt||0)+60000,(clock?.receivedAt||0)+60000,session?.close||0);
   const executable=!!(state?.symbol===symbol&&state.authorized&&state.connected&&state.leader&&session&&clock?.isOpen&&clock.nextClose===session.close&&Math.abs(now-clock.timestamp)<=60000&&now>=clock.receivedAt&&now<validUntil&&tick?.symbol===symbol&&tick.feed==="alpaca-iex"&&now>=tick.timestamp&&now>=tick.receivedAt&&now-tick.receivedAt<60000&&tick.timestamp>=session.open&&q?.micro===Math.round(tick.price*1e6)&&q?.at===tick.timestamp);
-  return [symbol,{executable,reason:executable?"fresh_regular_session":!session||!clock?.isOpen?"closed_or_calendar_unverified":"stale_or_invalid_tick",checkedAt:now,validUntil}];
+  const marketHours=stockCalendarHours(state,now);
+  return [symbol,{executable,reason:marketHours.closed===true?"market_closed":!marketHours.calendarAvailable?"calendar_unavailable":executable?"fresh_regular_session":"stale_or_invalid_tick",checkedAt:now,validUntil,marketHours}];
  }));
 
- return {cryptoStatus:room.cryptoStatus??null,perpFeePpm:roomFeeRates(room).openingFeePpm,perpOpeningFeePpm:roomFeeRates(room).openingFeePpm,perpClosingFeePpm:roomFeeRates(room).closingFeePpm,perpClosingFeeMode:room.perpClosingFeeMode??"notional",stockExecution,netWorth:netWorthFor(member),leaderboard,version:room.version,serverNow:now,quotes,holdings,positions,closedPositions:(member.closedPositions||[]).map(p=>({id:p.id,symbol:p.symbol,side:p.side,leverage:p.leverage,entry:p.entry,exit:p.exit,...(p.postedMargin!==undefined?{postedMargin:p.postedMargin}:{}),...(p.collateral!==undefined?{collateral:p.collateral}:{}),realizedPnl:p.realizedPnl,...(p.openingFee!==undefined?{...(p.openingFeePpm!==undefined?{openingFeePpm:p.openingFeePpm}:{}),...(p.closingFeePpm!==undefined?{closingFeePpm:p.closingFeePpm}:{}),...(p.closingFeeMode!==undefined?{closingFeeMode:p.closingFeeMode}:{}),openingFee:p.openingFee,closingFee:p.closingFee,assessedClosingFee:p.assessedClosingFee,waivedClosingFee:p.waivedClosingFee}:{}),reason:p.reason,closedAt:p.closedAt})),wallet:member.wallet,activity:(member.activity||[]).slice(0,40)};
+ return {forexLastQuotes:room.forexLastQuotes??{},cryptoStatus:room.cryptoStatus??null,perpFeePpm:roomFeeRates(room).openingFeePpm,perpOpeningFeePpm:roomFeeRates(room).openingFeePpm,perpClosingFeePpm:roomFeeRates(room).closingFeePpm,perpClosingFeeMode:room.perpClosingFeeMode??"notional",stockExecution,netWorth:netWorthFor(member),leaderboard,version:room.version,serverNow:now,quotes,holdings,positions,closedPositions:(member.closedPositions||[]).map(p=>({id:p.id,symbol:p.symbol,side:p.side,leverage:p.leverage,entry:p.entry,exit:p.exit,...(p.postedMargin!==undefined?{postedMargin:p.postedMargin}:{}),...(p.collateral!==undefined?{collateral:p.collateral}:{}),realizedPnl:p.realizedPnl,...(p.openingFee!==undefined?{...(p.openingFeePpm!==undefined?{openingFeePpm:p.openingFeePpm}:{}),...(p.closingFeePpm!==undefined?{closingFeePpm:p.closingFeePpm}:{}),...(p.closingFeeMode!==undefined?{closingFeeMode:p.closingFeeMode}:{}),openingFee:p.openingFee,closingFee:p.closingFee,assessedClosingFee:p.assessedClosingFee,waivedClosingFee:p.waivedClosingFee}:{}),reason:p.reason,closedAt:p.closedAt})),wallet:member.wallet,activity:(member.activity||[]).slice(0,40)};
 }

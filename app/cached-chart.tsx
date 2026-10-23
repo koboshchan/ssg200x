@@ -3,6 +3,7 @@ import {useEffect,useRef,useState} from "react";
 import {mergeChartCandles,tickCandle,type LiveQuote} from "@/lib/live-candle";
 import {chartCache} from "@/lib/client-market-cache";
 import {useLive} from "./live-provider";
+import {validForexPair} from "@/lib/forex-policy";
 import type {Symbol} from "@/lib/market-shared";
 const intervals={"1m":60000,"5m":300000,"15m":900000,"1h":3600000,"6h":21600000,"1d":86400000};
 type Row={time:number;open:number;high:number;low:number;close:number};
@@ -23,7 +24,7 @@ export default function CachedChart({symbol,quote}:{symbol:Symbol;quote?:LiveQuo
  const series=chart.addSeries(CandlestickSeries);
  const live=new Map<number,Row>();let lastAt=-1;
  const point=(c:Row)=>({...c,time:Math.floor(c.time/1000) as import("lightweight-charts").UTCTimestamp});
- push.current=q=>{if(closed||q.at<lastAt||Date.now()-q.at>10000||q.at>Date.now()+1000)return;const time=Math.floor(q.at/width)*width;const row=tickCandle(live.get(time),q,width);if(!row)return;lastAt=q.at;live.set(time,row);chartCache.put(cacheKey,[row],chartCache.get(cacheKey)?.checkedAt??0);series.update(point(row));};
+ push.current=q=>{if(closed||q.at<lastAt||!validForexPair(symbol)&&Date.now()-q.at>10000||q.at>Date.now()+1000)return;const time=Math.floor(q.at/width)*width;const row=tickCandle(live.get(time),q,width);if(!row)return;lastAt=q.at;live.set(time,row);chartCache.put(cacheKey,[row],chartCache.get(cacheKey)?.checkedAt??0);series.update(point(row));};
  let fitted=false,receivedSnapshot=false;
  function render(history:Row[],checkedAt=Date.now()){
   if(closed)return;

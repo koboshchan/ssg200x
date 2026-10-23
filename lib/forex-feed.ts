@@ -28,6 +28,9 @@ export function createForexStream(o:{owner:string;leaseId?:()=>string;symbols:()
    if(!valid()||!o.leader())throw new Error("Forex lease revoked");
    const now=Date.now(),mono=forexMonotonic(),pairs=marketSymbols(room).forex;
    room.forexStatus=status;room.forexQuotes=state==="live"?convertedForexQuotes(ticks,pairs):{};
+   // Display-only last observed native rate survives stream revocation/weekends.
+   // It is never read by forexDecision or any accounting/execution path.
+   room.forexLastQuotes={...room.forexLastQuotes,...Object.fromEntries(Object.entries(room.forexQuotes).filter(([,q])=>q.source==="oanda").map(([s,q])=>[s,{micro:q.micro,at:q.at,source:"oanda" as const,quoteCurrency:q.quoteCurrency}]))};
    snapshots={};
    for(const [symbol,q] of Object.entries(room.forexQuotes))if(forexDecision(symbol,q,status,now,mono,forexClockDomain).executable)snapshots[symbol]={micro:q.micro,at:q.at};
    for(const member of room.members)for(const p of member.positions??[]){const q=room.forexQuotes[p.symbol];if(p.fx&&q&&forexDecision(p.symbol,q,status,now,mono,forexClockDomain).executable)p.fx={...p.fx,quoteUsd:q.quoteUsd!};}
