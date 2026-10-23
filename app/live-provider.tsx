@@ -46,21 +46,37 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
   if(socketRef.current?.connected)socketRef.current.emit("tab:report",{route:routeRef.current});
  },[pathname]);
  useEffect(()=>{
-  let closed=false,retry:ReturnType<typeof setTimeout>|undefined,attempts=0,socket:Socket|undefined,disposeAuth:(()=>void)|undefined;
+  let closed=false,paused=false,authGeneration=0,retry:ReturnType<typeof setTimeout>|undefined,attempts=0,socket:Socket|undefined,disposeAuth:(()=>void)|undefined;
   const dispatch=(event:string,p:unknown)=>{if(event!==AIRDROP_EVENT&&event!=="poker:taunt")latest.current.set(event,p);setLast(Date.now());listeners.current.get(event)?.forEach(h=>h(p));};
   airdropReceiver.current??=createAirdropReceiver(p=>listeners.current.get(AIRDROP_EVENT)?.forEach(h=>h(p)));
   const receiver=createStateReceiver(event=>socket?.connected&&socket.emit("state:resync",event));
-  const later=()=>{if(closed||!socket||socket.active)return;clearTimeout(retry);attempts++;retry=setTimeout(()=>socket?.connect(),Math.min(10000,500*2**Math.min(attempts,5)));};
-  const report=()=>{if(socket?.connected)socket.emit("tab:report",{route:routeRef.current});};
+  const later=()=>{if(closed||paused||!socket||socket.active)return;clearTimeout(retry);attempts++;retry=setTimeout(()=>{if(!closed&&!paused)socket?.connect();},Math.min(10000,500*2**Math.min(attempts,5)));};
+  const report=()=>{if(!paused&&socket?.connected)socket.emit("tab:report",{route:routeRef.current});};
   const reportTimer=setInterval(report,5000);
   document.addEventListener("visibilitychange",report);
-  window.addEventListener("pageshow",report);
+  // A cached document keeps React mounted. Stop transport/retries and pending
+  // credential renewals before it freezes; resume once with fresh handshake auth.
+  const pause=()=>{
+   if(closed||paused)return;
+   paused=true;authGeneration++;clearTimeout(retry);disposeAuth?.();disposeAuth=undefined;
+   receiver.clear();latest.current.clear();setConnection("disconnected");socket?.disconnect();
+  };
+  const resume=()=>{
+   if(closed||!paused)return;
+   paused=false;
+   if(socket){disposeAuth=attachSocketAuthClient(socket,()=>tokenRef.current({skipCache:true}));setConnection("connecting");socket.connect();}
+  };
+  window.addEventListener("pagehide",pause);
+  window.addEventListener("pageshow",resume);
   import("socket.io-client").then(({io})=>{
    if(closed)return;
-   socket=io({path:"/socket.io",transports:["websocket"],reconnection:true,reconnectionDelayMax:10000,auth:cb=>{tokenRef.current({skipCache:true}).then(token=>cb({token,...getTabIdentity(),route:routeRef.current,pokerTableId:readPokerTableId()})).catch(()=>cb({}));}});
+   socket=io({path:"/socket.io",transports:["websocket"],autoConnect:false,reconnection:true,reconnectionDelayMax:10000,auth:cb=>{
+    const generation=authGeneration;
+    tokenRef.current({skipCache:true}).then(token=>{if(!closed&&!paused&&generation===authGeneration)cb({token,...getTabIdentity(),route:routeRef.current,pokerTableId:readPokerTableId()});}).catch(()=>{if(!closed&&!paused&&generation===authGeneration)cb({});});
+   }});
    socketRef.current=socket;
    socket.on(RELEASE_EVENT,release.observe);socket.on("features:state",release.observeFeatures);
-   disposeAuth=attachSocketAuthClient(socket,()=>tokenRef.current({skipCache:true}));
+   if(!paused)disposeAuth=attachSocketAuthClient(socket,()=>tokenRef.current({skipCache:true}));
    socket.on("connect",()=>{receiver.clear();latest.current.clear();void release.check();attempts=0;setConnection("connected");socket?.emit("poker:subscribe",readPokerTableId());report();});
    socket.on("disconnect",()=>{receiver.clear();latest.current.clear();setConnection("disconnected");later();});
    socket.on("connect_error",e=>{void release.check();setConnection("disconnected");if(e.message==="maintenance")setMaintenance(m=>({admin:false,active:true,manual:false,...m,blocked:true}));later();});
@@ -84,8 +100,9 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    socket.on("polymarket:price",(p:unknown)=>dispatch("polymarket:price",p));
    socket.on("polymarket:positions",(p:unknown)=>dispatch("polymarket:positions",p));
    socket.on("dm:changed",(p:unknown)=>dispatch("dm:changed",p));
-  }).catch(()=>setConnection("disconnected"));
-  return()=>{closed=true;clearInterval(reportTimer);document.removeEventListener("visibilitychange",report);window.removeEventListener("pageshow",report);receiver.clear();latest.current.clear();clearTimeout(retry);disposeAuth?.();socket?.disconnect();socketRef.current=undefined;};
+   if(!paused)socket.connect();
+  }).catch(()=>{if(!closed)setConnection("disconnected");});
+  return()=>{closed=true;authGeneration++;clearInterval(reportTimer);document.removeEventListener("visibilitychange",report);window.removeEventListener("pagehide",pause);window.removeEventListener("pageshow",resume);receiver.clear();latest.current.clear();clearTimeout(retry);disposeAuth?.();socket?.disconnect();socketRef.current=undefined;};
  },[release]);
  const value=useMemo<Live>(()=>({connection,maintenance,lastMessageAt,...api}),[connection,maintenance,lastMessageAt,api]);
  return <Context.Provider value={value}>{children}<AirdropAnnouncement subscribe={api.subscribe}/><AdvancementAnnouncement subscribe={api.subscribe}/><FlagGated k="checkIn"><CheckInBanner/></FlagGated><PaymentAnnouncement subscribe={api.subscribe}/>{tabBlocked?<TabBlockedOverlay/>:null}</Context.Provider>;
