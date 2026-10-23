@@ -55,7 +55,7 @@ export default function RouletteWheel({spin,now,idleAnchor}:{spin:RouletteSpin|n
  },[trajectory,idleAnchor.atMs,idleAnchor.phase,idleAnchor.vel,idleAnchor.rel,idleAnchor.r,reduced]);
  const landed=!!spin&&now>=spin.resultAt;
  return <div className={styles.wheelScene} role="img" aria-label={trajectory.error?'Wheel unavailable. Refresh to load matching physics.':landed?'Winning number '+spin.number:spin?'Roulette wheel spinning':'European roulette wheel'}>
- <canvas ref={canvas} style={{display:'block',width:'100%',height:'100%',borderRadius:8}} aria-hidden="true"/>
+ <canvas ref={canvas} style={{display:'block',width:'100%',height:'100%'}} aria-hidden="true"/>
  {trajectory.error?<p role="alert">Wheel unavailable. Refresh to load matching physics.</p>:null}
  {landed?<div className={styles.resultBadge} aria-hidden="true"><small>Result</small><strong>{spin.number}</strong></div>:null}
  </div>;
