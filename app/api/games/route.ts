@@ -5,6 +5,7 @@ import {mutate,visit,rateLimit} from "@/lib/store";
 import {miniAction,miniSnapshot,type MiniInput} from "@/lib/minigames";
 import {wholeCasinoCents} from "@/lib/casino-schemas";
 import {CASINO_LIMIT_MAX_CENTS} from "@/lib/casino-limits";
+import {dropPlinko} from "@/lib/plinko-store";
 const base={requestId:z.string().uuid(),requestAt:z.number().int().safe()};
 const session={...base,id:z.string().uuid(),revision:z.number().int().nonnegative().safe()};
 const miniSchema=z.discriminatedUnion("type",[
@@ -15,5 +16,5 @@ const miniSchema=z.discriminatedUnion("type",[
 export const GET=(request:Request)=>endpoint(request,async who=>miniSnapshot(await visit(who),who));
 export const POST=(request:Request)=>endpoint(request,async who=>{
  await rateLimit("minigames:"+who.id,100);const input=await parse(request,miniSchema);
- const {room,result:actionGameId}=await mutate(room=>miniAction(room,who,input as MiniInput));return {...miniSnapshot(room,who),actionGameId};
+ const {room,result:actionGameId}=await (input.type==="start"&&input.game==="plinko"?dropPlinko(who,input as MiniInput):mutate(room=>miniAction(room,who,input as MiniInput)));return {...miniSnapshot(room,who),actionGameId};
 });

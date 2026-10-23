@@ -1,17 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {miniAction,miniSnapshot,type MiniInput} from '../lib/minigames';
+import {miniAction,miniSnapshot,settleMiniGame,type MiniInput} from '../lib/minigames';
 import {PLINKO_RISKS,PLINKO_RISK_TABLES,LEGACY_PLINKO_TABLE} from '../lib/plinko-risk';
 import {freshRoom,register,assertRoom} from '../lib/poker';
 const who={id:'risk',email:'risk@test',name:'Risk',admin:false};
 const wager=(extra={})=>({requestId:randomUUID(),requestAt:Date.now(),type:'start' as const,game:'plinko' as const,amount:1000,...extra});
-test('all 27 risk buckets settle by exact rational cent floor',()=>{
+test('all 27 risk buckets settle by exact rational cent floor',t=>{
  for(const risk of PLINKO_RISKS)for(let slot=0;slot<9;slot++)for(const amount of [100,1000,99900]){
   const r=freshRoom();register(r,who);let i=0;
   miniAction(r,who,wager({risk,amount}),()=>i++<slot?1:0);
   const g=r.miniGames![0],b=PLINKO_RISK_TABLES[risk][slot];
   assert.equal(g.risk,risk);assert.equal(g.result?.slot,slot);
+  assert.equal(g.payout,0);assert.throws(()=>settleMiniGame(r,g,"won"),/not landed/);
+  const clock=t.mock.method(Date,"now",()=>g.landAt!);settleMiniGame(r,g,"won");clock.mock.restore();
   assert.equal(g.payout,Number(BigInt(amount)*BigInt(b.numerator)/BigInt(b.denominator)));
   assert.equal(g.num,b.numerator);assert.equal(g.den,b.denominator);assertRoom(r);
  }
@@ -31,7 +33,7 @@ test('different risks remain immutable across out-of-order replays; changed enve
  assert.deepEqual(r,saved);
  assert.throws(()=>miniAction(r,who,{...inputs[0],risk:'high'}),/different order/);
  for(const input of inputs){
-  const g=miniSnapshot(r,who).games.find(g=>g.id===input.requestId)!;
+  const g=miniSnapshot(r,who).games.find(g=>g.requestId===input.requestId)!;
   assert.equal(g.risk,input.risk);assert.deepEqual(g.plinkoTable,PLINKO_RISK_TABLES[input.risk]);
   g.plinkoTable![0].multiplier=999;
  }
