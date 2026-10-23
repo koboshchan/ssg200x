@@ -43,3 +43,13 @@ test("instrumentation rejects invalid QA before importing workers",async()=>{
   if(protectedNames===undefined)delete process.env.QA_PROTECTED_COLLECTIONS;else process.env.QA_PROTECTED_COLLECTIONS=protectedNames;
  }
 });
+
+ test("isolated QA skips external price/prediction workers and durable prediction subscriptions",async()=>{
+ const {readFile}=await import("node:fs/promises");
+ const instrumentation=await readFile(new URL("../instrumentation.ts",import.meta.url),"utf8");
+ const server=await readFile(new URL("../server.mjs",import.meta.url),"utf8");
+ assert.match(instrumentation,/if\(process.env.SSG_ISOLATED_QA!=="1"\)\{[\s\S]*startPriceWorker[\s\S]*startPolymarketWorker\(\);\s*\}/);
+ assert.match(server,/enabled:\(\)=>process.env.SSG_ISOLATED_QA!=="1"&&featureSettings.enabled\("polymarket"\)/);
+ assert.match(server,/async function syncPolyPositions\(\)\{\s*if\(process.env.SSG_ISOLATED_QA==="1"\)return;/);
+ assert.match(server,/External prediction feeds disabled in isolated QA/);
+ });

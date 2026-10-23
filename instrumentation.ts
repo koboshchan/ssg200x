@@ -6,10 +6,12 @@ export async function register() {
   const {tickRoom}=await import("./lib/store");
   const {startPlinkoWorker}=await import("./lib/plinko-store");
   startPlinkoWorker();
+  if(process.env.SSG_ISOLATED_QA!=="1"){
   const {startPriceWorker}=await import("./lib/prices");
   startPriceWorker();
   const {startPolymarketWorker}=await import("./lib/polymarket-store");
   startPolymarketWorker();
+  }
   const g=globalThis as typeof globalThis & {pokerTimer?:ReturnType<typeof setInterval>};
   if(!g.pokerTimer) {
    let running=false;
