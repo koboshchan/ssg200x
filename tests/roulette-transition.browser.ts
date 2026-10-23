@@ -27,7 +27,7 @@ async function main(){
   await page.getByText('Open',{exact:true}).waitFor();
   // Same component instance through all boundaries, including first-load null table.
   if(!process.env.QA_SKIP_NULL){await update({...initial,roulette:null},'Opening the shared table…');await update(initial,'Open');}
-  const table=initial.roulette!,solved=solveLaunch({target:7,anchor:table.idleAnchor,spinStartAt:start+60000,seed:61007}),resultAt=start+60000+solved.durationMs,spin={round:1,number:7,startedAt:start+60000,resultAt,nextAt:resultAt+5000,physics:{roundId:'browser-1',target:7,physicsVersion:PHYS_VERSION,lockDeadline:start+55000,resultGeneratedAt:start+55001,broadcastAt:start+55002,serverNow:start+55002,spinStartAt:start+60000,idleAnchor:table.idleAnchor,launchParams:solved.launchParams}};
+  const table=initial.roulette!,solved=solveLaunch({target:7,anchor:table.idleAnchor,spinStartAt:start+60000,seed:5}),resultAt=start+60000+solved.durationMs,spin={round:1,number:7,startedAt:start+60000,resultAt,nextAt:resultAt+5000,physics:{roundId:'browser-1',target:7,physicsVersion:PHYS_VERSION,lockDeadline:start+55000,resultGeneratedAt:start+55001,broadcastAt:start+55002,serverNow:start+55002,spinStartAt:start+60000,idleAnchor:table.idleAnchor,launchParams:solved.launchParams}};
   await update({...initial,serverNow:start+55000},'Locked');
   await update({...initial,serverNow:start+60000,roulette:{...table,spin}},'Spinning');
   await update({...initial,serverNow:resultAt,roulette:{...table,spin,history:[{round:1,number:7,at:resultAt,winners:[]}]}},'Result');

@@ -62,7 +62,8 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    receiver.clear();latest.current.clear();setConnection("disconnected");socket?.disconnect();
   };
   const resume=()=>{
-   if(closed||!paused)return;
+   if(closed)return;
+   if(!paused){report();return;}
    paused=false;
    if(socket){disposeAuth=attachSocketAuthClient(socket,()=>tokenRef.current({skipCache:true}));setConnection("connecting");socket.connect();}
   };

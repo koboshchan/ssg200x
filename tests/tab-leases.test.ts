@@ -10,3 +10,20 @@ test('reconnect replacement never counts twice and old close cannot erase new le
 test('route mismatch rejected, report updates route, expired and forged proofs fail',()=>{let now=0;const l=createTabLeases({now:()=>now}),a=new Socket();l.attach('u',a,auth(1));assert.equal(l.check('u',id(1),id(101),'blackjack'),'Switch to the blackjack tab to bet');a.report('/blackjack');assert.equal(l.check('u',id(1),id(101),'blackjack'),null);assert.match(l.check('u',id(1),id(999),'blackjack'),/Reconnect/);assert.throws(()=>l.attach('u',new Socket(),{...auth(1),tabProof:id(200)}));now+=TAB_LEASE_MS;l.sweepAll();a.report('/roulette');assert.match(l.check('u',id(1),id(101),'roulette'),/Reconnect/);});
 test('UUIDv4 browser credentials are accepted and reconnect replacement is one document',()=>{const l=createTabLeases(),a=new Socket(),b=new Socket();const c={tabId:'12345678-1234-4567-8123-123456789abc',tabProof:'abcdef12-abcd-4abc-9abc-abcdefabcdef',route:'/poker'};l.attach('u',a,c);l.attach('u',b,c);assert.equal(l.check('u',c.tabId,c.tabProof,'poker'),null);assert.equal(b.events.at(-1)[1].tabs,1);});
 test('expired socket is disconnected and cannot renew a removed lease',()=>{let time=0;const l=createTabLeases({now:()=>time}),a=new Socket(),b=new Socket();l.attach('u',a,auth(1));time=5000;l.attach('u',b,auth(2));time=16000;l.sweepAll();assert.equal(a.connected,false);assert.equal(b.connected,true);assert.equal(l.check('u',id(2),id(102),'roulette'),null);a.report('/roulette');assert.match(l.check('u',id(1),id(101),'roulette'),/Reconnect/);});
+test('all shipped mini-game pages share the games lease without accepting arbitrary prefixes',()=>{
+ const l=createTabLeases(),a=new Socket();l.attach('u',a,auth(1,'/games'));
+ for(const route of ['/games','/games/plinko','/games/hilo','/games/mines','/games/dice','/games/chicken']){
+  a.report(route);assert.equal(l.check('u',id(1),id(101),'games'),null,route);
+  assert.match(l.check('u',id(1),id(101),'roulette'),/Switch/);
+ }
+ for(const route of ['/wallet','/markets','/games-other','/games/unknown','/games/plinko/admin','/games//plinko']){
+  a.report(route);assert.match(l.check('u',id(1),id(101),'games'),/Switch/,route);
+ }
+ a.report('/games/plinko');for(const bad of ['/games/dice?tab=games','/games/dice#x','https://evil.test/games']){
+  a.report(bad);assert.equal(l.check('u',id(1),id(101),'games'),null,'invalid report cannot replace valid lease');
+ }
+ assert.match(l.check('u',id(1),id(999),'games'),/Reconnect/);
+ const b=new Socket();l.attach('u',b,auth(2,'/games/dice'));assert.match(l.check('u',id(1),id(101),'games'),/Only one/);
+ b.disconnect();assert.equal(l.check('u',id(1),id(101),'games'),null);
+ a.disconnect();assert.match(l.check('u',id(1),id(101),'games'),/Reconnect/);
+});

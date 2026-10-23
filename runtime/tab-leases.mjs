@@ -1,5 +1,7 @@
 // Authenticated user-scoped document leases. Reconnects replace only their own proof.
 export const TAB_LEASE_MS=16000;
+// Keep the lease on the real pathname. Only shipped mini-game routes share games.
+const miniGameRoutes=new Set(["/games","/games/plinko","/games/hilo","/games/mines","/games/dice","/games/chicken"]);
 const credential=v=>typeof v==="string"&&/^(?:[a-f0-9]{48}|[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})$/.test(v);
 export function createTabLeases({now=Date.now}={}){
  const users=new Map();
@@ -22,7 +24,7 @@ export function createTabLeases({now=Date.now}={}){
   sweep(user);const tabs=users.get(user),tab=tabs?.get(tabId);
   if(tabs&&tabs.size>1)return "Only one tab is allowed. Close the other tabs.";
   if(!tab||tab.proof!==proof||!tab.socket.connected)return "Reconnect this tab before taking actions.";
-  if(game&&tab.route!=="/"+game)return "Switch to the "+game+" tab to bet";
+  if(game&&!(game==="games"?miniGameRoutes.has(tab.route):tab.route==="/"+game))return "Switch to the "+game+" tab to bet";
   return null;
  }
  return {attach,check,sweepAll(){for(const user of users.keys())sweep(user);}};
