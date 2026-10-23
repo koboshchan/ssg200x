@@ -13,6 +13,13 @@ export async function db() {
 export async function rooms() { return (await db()).collection<Room>("rooms"); }
 export async function readRoom() {
  const c = await rooms();
+ // Current rooms are reads, not seven no-op writes per snapshot. Inspect every
+ // fresh snapshot (no process cache), so deletion/restores and legacy rows still
+ // use the original conditional, version-fenced initialization below.
+ const current=await c.findOne({_id:"main"});
+ const legacySeats=current&&[current.seats,current.pokerTables?.["02"]?.seats,current.pokerTables?.["03"]?.seats]
+  .some(seats=>Array.isArray(seats)&&(seats.length===6||seats.length===8));
+ if(current?.marketSymbols&&!legacySeats)return current;
  await c.updateOne({_id:"main"},{$setOnInsert:{...freshRoom(),marketSymbols:marketSymbols()}},{upsert:true}).catch(e=>{if(!(e instanceof MongoServerError && e.code===11000))throw e;});
  // Seed pre-existing installations once; conditional write cannot overwrite an admin edit.
  // Append only. Existing seat IDs, active hands, pending turns and money stay intact.
