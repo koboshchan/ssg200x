@@ -567,3 +567,44 @@ test("a remount during an account cooldown shows why chat is waiting without ano
   assert.equal(client.getSnapshot().phase,"setup");
  }finally{client.close();}
 });
+
+test("keys:get occupied-account rejection is not a recovery prompt and preserves all local data",async()=>{
+ const {a,store}=await seeded(),epoch=crypto.randomUUID(),key=await newEpochKey();
+ await store.putEpoch("a",epoch,key);await store.putPending("a",{id:"preserved-envelope"} as any);
+ const before=await store.getIdentity("a"),events:string[]=[];
+ const c=new ChatClient("a",async e=>{events.push(e);return {ok:false,error:"identity_exists"};},store,Date.now,openMessage,store.budget);
+ try{
+  await c.start();assert.equal(c.getSnapshot().phase,"error");assert.equal(c.getSnapshot().error,"identity_inconsistent");
+  await c.recover("not a real recovery phrase here");
+  assert.deepEqual(events,["keys:get"]);assert.equal(await store.getIdentity("a"),before);
+  assert.equal(await store.getEpoch("a",epoch),key);assert.equal((await store.getPending("a"))[0].id,"preserved-envelope");
+ }finally{c.close();}
+});
+
+test("valid authoritative backup offers recovery and correct words unlock retained encrypted history",async()=>{
+ const a=await createIdentity("a",0),store=new MemoryStore(),epoch=crypto.randomUUID(),key=await newEpochKey();
+ const grant=await wire(a.identity,"a",a.identity,epoch,key),message=await makeMessage(a.identity,"a",epoch,key);
+ const c=new ChatClient("a",async e=>{
+  if(e==="keys:get")return {identity:server(a)};
+  if(e==="register")return {};
+  if(e==="state")return {...view(a.identity,epoch),wraps:[grant]};
+  if(e==="history")return {messages:[message],nextCursor:null};
+  throw Error("unexpected "+e);
+ },store,Date.now,openMessage,store.budget);
+ try{
+  await c.start();assert.equal(c.getSnapshot().phase,"recover");
+  await c.recover("bad");assert.equal(c.getSnapshot().phase,"recover");assert.equal(c.getSnapshot().error,"bad_words");
+  await c.recover(a.words.join(" "));assert.equal(c.getSnapshot().phase,"ready");
+  assert.equal(c.getSnapshot().messages[0].text,"history");assert.equal((await store.getIdentity("a"))!.deviceId,a.identity.deviceId);
+ }finally{c.close();}
+});
+
+test("a failed refreshed keys:get never leaves a stale server backup available for recovery",async()=>{
+ const a=await createIdentity("a",0),store=new MemoryStore();let broken=false;
+ const c=new ChatClient("a",async()=>broken?{ok:false,error:"identity_exists"}:{identity:server(a)},store,Date.now,openMessage,store.budget);
+ try{
+  await c.start();assert.equal(c.getSnapshot().phase,"recover");
+  broken=true;await c.start();await c.recover(a.words.join(" "));
+  assert.equal(c.getSnapshot().phase,"error");assert.equal(await store.getIdentity("a"),undefined);
+ }finally{c.close();}
+});

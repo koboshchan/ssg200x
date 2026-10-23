@@ -11,7 +11,7 @@ const a={id:"qa-a",name:"Alice",email:"a@example.test",admin:false},b={...a,id:"
 const request=()=>({id:randomUUID(),at:Date.now()});
 async function seed(){const r=freshRoom();register(r,a);register(r,b);rouletteState(r,Date.now());await(await rooms()).replaceOne({_id:"main"},r,{upsert:true});await(await db()).collection("audit").deleteMany({});}
 async function main(){
- assert.match(process.env.MONGODB_DB||"",/^integer_roulette_qa$/);
+ assert.match(process.env.MONGODB_DB||"",/^ssg_qa_roulette_600b2893_[a-z0-9]+$/);
  await seed();
  const req=request();
  const results=await Promise.all(Array.from({length:5},()=>rouletteMove(a,{type:"bet",bet:{kind:"red",amount:300}},1,req.id,req.at)));
@@ -25,8 +25,13 @@ async function main(){
  await(await rooms()).updateOne({_id:"main"},{$set:{auditPending:durable}});
  await(await db()).collection("audit").deleteMany({});
  assert.equal((await rouletteAudit({...a,admin:true})).events.length,1);
- const dup=await rouletteMove(a,{type:"bet",bet:{kind:"red",amount:500}},1,req.id,req.at);
+ const dup=await rouletteMove(a,{type:"bet",bet:{kind:"red",amount:300}},1,req.id,req.at);
  assert.equal(dup.members[0].wallet,99700);assert.equal(rouletteState(dup,0).bets[0].bet.amount,300);
+ const stable=JSON.stringify(await readRoom());
+ await assert.rejects(()=>rouletteMove(a,{type:"bet",bet:{kind:"red",amount:500}},1,req.id,req.at),{status:409});
+ await assert.rejects(()=>rouletteMove(a,{type:"bet",bet:{kind:"red",amount:300}},2,req.id,req.at),{status:409});
+ await assert.rejects(()=>rouletteMove(a,{type:"bet",bet:{kind:"red",amount:300}},1,req.id,req.at+1),{status:409});
+ assert.equal(JSON.stringify(await readRoom()),stable);
  await assert.rejects(()=>rouletteMove(b,{type:"bet",bet:{kind:"red",amount:500}},1,req.id,req.at),{status:409});
  r=await readRoom();const before=JSON.stringify(r);await assert.rejects(()=>rouletteMove(a,{type:"change",betId:req.id,bet:{kind:"red",amount:150}},1,randomUUID(),Date.now()));assert.equal(JSON.stringify(await readRoom()),before);
  const bank=totalChips(r);

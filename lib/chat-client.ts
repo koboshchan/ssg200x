@@ -90,7 +90,13 @@ export class ChatClient{
   try{
    // Check the server generation BEFORE publishing any staged setup or showing
    // cached words. An admin reset must never replay a pre-reset reservation.
-   const result=await this.request("keys:get",{v:1}) as {identity:ServerIdentity|null;expectedVersion?:number;resetRequired?:boolean};
+   const result=await this.request("keys:get",{v:1}).catch(e=>{
+    // An occupied account without an authoritative identity is NOT recoverable
+    // by entering words. Never offer recovery against a stale cached backup.
+    this.serverIdentity=undefined;
+    if(codeOf(e)==="identity_exists")throw new Error("identity_inconsistent");
+    throw e;
+   }) as {identity:ServerIdentity|null;expectedVersion?:number;resetRequired?:boolean};
    const server=result.identity;
    this.expectedVersion=result.expectedVersion??0;
    let setup=await this.store.getSetup(this.user);

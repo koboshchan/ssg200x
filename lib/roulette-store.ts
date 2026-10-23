@@ -5,7 +5,7 @@ import {rouletteAction,rouletteTick,rouletteState,initialAnchor,ROULETTE_MS,type
 import {ROULETTE_OPEN_MS,ROULETTE_RESULT_MS} from './roulette-clock';
 import {PHYS_VERSION,type PhysicsRound} from './roulette-physics';
 import {solveRoulette} from './roulette-solver';
-import {randomInt,randomUUID} from 'node:crypto';
+import {createHash,randomInt,randomUUID} from 'node:crypto';
 import type {Identity,Room} from './types';
 import {readRoom} from './db';
 type RRoom=Room&{roulette?:RouletteState};
@@ -64,11 +64,17 @@ async function prepareRound(state:RouletteState){
  throw new Error('Unable to publish a future roulette launch');
 }
 
+function canonical(value:unknown):string{
+ if(value===null||typeof value!=="object")return JSON.stringify(value);
+ if(Array.isArray(value))return "["+value.map(canonical).join(",")+"]";
+ return "{"+Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>JSON.stringify(k)+":"+canonical(v)).join(",")+"}";
+}
 export async function rouletteMove(who:Identity,action:RouletteAction,round:number,requestId:string,requestAt:number){
+ const fingerprint=createHash("sha256").update(canonical({action,round,requestAt})).digest("hex");
  return (await mutate(r=>{
   register(r,who);const now=Date.now();ensure(now-requestAt>=-10_000&&now-requestAt<=120_000,'Request expired.',409);
-  const receipt=r.receipts.find(x=>x.id===requestId);if(receipt){ensure(receipt.userId===who.id,'Invalid request.',409);return;}
+  const receipt=r.receipts.find(x=>x.id===requestId);if(receipt){ensure(receipt.userId===who.id&&receipt.rouletteFingerprint===fingerprint,'Invalid request.',409);return;}
   rouletteAction(r,who,action,round,requestId,now);
-  r.receipts=[{id:requestId,userId:who.id,at:now},...r.receipts.filter(x=>x.at&&now-x.at<300_000)];
+  r.receipts=[{id:requestId,userId:who.id,at:now,rouletteFingerprint:fingerprint},...r.receipts.filter(x=>x.at&&now-x.at<300_000)];
  })).room;
 }
