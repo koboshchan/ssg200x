@@ -11,7 +11,6 @@ import {FeatureNotice} from "../../feature-gate";
 
 type Entry={id:string;amount:number;note:string;at:number;from:string;to:string;direction:string;kind?:string};
 type Resolved={name:string;publicId:string;expiresAt:number;avatar?:string|null;amount:number;note?:string};
-type Preview={previewId:string;count:number;total:number;amount:number;note?:string;expiresAt:number};
 type ReceiveCode={id:string;code:string;amount:number;note?:string;expiresAt:number};
 type Pending={key:string;requestId:string};
 
@@ -33,9 +32,8 @@ export default function Wallet(){
  const [amount,setAmount]=useState(""),[note,setNote]=useState(""),[receive,setReceive]=useState<ReceiveCode[]>([]);
  const [generateAfter,setGenerateAfter]=useState(0);
  const nextGenerate=useRef(0);
- const [airAmount,setAirAmount]=useState(""),[airNote,setAirNote]=useState(""),[preview,setPreview]=useState<Preview>();
  const [busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState(""),[now,setNow]=useState(Date.now());
- const sendRetry=useRef<Pending|null>(null),airRetry=useRef<Pending|null>(null),historyRefresh=useRef<ReturnType<typeof createTransferHistoryRefresh>|null>(null),historyKey=useRef<string|undefined>(undefined);
+ const sendRetry=useRef<Pending|null>(null),historyRefresh=useRef<ReturnType<typeof createTransferHistoryRefresh>|null>(null),historyKey=useRef<string|undefined>(undefined);
 
  const refresh=()=>historyRefresh.current?.refresh();
  async function refreshCodes(signal?:AbortSignal){
@@ -65,7 +63,6 @@ export default function Wallet(){
   try{await fn();}catch(e){setError((e as Error).message);}finally{setBusy(false);}
  }
  function editSend(){sendRetry.current=null;setRecipient(undefined);setMessage("");}
- function editAirdrop(){airRetry.current=null;setPreview(undefined);}
 
  async function generate(){
   if(Date.now()<nextGenerate.current)throw new Error("Generate one receive code per second.");
@@ -91,24 +88,9 @@ export default function Wallet(){
   await call("/api/transfers",{action:"send",code:c,recipient:recipient.publicId,requestId:sendRetry.current.requestId});
   sendRetry.current=null;setRecipient(undefined);setCode("");setMessage("Play money sent.");await refresh();
  }
- async function previewAirdrop(){
-  airRetry.current=null;
-  setPreview(await call("/api/airdrops",{action:"preview",amount:airAmount.trim(),note:airNote.trim()||undefined}));
- }
- async function confirmAirdrop(){
-  if(!preview)return;
-  const key=preview.previewId;
-  if(airRetry.current?.key!==key)airRetry.current={key,requestId:crypto.randomUUID()};
-  try{await call("/api/airdrops",{action:"confirm",previewId:preview.previewId,requestId:airRetry.current.requestId});}
-  catch(e){
-   if((e as {status?:number}).status===409){airRetry.current=null;setPreview(undefined);throw new Error("Players changed since the preview. Preview the airdrop again.");}
-   throw e;
-  }
-  airRetry.current=null;setMessage("Airdrop sent to "+preview.count+" players.");setPreview(undefined);setAirAmount("");setAirNote("");await refresh();
- }
 
  const recipientName=recipient?(room?.chatNames?.find(m=>m.publicId===recipient.publicId)?.name??recipient.name):"";
- const ready=connection==="connected",expired=Boolean(recipient&&recipient.expiresAt<=now),previewExpired=Boolean(preview&&preview.expiresAt<=now);
+ const ready=connection==="connected",expired=Boolean(recipient&&recipient.expiresAt<=now);
  const label=(t:Entry)=>t.kind==="airdrop"?(t.direction==="received"?"Airdrop":"Airdrop to "+t.to):t.direction==="sent"?"To "+t.to:t.direction==="received"?"From "+t.from:t.from+" to "+t.to;
  const {features:ft}=useFeatures();
  return <main className={styles.wallet}>
@@ -141,14 +123,7 @@ export default function Wallet(){
     </form>
    </section>:<section aria-labelledby="send-title"><h2 id="send-title">Send</h2><FeatureNotice feature="payments"/></section>}
   </div>:null}
-  {room?.me.admin&&ft.airdrops?<section className={styles.airdrop} aria-labelledby="airdrop-title"><h2 id="airdrop-title">Airdrop <span>(admin)</span></h2>
-   <p>Give every eligible player the same play money. You will see the exact player count and total before it is sent.</p>
-   <form onSubmit={e=>{e.preventDefault();void run(preview&&!previewExpired?confirmAirdrop:previewAirdrop);}}>
-    <label>Amount per player in dollars<input inputMode="decimal" autoComplete="off" value={airAmount} maxLength={32} required disabled={busy} onChange={e=>{setAirAmount(e.target.value);editAirdrop();}} placeholder="0.00" pattern={AMOUNT}/></label>
-    <label>Note <span>(optional)</span><input value={airNote} maxLength={160} disabled={busy} onChange={e=>{setAirNote(e.target.value);editAirdrop();}}/></label>
-    {preview?<p role="status">{previewExpired?"Preview expired. Preview again.":<>Send <strong>{money(preview.amount)}</strong> to <strong>{preview.count}</strong> players, <strong>{money(preview.total)}</strong> in total.{preview.note?<> Note: “{preview.note}”</>:null}</>}</p>:null}
-    <button className="primary" disabled={busy||!ready}>{busy?"Working…":preview&&!previewExpired?"Confirm airdrop of "+money(preview.total):"Preview airdrop"}</button>{preview?<button type="button" disabled={busy} onClick={editAirdrop}>Cancel</button>:null}
-   </form></section>:null}
+
   {!ready?<p role="status">Reconnect to send or receive play money.</p>:null}{error?<p role="alert" className={styles.error}>{error}</p>:null}{message?<p role="status">{message}</p>:null}
   <section className={styles.history} aria-labelledby="history-title"><div className={styles.historyHeader}><h2 id="history-title">Transfer history</h2>{room?.me.admin?<label><input type="checkbox" checked={all} onChange={e=>{setEntries([]);setAll(e.target.checked);}}/> All users</label>:null}</div><p>Most recent 100 transfers.</p>
    {entries.length?<ol>{entries.map(t=><li key={t.id}><div><strong>{label(t)}</strong><time dateTime={new Date(t.at).toISOString()}>{new Date(t.at).toLocaleString()}</time>{t.note?<p>{t.note}</p>:null}</div><span>{t.direction==="sent"?"−":t.direction==="received"?"+":""}{money(t.amount)}</span></li>)}</ol>:<p>No transfers yet.</p>}</section>
