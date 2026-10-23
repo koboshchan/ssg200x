@@ -17,3 +17,13 @@ test("deterministic multi-symbol/timeframe OHLCV supports low prices and indicat
  assert.ok(fixtureCandles("DOGE","1h")[0].close<0.0001);
  assert.throws(()=>fixtureCandles("../bad","1h"));assert.throws(()=>fixtureCandles("BTC","bad"));
 });
+
+import {fixtureMacdPrecision,fixtureChatInitiallyOpen} from "../lib/qa-fixture-display";
+test("fixture MACD retains small price differences and mobile default preserves production",()=>{
+ const p=fixtureMacdPrecision(0.00003741);
+ assert.ok(p>=10);assert.notEqual((0.0000001234).toFixed(p),"0.0000000000");
+ assert.equal(fixtureChatInitiallyOpen(true,390,"1"),false);
+ assert.equal(fixtureChatInitiallyOpen(false,390,"1"),true);
+ assert.equal(fixtureChatInitiallyOpen(false,1280,null),true);
+ assert.equal(fixtureChatInitiallyOpen(true,1280,"1"),true);
+});

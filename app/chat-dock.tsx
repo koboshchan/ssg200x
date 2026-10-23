@@ -1,5 +1,7 @@
 "use client";
 import {useCallback,useEffect,useRef,useState,useSyncExternalStore} from "react";
+import {fixtureChatInitiallyOpen} from "@/lib/qa-fixture-display";
+import {useQaFixture} from "./qa-fixture-provider";
 import {usePathname} from "next/navigation";
 import {useUser} from "@clerk/nextjs";
 import {useLive,useLiveEvent} from "./live-provider";
@@ -19,7 +21,7 @@ const idle:Snapshot={phase:"loading",error:null,words:null,messages:[],members:[
 
 export default function ChatDock(){
  const {user,isLoaded}=useUser(),live=useLive(),userId=user?.id;
- const pathname=usePathname();
+ const pathname=usePathname(),fixture=useQaFixture();
  const [pokerTableId,setPokerTableId]=useState("01");
  const chatRoom=pathname==="/poker"&&pokerTableId!=="01"?"poker-"+pokerTableId:"main";
  const [binding,setBinding]=useState<{user:string;clients:Map<string,ChatClient>}|null>(null);
@@ -55,15 +57,15 @@ export default function ChatDock(){
  useEffect(()=>{
   if(!userId)return;
   const key="tabletalk:"+userId;
-  try{const saved=localStorage.getItem(key+":open");setOpen(saved==="1"||(saved===null&&window.innerWidth>=1280));const n=Number(localStorage.getItem(key+":seen"));setSeen(n>0?n:null);}catch{setOpen(window.innerWidth>=1280);setSeen(null);}
+  try{const saved=localStorage.getItem(key+":open");setOpen(fixtureChatInitiallyOpen(fixture,window.innerWidth,saved));const n=Number(localStorage.getItem(key+":seen"));setSeen(n>0?n:null);}catch{setOpen(window.innerWidth>=1280);setSeen(null);}
   setPreferencesUser(userId);
- },[userId]);
+ },[userId,fixture]);
  useEffect(()=>{
   if(!preferencesReady||!userId)return;
-  try{localStorage.setItem("tabletalk:"+userId+":open",open?"1":"0");}catch{}
+  try{if(!fixture)localStorage.setItem("tabletalk:"+userId+":open",open?"1":"0");}catch{}
   document.documentElement.classList.toggle("chat-open",open);
   return()=>document.documentElement.classList.remove("chat-open");
- },[open,preferencesReady,userId]);
+ },[open,preferencesReady,userId,fixture]);
  useEffect(()=>{
   if(!open)return;
   const viewport=window.visualViewport;

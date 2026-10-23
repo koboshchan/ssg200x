@@ -1,4 +1,5 @@
 "use client";
+import {useQaFixture} from "./qa-fixture-provider";
 import {useEffect,useRef,useState} from "react";
 import {useUser} from "@clerk/nextjs";
 import {chartStorageKey,INDICATORS,type ChartIndicator} from "@/lib/chart-preferences";
@@ -13,6 +14,7 @@ const intervals={"1m":60000,"5m":300000,"15m":900000,"1h":3600000,"6h":21600000,
 type Row={time:number;open:number;high:number;low:number;close:number;volume?:number};
 export default function CachedChart({symbol,quote,displayContext}:{symbol:Symbol;quote?:ChartDisplayQuote;displayContext:ChartDisplayContext}){
  const {connection,subscribe,emit}=useLive(),node=useRef<HTMLDivElement>(null),[interval,setIntervalName]=useState<keyof typeof intervals>("1h"),[status,setStatus]=useState("Loading cached candles");
+ const fixtureUi=useQaFixture();
  const [fixture,setFixture]=useState(false);
  const {user,isLoaded}=useUser(),controls=useRef<ChartControls|null>(null);
  const [tool,setTool]=useState<ChartTool|null>(null),[drawingCount,setDrawingCount]=useState(0),[selected,setSelected]=useState(false),[indicators,setIndicators]=useState<ChartIndicator[]>([]),[ready,setReady]=useState(false);
@@ -29,7 +31,7 @@ export default function CachedChart({symbol,quote,displayContext}:{symbol:Symbol
  async function start(){
  const {createMarketChart}=await import("./market-chart-engine");if(closed||!node.current)return;
  const period={type:interval.endsWith("m")?"minute":interval.endsWith("h")?"hour":"day",span:parseInt(interval)} as const;
- chart=createMarketChart(node.current,{symbol,period,storeKey,initialPrice:latest.current?latest.current.micro/1e6:chartCache.get(cacheKey)?.rows.at(-1)?.close,onTool:setTool,onCount:setDrawingCount,onSelected:setSelected,onIndicators:setIndicators});
+ chart=createMarketChart(node.current,{fixtureDemo:fixtureUi,symbol,period,storeKey,initialPrice:latest.current?latest.current.micro/1e6:chartCache.get(cacheKey)?.rows.at(-1)?.close,onTool:setTool,onCount:setDrawingCount,onSelected:setSelected,onIndicators:setIndicators});
  controls.current=chart;setReady(true);
  const fixtureResponse=await fetch("/api/qa-chart-fixture?"+new URLSearchParams({symbol,granularity:interval}),{signal:controller.signal,cache:"no-store"});
  if(closed)return;

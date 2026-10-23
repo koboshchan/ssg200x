@@ -1,5 +1,6 @@
 // This module is dynamically imported after mount. Never import it from server code.
 import {init, dispose, registerOverlay, type Chart, type Coordinate, type KLineData, type OverlayCreate, type Period} from "klinecharts";
+import {fixtureMacdPrecision} from "@/lib/qa-fixture-display";
 import {pricePrecision} from "@/lib/price-display";
 import {readChartPreferences, writeChartPreferences, type ChartIndicator, type DrawingName} from "@/lib/chart-preferences";
 import type {CandleRow} from "@/lib/client-market-cache";
@@ -25,7 +26,7 @@ registerOverlay({
  },
 });
 export function createMarketChart(el: HTMLElement, options: {
- symbol: string; period: Period; storeKey: string | null; initialPrice?: number;
+ fixtureDemo?: boolean; symbol: string; period: Period; storeKey: string | null; initialPrice?: number;
  onTool: (tool: ChartTool | null) => void; onCount: (count: number) => void;
  onSelected: (selected: boolean) => void; onIndicators: (indicators: ChartIndicator[]) => void;
 }): ChartControls {
@@ -104,7 +105,7 @@ export function createMarketChart(el: HTMLElement, options: {
   for (const name of indicators) if (!existing.has(name)) {
    const main = ["MA","EMA","BOLL"].includes(name);
    const calcParams = name === "MA" ? [20] : name === "EMA" ? [50] : name === "RSI" ? [14] : undefined;
-   c.createIndicator({name, ...(main ? {paneId: "candle_pane"} : {}), ...(calcParams ? {calcParams} : {})}, main);
+   c.createIndicator({name, ...(options.fixtureDemo&&name==="MACD"?{precision:fixtureMacdPrecision(rows.at(-1)?.close??options.initialPrice??0)}:{}), ...(main ? {paneId: "candle_pane"} : {}), ...(calcParams ? {calcParams} : {})}, main);
   }
   prefs.indicators = indicators;
   writeChartPreferences(options.storeKey, prefs);
@@ -124,7 +125,7 @@ export function createMarketChart(el: HTMLElement, options: {
  function reload(view: ReturnType<typeof viewport>, next: number) {
   // setSymbol itself resets the loader in v10. Never reset twice or send the
   // same live point again after a reload. Both datasets must stay at 301 bars.
-  if (next !== precision) {precision = next; c.setSymbol(symbolInfo());}
+  if (next !== precision) {precision = next; c.setSymbol(symbolInfo());if(options.fixtureDemo)c.overrideIndicator({name:"MACD",precision:fixtureMacdPrecision(rows.at(-1)?.close??options.initialPrice??0)});}
   else c.resetData();
   if (!view.following && view.timestamp !== undefined && view.x !== undefined) {
    const x = (c.convertToPixel({timestamp: view.timestamp}) as Partial<Coordinate>).x;

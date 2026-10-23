@@ -1,4 +1,5 @@
 "use client";
+import {useQaFixture} from "./qa-fixture-provider";
 import {useRelease} from "./release-provider";
 import {RELEASE_EVENT} from "../runtime/release.mjs";
 import {attachSocketAuthClient} from "../runtime/socket-auth.mjs";
@@ -108,7 +109,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
  const value=useMemo<Live>(()=>({connection,maintenance,lastMessageAt,...api}),[connection,maintenance,lastMessageAt,api]);
  return <Context.Provider value={value}>{children}<AirdropAnnouncement subscribe={api.subscribe}/><AdvancementAnnouncement subscribe={api.subscribe}/><FlagGated k="checkIn"><CheckInBanner/></FlagGated><PaymentAnnouncement subscribe={api.subscribe}/>{tabBlocked?<TabBlockedOverlay/>:null}</Context.Provider>;
 }
-export function ConnectionBadge(){const {connection}=useLive();return <p className="connection-status" role="status" data-state={connection}>{connection==="connected"?"Live":connection==="connecting"?"Connecting…":"Disconnected. Trading is paused until the connection returns."}</p>;}
+export function ConnectionBadge(){const fixture=useQaFixture();const {connection}=useLive();return <p className="connection-status" role="status" data-state={fixture?"fixture":connection}>{fixture?"DEMO FIXTURE — NOT LIVE":connection==="connected"?"Live":connection==="connecting"?"Connecting…":"Disconnected. Trading is paused until the connection returns."}</p>;}
 
 function TabBlockedOverlay(){
  const dialogRef=useRef<HTMLDialogElement>(null);
