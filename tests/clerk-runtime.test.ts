@@ -45,7 +45,7 @@ test("internal live bypass never needs Clerk keys",()=>withEnv({},async()=>{
 }));
 test("no source reads a build-time NEXT_PUBLIC Clerk key and every Clerk entry point uses runtime options",()=>{
  const files:string[]=[];
- const walk=(dir:string)=>{for(const name of readdirSync(dir)){if(["node_modules",".next",".git","tests","docs"].includes(name))continue;const p=join(dir,name);statSync(p).isDirectory()?walk(p):/\.(m?[jt]sx?|ya?ml|json)$/.test(name)&&!name.startsWith("package-lock")&&files.push(p);}};
+ const walk=(dir:string)=>{for(const name of readdirSync(dir)){if(["node_modules",".next",".git","tests","docs","dist","client-dist"].includes(name))continue;const p=join(dir,name);statSync(p).isDirectory()?walk(p):/\.(m?[jt]sx?|ya?ml|json)$/.test(name)&&!name.startsWith("package-lock")&&files.push(p);}};
  walk(".");walk(".github");
  const offenders=files.filter(f=>/NEXT_PUBLIC_CLERK/.test(readFileSync(f,"utf8").replace(/"NEXT_PUBLIC_"\+"CLERK_PUBLISHABLE_KEY"/g,"")));
  assert.deepEqual(offenders,[]);
