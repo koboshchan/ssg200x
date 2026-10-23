@@ -283,3 +283,9 @@ html:has(.chat-toggle) body{height:calc(100dvh - 46px - env(safe-area-inset-bott
 .feature-notice{margin:0 0 16px;padding:10px 14px;border:1px solid var(--line,rgba(255,255,255,.18));border-radius:8px;font-size:.9rem}
 .feature-disabled{text-align:center;padding:64px 16px}
 .feature-disabled [role=status]{font-size:1.1rem;opacity:.85}
+
+/* Isolated fixture demos reserve layout space even while mobile chat is open. */
+@media(max-width:899px){
+ body[data-qa-chart-fixture="true"] .chat-dock{position:relative!important;top:auto!important;bottom:auto!important;height:min(55dvh,520px)!important;width:100%;z-index:auto}
+ html.chat-open:has(body[data-qa-chart-fixture="true"]),html.chat-open body[data-qa-chart-fixture="true"]{overflow:auto}
+}

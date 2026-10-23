@@ -27,3 +27,13 @@ test("fixture MACD retains small price differences and mobile default preserves 
  assert.equal(fixtureChatInitiallyOpen(false,1280,null),true);
  assert.equal(fixtureChatInitiallyOpen(true,1280,"1"),true);
 });
+
+test("fixture labels and chat layout remain gated on server fixture mode",async()=>{
+ const fs=await import("node:fs/promises");
+ const badge=await fs.readFile("app/live-provider.tsx","utf8");
+ assert.ok(badge.includes('fixture?"DEMO FIXTURE — NOT LIVE"'));
+ const css=await fs.readFile("app/globals.css","utf8");
+ assert.ok(css.includes('body[data-qa-chart-fixture="true"] .chat-dock{position:relative!important'));
+ const layout=await fs.readFile("app/layout.tsx","utf8");
+ assert.ok(layout.includes('data-qa-chart-fixture={fixtureMode()?"true":undefined}'));
+});
