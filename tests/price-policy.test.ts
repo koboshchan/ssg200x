@@ -20,7 +20,7 @@ test("v2 rates cannot construct executable marks; no receipt clock or HTTP heade
  assert.doesNotMatch(policy,/decodeRates|rates|Date\.now/);
  assert.match(source,/No executable REST fallback/);
 });
-for(const age of [15000,15001])test("manual open/close, liquidation and TP/SL agree at provider age "+age,()=>{
+for(const age of [10000,10001])test("manual open/close, liquidation and TP/SL agree at provider age "+age,()=>{
  const at=100000,now=at+age;
  for(const operation of ["open","close","liquidate","tp","sl"]){
   const r=setup(at);r.cryptoStatus={...r.cryptoStatus!,leaseUntil:at+60000};
@@ -29,11 +29,11 @@ for(const age of [15000,15001])test("manual open/close, liquidation and TP/SL ag
   r.quotes!.BTC={cryptoGeneration:"fixture",micro:price,at};
   if(operation==="open"||operation==="close"){
    const fn=()=>operation==="open"?openPosition(r,who,"BTC","long",10000,5,"new",now):closePosition(r,who,"p",now);
-   if(age===15000){assert.equal(requireQuote(r,"BTC",now),price);assert.doesNotThrow(fn);}
+   if(age===10000){assert.equal(requireQuote(r,"BTC",now),price);assert.doesNotThrow(fn);}
    else {const before=structuredClone(r);assert.throws(fn,/stream unavailable/);assert.deepEqual(r,before);}
   }else{
    const before=structuredClone(r);if(operation==="liquidate")liquidate(r,now);else settleTriggers(r,now);
-   if(age===15000)assert.equal(r.members[0].positions!.length,0);else assert.deepEqual(r,before);
+   if(age===10000)assert.equal(r.members[0].positions!.length,0);else assert.deepEqual(r,before);
   }
  }
 });

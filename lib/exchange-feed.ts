@@ -24,9 +24,10 @@ export class ExchangeFeed {
  private retryAt=0;
  private attempts=0;
  private lastMessage=0;
+ private lastHeartbeat=0;
  private heartbeatSubscribed=false;
  private generation=randomUUID();
- health(leaseUntil:number):CryptoStatus{return {connected:this.connected&&!this.stopped,heartbeatSubscribed:this.heartbeatSubscribed,generation:this.generation,lastMessage:this.lastMessage,leaseUntil};}
+ health(leaseUntil:number):CryptoStatus{return {connected:this.connected&&!this.stopped,heartbeatSubscribed:this.heartbeatSubscribed,generation:this.generation,lastMessage:this.lastHeartbeat,leaseUntil};}
  private unknown=new Set<string>();
  private seen=new Map<string,{sequence:number;at:number}>();
  private startedAt:number;
@@ -40,7 +41,7 @@ export class ExchangeFeed {
  step(){
   if(this.stopped)return;
   this.sync();
-  if(this.socket && this.now()-this.lastMessage>CRYPTO_HEALTH_MS){this.disconnect("stalled");}
+  if(this.socket && this.now()-(this.lastHeartbeat||this.lastMessage)>CRYPTO_HEALTH_MS){this.disconnect("stalled");}
   if(!this.socket&&this.now()>=this.retryAt)this.connect();
  }
  private disconnect(reason:string){
@@ -50,7 +51,7 @@ export class ExchangeFeed {
   this.log("Coinbase feed "+reason);
  }
  private connect(){
-  this.lastMessage=this.now();this.generation=randomUUID();this.heartbeatSubscribed=false;this.seen.clear();
+  this.lastMessage=this.now();this.generation=randomUUID();this.lastHeartbeat=0;this.heartbeatSubscribed=false;this.seen.clear();
   try{
    const ws=this.deps.socket();this.socket=ws;
    ws.onopen=()=>{if(this.socket!==ws)return;this.subscribed=[];this.sync();};
@@ -81,7 +82,7 @@ export class ExchangeFeed {
   }
   const at=typeof m.time==="string"?Date.parse(m.time):NaN;
   if(!Number.isSafeInteger(at)||at>this.now()+FUTURE_SKEW_MS||this.now()-at>STALE_MS)return;
-  if(m.type==="heartbeat"){this.lastMessage=this.now();return;} // Heartbeats keep quiet-symbol prices executable, without rewriting quote timestamps.
+  if(m.type==="heartbeat"){this.lastHeartbeat=this.now();this.lastMessage=this.now();return;} // Heartbeats keep quiet-symbol prices executable, without rewriting quote timestamps.
   const sequence=m.sequence,price=typeof m.price==="string"&&m.price.trim()?Number(m.price):NaN,micro=Math.round(price*1e6);
   if(!Number.isSafeInteger(sequence)||Number(sequence)<0||!Number.isFinite(price)||price<=0||!Number.isSafeInteger(micro)||micro<=0||micro>1e13)return;
   const previous=this.seen.get(symbol);

@@ -6,6 +6,6 @@ export * from "../../lib/poker";
 export function freshRoom(){
  const room=baseRoom();
  const at=()=>Math.max(0,...Object.values(room.quotes??{}).map(q=>q?.at??0));
- room.cryptoStatus={connected:true,heartbeatSubscribed:true,generation:"fixture",get lastMessage(){return at();},get leaseUntil(){return at()+15000;}};
+ room.cryptoStatus={connected:true,heartbeatSubscribed:true,generation:"fixture",get lastMessage(){return at();},get leaseUntil(){return at()+10001;}};
  return room;
 }

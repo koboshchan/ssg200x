@@ -39,7 +39,7 @@ test("closed session and mismatched provider price still deny",()=>{
 });
 test("crypto uses shared heartbeat health rather than a 10s per-symbol deadline",()=>{
  const r=freshRoom();r.quotes={BTC:{cryptoGeneration:"fixture",micro:100e6,at:now-10000}};
- assert.equal(requireQuote(r,"BTC",now),100e6);assert.equal(requireQuote(r,"BTC",now+1),100e6);assert.throws(()=>requireQuote(r,"BTC",now+5000));
+ assert.equal(requireQuote(r,"BTC",now),100e6);assert.throws(()=>requireQuote(r,"BTC",now+1));
 });
 
 test("socket and HTTP stock statuses share the receipt-bounded 60s deadline",async()=>{

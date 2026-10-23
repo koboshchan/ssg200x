@@ -21,7 +21,7 @@ test("unhealthy stream, subscription, expired lease and old generation deny exec
 });
 test("health boundary remains strict even when worker stops publishing",()=>{
  const r=roomAt();r.cryptoStatus!.leaseUntil+=60000;
- assert(cryptoExecutable(r.cryptoStatus,r.quotes!.BTC,115000));assert(!cryptoExecutable(r.cryptoStatus,r.quotes!.BTC,115001));assert(!cryptoExecutable(undefined,r.quotes!.BTC,100000));
+ assert(cryptoExecutable(r.cryptoStatus,r.quotes!.BTC,110000));assert(!cryptoExecutable(r.cryptoStatus,r.quotes!.BTC,110001));assert(!cryptoExecutable(undefined,r.quotes!.BTC,100000));
 });
 test("Coinbase subscriptions plus heartbeats preserve quiet quotes, disconnect and reconnect revoke them",async()=>{
  let now=100000;const sockets:any[]=[],ticks:any[]=[];
@@ -32,4 +32,12 @@ test("Coinbase subscriptions plus heartbeats preserve quiet quotes, disconnect a
  assert(cryptoExecutable(feed.health(now+15000),ticks[0],now));sockets[0].onclose();assert(!cryptoExecutable(feed.health(now+15000),ticks[0],now));
  now+=500;feed.step();sockets[1].onopen();subscription();frame("heartbeat");assert(!cryptoExecutable(feed.health(now+15000),ticks[0],now));
  now+=CRYPTO_HEALTH_MS+1;feed.step();assert.equal(sockets[1].readyState,3);feed.stop();
+});
+test("ticker traffic cannot renew the ten-second heartbeat execution window",async()=>{
+ let now=100000;let ws:any;const ticks:any[]=[];
+ const feed=new ExchangeFeed({symbols:()=>["NEAR"],now:()=>now,socket:()=>ws={readyState:1,onopen:null,onmessage:null,onerror:null,onclose:null,send(){},close(){ws.readyState=3;}},apply:async t=>{ticks.push(...t);}});
+ feed.step();ws.onopen();feed.receive(JSON.stringify({type:"subscriptions",channels:[{name:"ticker",product_ids:["NEAR-USD"]},{name:"heartbeat",product_ids:["NEAR-USD"]}]}));
+ feed.receive(JSON.stringify({type:"heartbeat",product_id:"NEAR-USD",time:new Date(now).toISOString()}));
+ for(let sequence=1;sequence<=11;sequence++){now+=1000;feed.receive(JSON.stringify({type:"ticker",product_id:"NEAR-USD",time:new Date(now).toISOString(),price:"2",sequence}));await new Promise(r=>setImmediate(r));}
+ assert.equal(CRYPTO_HEALTH_MS,10000);assert(!cryptoExecutable(feed.health(now+15000),ticks.at(-1),now));feed.step();assert.equal(ws.readyState,3);feed.stop();
 });
