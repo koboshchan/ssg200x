@@ -13,7 +13,8 @@ test("client entry modules cannot fetch Coinbase, Binance or external chart data
 });
 test("chart uses bundled renderer with same-origin cached candle API and server supplied quotes",()=>{
  const source=readFileSync("app/cached-chart.tsx","utf8");
- assert.match(source,/import\("lightweight-charts"\)/);
+ assert.match(source,/import\("\.\/market-chart-engine"\)/);
+ assert.match(readFileSync("app/market-chart-engine.ts","utf8"),/from "klinecharts"/);
  assert.match(source,/fetch\("\/api\/candles\?/);
  assert.match(source,/useLive/);
  assert.doesNotMatch(source,/createElement\(["']script|<iframe|<script|datafeed|new WebSocket/);

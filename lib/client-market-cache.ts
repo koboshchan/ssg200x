@@ -1,4 +1,4 @@
-export type CandleRow={time:number;open:number;high:number;low:number;close:number};
+export type CandleRow={time:number;open:number;high:number;low:number;close:number;volume?:number};
 /** Session-memory LRU. Public prices only, bounded by selections and rows. */
 export function createChartCache(maxEntries=24,maxRows=301,ttl=5000){
  const entries=new Map<string,{rows:CandleRow[];checkedAt:number}>();

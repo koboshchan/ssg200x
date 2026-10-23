@@ -1,4 +1,5 @@
 "use client";
+import {formatMarketPrice} from "@/lib/price-display";
 import {useEffect,useMemo,useState} from "react";
 import {createPortal} from "react-dom";
 import type {MarketSummary} from "@/lib/market-summary";
@@ -10,7 +11,7 @@ export const fxRate=(micro:number,pair:string)=>{const d=pair.endsWith("/JPY")?3
 export const isForexPair=(s:string)=>/^[A-Z]{3}\/[A-Z]{3}$/.test(s);
 const rate=(m:number)=>new Intl.NumberFormat("en-US",{minimumFractionDigits:4,maximumFractionDigits:4}).format(m/1e6);
 type Props={symbol:string|null;symbols:MarketSymbols;quotes:Record<string,Quote|undefined>;changes?:Record<string,number|null|undefined>;summary?:MarketSummary;forexMock?:boolean;onSelect:(s:string)=>void};
-const price=(m:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}).format(m/1e6);
+const price=(m:number)=>formatMarketPrice(m/1e6);
 function Change({v}:{v:number|null|undefined}){
  if(v==null||!Number.isFinite(v))return <span className={styles.na} title="Change since first live quote today (UTC). Unavailable.">n/a</span>;
  return <span title="Change since first live quote today (UTC)" className={v>=0?styles.up:styles.down}>{(v>=0?"+":"")+v.toFixed(2)}%</span>;

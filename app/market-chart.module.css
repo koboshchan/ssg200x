@@ -1,0 +1,5 @@
+.tools,.indicators{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;min-width:0}
+.tools button,.indicators button{min-height:40px;padding:8px 11px;font-size:12px;touch-action:manipulation}
+.tools button[aria-pressed=true],.indicators button[aria-pressed=true]{background:var(--blue);color:var(--surface)}
+.canvas{background:var(--surface);touch-action:none}
+@media(max-width:560px){.tools button,.indicators button{min-height:44px}.canvas{height:420px}}

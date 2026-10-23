@@ -24,9 +24,12 @@ test("chart grid item can shrink below a previously rendered desktop canvas widt
 });
 
 test("chart keeps native resize observation and wraps controls on narrow viewports",()=>{
- assert.match(chart,/createChart\(node\.current,\{autoSize:true/);
+ assert.match(chart,/createMarketChart\(node\.current/);
+ const engine=readFileSync("app/market-chart-engine.ts","utf8");
+ assert.match(engine,/dispose\(el\)/);
+ assert.match(readFileSync("node_modules/klinecharts/dist/index.esm.js","utf8"),/this\._resizeObserver\.observe\(this\._chartContainer\)/);
  assert.equal(declarations(".cached-chart .symbol-tabs")["flex-wrap"],"wrap");
- assert.match(chart,/chart\?\.remove\(\)/,"remove also disconnects the chart's ResizeObserver");
+ assert.match(chart,/chart\?\.destroy\(\)/,"destroy also disconnects the chart's native ResizeObserver");
 });
 
 test("global table margin does not leak into the chart library's internal table",()=>{

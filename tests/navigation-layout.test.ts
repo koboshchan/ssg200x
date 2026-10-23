@@ -14,7 +14,7 @@ test("internal navigation uses the Next router while external chart attribution 
  assert.match(client,/<Link className="gear" href="\/settings"/);
  assert.doesNotMatch(client,/<a\s/);
  for(const path of ["privacy","terms"])assert.match(read(`app/${path}/page.tsx`),/<Link href="\/">/);
- assert.match(read("app/cached-chart.tsx"),/<a href="https:\/\/www.tradingview.com\/" target="_blank" rel="noopener noreferrer"/);
+ assert.match(read("app/cached-chart.tsx"),/<a href="https:\/\/klinecharts.com\/" target="_blank" rel="noopener noreferrer"/);
 });
 test("authenticated account boundary resets socket and chat but is never keyed by pathname",()=>{
  const client=read("app/room-client.tsx");

@@ -1,4 +1,5 @@
 "use client";
+import {formatMarketPrice} from "@/lib/price-display";
 import {cryptoExecutable} from "../lib/crypto-policy";
 import {useFeatures} from "./use-features";
 import {visibleMarketSymbols} from "@/lib/visible-markets";
@@ -18,7 +19,7 @@ import Chart from "./cached-chart";
 import type {PublicRoom} from "@/lib/public";
 import {RED,type Bet} from "@/lib/market-shared";
 const money=(c:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:2}).format(c/100);
-const price=(micro:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}).format(micro/1e6);
+const price=(micro:number)=>formatMarketPrice(micro/1e6);
 import {pnlTriggerPrice} from "@/lib/trigger-input";
 const usd=(c:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2}).format(c/100);
 type Basis={entry:number;margin:number;leverage:number;side:"long"|"short"};

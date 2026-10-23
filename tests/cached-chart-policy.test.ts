@@ -47,7 +47,7 @@ test('chart keeps monotonic tick guard and original timestamp; caller supplies m
  const chart=readFileSync('app/cached-chart.tsx','utf8');
  assert.match(chart,/chartDisplayQuote\(q,display\.current,Date\.now\(\)\)/);
  assert.match(chart,/q\.at<lastAt/);
- assert.match(chart,/tickCandle\(live\.get\(time\),q,width\)/);
+ assert.match(chart,/tickCandle\(live\.get\(time\)\?\?chartCache\.get\(cacheKey\)\?\.rows\.find\(row=>row\.time===time\),q,width\)/);
  assert.doesNotMatch(chart,/at:\s*Date\.now\(/);
  assert.match(readFileSync('app/finance-client.tsx','utf8'),/displayContext=/);
 });
