@@ -43,7 +43,7 @@ export function stockExecutable(r:Room,symbol:string,now=Date.now()){
 }
 export function requireQuote(r:Room,symbol:Symbol,now=Date.now()){
  ensure(!forexSymbol(symbol,r)||stockExecutable(r,symbol,now),"Forex paused: fresh live stream and USD conversion required.",503);
- ensure(stockExecutable(r,symbol,now),"Market closed or verified live stream unavailable.",503);
+ ensure(stockExecutable(r,symbol,now),stockSymbol(symbol,r)?"Stock market closed or verified live state unavailable.":"Crypto live stream unavailable. Trading is paused.",503);
  const q=r.quotes?.[symbol];ensure(q&&Number.isSafeInteger(q.micro)&&q.micro>0&&(!stockSymbol(symbol,r)||quoteFresh(q.at,now,true)),"Live price unavailable. Trading is paused.",503);return q.micro;
 }
 /** Only server-persisted USD quote cache is a settlement source, never USDT candles.

@@ -23,7 +23,7 @@ test("subcent holding is retained unchanged instead of destroyed or paid a free 
 test("stale/future quote, closed stock, non-owner and host limit fail without mutations",()=>{
  for(const kind of ["stale","future","stock","owner","limit"]){
   const r=setup();let actor=who,symbol="BTC",now=1000;
-  if(kind==="stale")now=11001;
+  if(kind==="stale")now=16001;
   if(kind==="future")r.quotes!.BTC!.at=1001;
   if(kind==="stock"){r.members[0].holdings![0].symbol="AAPL";r.quotes!.AAPL={cryptoGeneration:"fixture",micro:200_000_000,at:1000};symbol="AAPL";}
   if(kind==="owner")actor={...who,id:"other"};
