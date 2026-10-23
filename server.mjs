@@ -1,3 +1,5 @@
+import {assertIsolatedQa} from "./runtime/isolated-qa.mjs";
+assertIsolatedQa();
 import {broadcastFeatureState} from "./runtime/feature-broadcast.mjs";
 import {getFeatureSettings} from "./runtime/feature-settings.mjs";
 import {attachFeatureSocket} from "./runtime/feature-sockets.mjs";

@@ -1,3 +1,4 @@
+import {assertIsolatedQa} from "../runtime/isolated-qa.mjs";
 import {forexLiveConfigured,forexMonotonic,forexClockDomain} from "./forex-config";
 import {quoteFresh} from "./price-policy";
 import {forexMarketOpen,forexDecision} from "./forex-policy";
@@ -12,16 +13,24 @@ export type Granularity = keyof typeof GRANULARITIES;
 export type Candle = { symbol: string; granularity: Granularity; time: number; open: number; high: number; low: number; close: number; volume: number; source: "binance" | "coinbase" | "alpaca-iex" | "oanda"; quoteCurrency: "USDT" | "USD"; firstAt: number; lastAt: number };
 type StoredCandle = Candle & { _id: string };
 let indexes: Promise<unknown> | undefined;
+// Exact comma-separated collection names, evaluated per call for isolated QA.
+function candlesProtected() {
+ assertIsolatedQa();
+ return (process.env.QA_PROTECTED_COLLECTIONS??"").split(",").some(name=>name.trim()==="candles");
+}
 async function collections() {
  const candles = (await db()).collection<StoredCandle>("candles");
+ if(!candlesProtected()) {
  indexes ??= candles.createIndex({symbol:1,granularity:1,time:1},{unique:true}).catch(e=>{indexes=undefined;throw e;});
  await indexes;
+ }
  return {candles};
 }
 function validateSymbol(symbol: string, room:import("./types").Room) { if (!activeSymbol(symbol,room)) throw new Error("Unsupported symbol"); }
 function validateGranularity(g: string): asserts g is Granularity { if (!Object.hasOwn(GRANULARITIES,g)) throw new Error("Unsupported candle granularity"); }
 function key(c: Pick<Candle,"symbol"|"granularity"|"time">) { return `${c.symbol}:${c.granularity}:${c.time}`; }
 export async function candleRead(symbol: string, granularity: string, from: number, to: number, limit=1000): Promise<Candle[]> {
+ assertIsolatedQa();
  const room=await readRoom();
  if(!delistedSymbol(symbol,room))validateSymbol(symbol,room);validateGranularity(granularity);
  if(!Number.isFinite(from)||!Number.isFinite(to)||from>to||!Number.isFinite(limit)||limit<1)throw new Error("Invalid candle range");
@@ -35,6 +44,7 @@ type QuoteSnapshot = Partial<Record<string,{micro:number;at:number}>>;
  * Array entries are processed in arrival order, including equal-time closes.
  */
 export async function candleUpdate(quotes: QuoteSnapshot | readonly QuoteSnapshot[], stockSession?:ClientSession) {
+ if(candlesProtected())return;
  const {candles}=await collections();
  const room=stockSession?await (await db()).collection<import("./types").Room>("rooms").findOne({_id:"main"},{session:stockSession}):await readRoom();
  if(!room)throw new Error("Room unavailable");const config=marketSymbols(room);
