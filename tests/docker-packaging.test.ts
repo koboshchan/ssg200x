@@ -28,7 +28,7 @@ test('prebuilt image installs locked production dependencies before traced Next 
  for(const name of ['Dockerfile','Dockerfile.prebuilt'])assert.match(readFileSync(name,'utf8'),/CMD \["node","dist\/server.mjs"\]/);
 });
 test('custom server bundle includes pure JS dependencies and inventories every external',async()=>{
- const {bundleServer,optionalExternals}=await import('../scripts/bundle-server.mjs');
+ const {bundleServer,optionalExternals}=await import(new URL('../scripts/bundle-server.mjs',import.meta.url).href);
  const result=await bundleServer();
  assert.deepEqual(Object.keys(result.metafile.outputs),['dist/server.mjs']);
  const names=Object.keys(result.metafile.inputs);
