@@ -13,3 +13,6 @@
 !dist/**
 !client-dist
 !client-dist/**
+!runtime
+!runtime/feature-confirmation.mjs
+!runtime/feature-catalog.mjs

@@ -48,3 +48,18 @@ test('prebuilt revision proof survives the strict context allowlist',()=>{
  assert.match(dockerfile,/COPY --chown=node:node \.next\/GIT_COMMIT \.\/\.next\/GIT_COMMIT/);
  assert.ok(dockerfile.indexOf('.next/GIT_COMMIT')>dockerfile.indexOf('COPY --chown=node:node .next/standalone'));
 });
+
+test('deployment flag helper and complete relative import closure ship in both images',()=>{
+ const files=['runtime/feature-confirmation.mjs','runtime/feature-catalog.mjs'];
+ const allowlist=readFileSync('Dockerfile.prebuilt.dockerignore','utf8').split(/\r?\n/);
+ for(const file of files){
+  assert.ok(allowlist.includes('!'+file));
+  for(const dockerfile of ['Dockerfile','Dockerfile.prebuilt']){
+   const text=readFileSync(dockerfile,'utf8');
+   assert.ok(text.split('\n').some(line=>line.startsWith('COPY ')&&line.endsWith(file+' ./'+file)),dockerfile+' must explicitly copy '+file);
+  }
+ }
+ const helper=readFileSync(files[0],'utf8');
+ assert.deepEqual([...helper.matchAll(/from ['"]([^'"]+)['"]/g)].map(m=>m[1]),['./feature-catalog.mjs']);
+ assert.doesNotMatch(readFileSync(files[1],'utf8'),/\b(?:import|require)\s*[(]/);
+});

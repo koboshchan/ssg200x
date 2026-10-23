@@ -26,6 +26,9 @@ COPY --from=builder --chown=node:node /app/.next/static ./.next/static
 COPY --from=builder --chown=node:node /app/public ./public
 COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/client-dist ./client-dist
+# Deployment flag activation imports this helper; its sole transitive source import is feature-catalog.
+COPY --from=builder --chown=node:node /app/runtime/feature-confirmation.mjs ./runtime/feature-confirmation.mjs
+COPY --from=builder --chown=node:node /app/runtime/feature-catalog.mjs ./runtime/feature-catalog.mjs
 USER node
 EXPOSE 3000
 CMD ["node","dist/server.mjs"]

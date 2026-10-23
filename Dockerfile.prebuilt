@@ -14,6 +14,9 @@ COPY --chown=node:node .next/static ./.next/static
 COPY --chown=node:node public ./public
 COPY --chown=node:node dist ./dist
 COPY --chown=node:node client-dist ./client-dist
+# Deployment flag activation imports this helper; its sole transitive source import is feature-catalog.
+COPY --chown=node:node runtime/feature-confirmation.mjs ./runtime/feature-confirmation.mjs
+COPY --chown=node:node runtime/feature-catalog.mjs ./runtime/feature-catalog.mjs
 USER node
 EXPOSE 3000
 CMD ["node","dist/server.mjs"]
