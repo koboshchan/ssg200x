@@ -1,3 +1,4 @@
+import {assertIsolatedQa} from "../runtime/isolated-qa.mjs";
 import {getFeatureSettings,type FeatureSettings} from "../runtime/feature-settings.mjs";
 import {ForexIsolation,forexStreamOptions} from "./forex-isolation";
 import {forexObserver} from "./forex-observation";
@@ -36,6 +37,7 @@ export async function persistExchangeTicks(ticks:Tick[],health?:import("./crypto
  await candleUpdate(ticks.filter(t=>quoteFresh(t.at,Date.now())).map(tick=>({[tick.symbol]:{micro:tick.micro,at:tick.at}})));
 }
 export function startPriceWorker(){
+ if(process.env.SSG_ISOLATED_QA!==undefined) { assertIsolatedQa(); throw new Error("External feed workers disabled in isolated QA."); }
  if(globalWorker.exchangePriceWorker)return globalWorker.exchangePriceWorker;
  const owner=randomUUID();
  let running=false,leaseUntil=0,stopped=false;

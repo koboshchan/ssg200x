@@ -121,6 +121,7 @@ const polyStream=createPolymarketStream({enabled:()=>process.env.SSG_ISOLATED_QA
 featureSettings.subscribe(()=>{polyStream.syncEnabled();broadcastFeatureState(io,featureSettings);});
 const polyMetadata=new Map();
 async function resolvePolyMarket(id){
+ if(process.env.SSG_ISOLATED_QA==="1")throw new Error("External prediction feeds disabled in isolated QA.");
  let old=polyMetadata.get(id);if(old?.until>Date.now())return old.value;if(old?.pending)return old.pending;
  if([...polyMetadata.values()].filter(x=>x.pending).length>=32)throw new Error('Busy');
  if(polyMetadata.size>=512)for(const [key,value]of polyMetadata)if(!value.pending){polyMetadata.delete(key);break;}

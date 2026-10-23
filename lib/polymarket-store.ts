@@ -1,3 +1,4 @@
+import {assertIsolatedQa} from "../runtime/isolated-qa.mjs";
 import {mutate} from "./store";
 import {readRoom} from "./db";
 import {ensure} from "./errors";
@@ -20,6 +21,7 @@ export async function polymarketTrade(who:Identity,input:PolyTrade){
 }
 let cursor=0;
 export async function tickPolymarket(){
+ if(process.env.SSG_ISOLATED_QA!==undefined) { assertIsolatedQa(); throw new Error("External feed workers disabled in isolated QA."); }
  const r=await readRoom(),ids=[...new Set((r.polymarket?.positions??[]).map(p=>p.marketId))].sort();
  if(!ids.length){await syncPolymarketPins().catch(()=>{});return;}
  const batch=Array.from({length:Math.min(20,ids.length)},(_,i)=>ids[(cursor+i)%ids.length]);cursor=(cursor+batch.length)%ids.length;
@@ -32,6 +34,7 @@ export async function tickPolymarket(){
 }
 const workers=globalThis as typeof globalThis&{__polymarketWorker?:ReturnType<typeof setInterval>};
 export function startPolymarketWorker(){
+ if(process.env.SSG_ISOLATED_QA!==undefined) { assertIsolatedQa(); throw new Error("External feed workers disabled in isolated QA."); }
  if(workers.__polymarketWorker||!process.env.MONGODB_URI)return;
  let busy=false;
  const run=async()=>{if(busy)return;busy=true;try{await tickPolymarket();}catch{console.warn("Prediction settlement temporarily unavailable.");}finally{busy=false;}};
