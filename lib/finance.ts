@@ -1,9 +1,11 @@
+import {pnl,liqPrice,liquidatable,netPnl,equity} from "../runtime/market-valuation.mjs";
+export {pnl,liqPrice,liquidatable,netPnl,equity} from "../runtime/market-valuation.mjs";
 import {cryptoExecutable} from "./crypto-policy";
 import {forexLiveConfigured,forexMonotonic,forexClockDomain} from "./forex-config";
 import {forexDecision} from "./forex-policy";
 import {forexSymbol} from "./symbol-registry";
 import {quoteFresh} from "./price-policy";
-import {roomFeeRates,positionFeeRates,closingFeeMode,closingFeeReserve,closingFeeCents} from "../runtime/perp-fee-policy.mjs";
+import {roomFeeRates,positionFeeRates,closingFeeMode,closingFeeCents} from "../runtime/perp-fee-policy.mjs";
 import {openingFeeCents} from "./perp-fees";
 import {casinoLimits,CASINO_LIMIT_MAX_CENTS} from "./casino-limits";
 import {marketSymbols,activeSymbol,delistedSymbol,stockSymbol} from "./symbol-registry";
@@ -27,11 +29,6 @@ export type Spin={id:string;number:number;stake:number;returned:number;at:number
 export function portfolio(m:Member){m.holdings??=[];m.positions??=[];m.spins??=[];m.closedPositions??=[];return m;}
 export function value(units:number,micro:number){return Number(BigInt(units)*BigInt(micro)/1_000_000_000_000n);}
 export function unitsFor(cents:number,micro:number){return Number(BigInt(cents)*1_000_000_000_000n/BigInt(micro));}
-export function pnl(p:Position,mark:number){if(p.fx)return Math.floor(p.fx.units*(mark-p.entry)/1e6*(p.symbol.startsWith("USD/")?1e6/mark:p.fx.quoteUsd)*(p.side==="long"?1:-1));return Math.floor(p.margin*p.leverage*(mark-p.entry)/p.entry*(p.side==="long"?1:-1));}
-export function liqPrice(p:Position){if(p.liquidationOverride!=null)return p.liquidationOverride;const m=(p.maintenance||0)+closingFeeReserve(p);if(p.fx){const sign=p.side==="long"?1:-1,Q=p.fx.units,C=p.collateral??p.margin;if(p.symbol.startsWith("USD/")){const d=C+sign*Q-m*Q;return d===0?Infinity:Math.max(0,sign*Q*p.entry/d);}const k=Q*p.fx.quoteUsd/1e6;return Math.max(0,(sign*k*p.entry-C)/(k*(sign-m)));}return p.side==="long"?p.entry*(1-(p.collateral??p.margin)/(p.margin*p.leverage))/(1-m):p.entry*(1+(p.collateral??p.margin)/(p.margin*p.leverage))/(1+m);}
-export function liquidatable(p:Position,mark:number){return p.side==="long"?mark<=liqPrice(p):mark>=liqPrice(p);}
-export function netPnl(p:Position,mark:number){const gross=equity(p,mark),fee=closingFeeCents(p,mark,pnl(p,mark),liquidatable(p,mark));return (liquidatable(p,mark)?0:Math.max(0,gross-fee))-(p.postedMargin??p.margin)-(p.collateral===undefined?(p.openingFee||0):0);}
-export function equity(p:Position,mark:number){return Math.max(0,(p.collateral??p.margin)+pnl(p,mark));}
 /** Same server guard for every stock settlement path; unknown state preserves claims. */
 export function stockExecutable(r:Room,symbol:string,now=Date.now()){
  if(forexSymbol(symbol,r)){const q=r.forexQuotes?.[symbol],mark=r.quotes?.[symbol];return forexLiveConfigured()&&forexDecision(symbol,q,r.forexStatus,now,forexMonotonic(),forexClockDomain).executable&&!!q&&!!mark&&mark.micro===q.micro&&mark.at===q.at;}
