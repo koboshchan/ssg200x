@@ -10,6 +10,8 @@
     "test": "tsx --test tests/*.test.ts",
     "test:finance-retry": "node --experimental-test-module-mocks --import tsx --test tests/pending-finance.test.ts tests/finance-retry-route.test.mts",
     "test:finance-retry:integration": "node --experimental-test-module-mocks --import tsx --test tests/finance-retry-integration.test.mts",
+    "test:roulette-ui": "tsx tests/roulette-transition.browser.ts",
+    "test:live-bfcache": "tsx tests/live-bfcache.browser.ts",
     "test:integration": "tsx --test tests/integration/*.test.ts",
     "test:candle-route": "node --experimental-test-module-mocks --import tsx --test tests/candle-route.test.mts",
     "test:feature-workers": "node --experimental-test-module-mocks --import tsx --test tests/feature-worker-gates.test.mts"
