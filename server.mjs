@@ -63,6 +63,7 @@ const server=createServer(async(request,response)=>{
  try{
   for await(const chunk of request){body+=chunk;if(Buffer.byteLength(body)>8192||request.url!=="/internal-polymarket"&&Buffer.byteLength(body)>1024){response.writeHead(413).end();return;}}
   if(request.url==="/internal-polymarket"){
+   if(process.env.SSG_ISOLATED_QA==="1"){response.writeHead(503,{"Content-Type":"application/json"}).end('{"error":"External prediction feeds disabled in isolated QA."}');return;}
    const {tokenId,sync,history,publicData}=JSON.parse(body);
    if(publicData){
     // Resolution polling must remain available for settlement of existing positions.
@@ -116,10 +117,11 @@ io.use(async(socket,next)=>{
 
 // Demand and durable-position pins belong to this process, never route workers or browsers.
 const polyDirty=new Set();
-const polyStream=createPolymarketStream({enabled:()=>featureSettings.enabled("polymarket"),onChange:id=>polyDirty.add(id)});
+const polyStream=createPolymarketStream({enabled:()=>process.env.SSG_ISOLATED_QA!=="1"&&featureSettings.enabled("polymarket"),onChange:id=>polyDirty.add(id)});
 featureSettings.subscribe(()=>{polyStream.syncEnabled();broadcastFeatureState(io,featureSettings);});
 const polyMetadata=new Map();
 async function resolvePolyMarket(id){
+ if(process.env.SSG_ISOLATED_QA==="1")throw new Error("External prediction feeds disabled in isolated QA.");
  let old=polyMetadata.get(id);if(old?.until>Date.now())return old.value;if(old?.pending)return old.pending;
  if([...polyMetadata.values()].filter(x=>x.pending).length>=32)throw new Error('Busy');
  if(polyMetadata.size>=512)for(const [key,value]of polyMetadata)if(!value.pending){polyMetadata.delete(key);break;}
@@ -135,6 +137,7 @@ async function resolvePolyMarket(id){
 }
 let polyOwners=new Map(),polySyncBusy=false;
 async function syncPolyPositions(){
+ if(process.env.SSG_ISOLATED_QA==="1")return;
  const r=await collection.findOne({_id:'main'},{projection:{'polymarket.positions':1,'polymarket.orders':1}}),positions=polymarketFinancialPins(r?.polymarket);
  polyStream.syncPositions(positions);polyOwners=new Map();for(const p of positions){let ids=polyOwners.get(p.marketId);if(!ids){ids=new Set();polyOwners.set(p.marketId,ids);}ids.add(p.userId);}
 }

@@ -43,3 +43,31 @@ test("instrumentation rejects invalid QA before importing workers",async()=>{
   if(protectedNames===undefined)delete process.env.QA_PROTECTED_COLLECTIONS;else process.env.QA_PROTECTED_COLLECTIONS=protectedNames;
  }
 });
+
+ test("isolated QA skips external price/prediction workers and durable prediction subscriptions",async()=>{
+ const {readFile}=await import("node:fs/promises");
+ const instrumentation=await readFile(new URL("../instrumentation.ts",import.meta.url),"utf8");
+ const server=await readFile(new URL("../server.mjs",import.meta.url),"utf8");
+ assert.match(instrumentation,/if\(process.env.SSG_ISOLATED_QA!=="1"\)\{[\s\S]*startPriceWorker[\s\S]*startPolymarketWorker\(\);\s*\}/);
+ assert.match(server,/enabled:\(\)=>process.env.SSG_ISOLATED_QA!=="1"&&featureSettings.enabled\("polymarket"\)/);
+ assert.match(server,/async function syncPolyPositions\(\)\{\s*if\(process.env.SSG_ISOLATED_QA==="1"\)return;/);
+ assert.match(server,/async function resolvePolyMarket\(id\)\{\s*if\(process.env.SSG_ISOLATED_QA==="1"\)throw/);
+ assert.match(server,/External prediction feeds disabled in isolated QA/);
+ });
+
+test("direct feed worker entry points refuse isolated QA before any database or network activity",async()=>{
+ const old={...process.env};
+ try{
+  process.env.SSG_ISOLATED_QA="1";process.env.QA_PROTECTED_COLLECTIONS="candles";
+  process.env.MONGODB_URI="mongodb://127.0.0.1:1/";
+  const {startPriceWorker}=await import("../lib/prices");
+  const {startPolymarketWorker,tickPolymarket}=await import("../lib/polymarket-store");
+  assert.throws(()=>startPriceWorker(),/External feed workers disabled/);
+  assert.throws(()=>startPolymarketWorker(),/External feed workers disabled/);
+  await assert.rejects(tickPolymarket(),/External feed workers disabled/);
+  process.env.QA_PROTECTED_COLLECTIONS="";
+  assert.throws(()=>startPriceWorker(),/Isolated QA requires/);
+  assert.throws(()=>startPolymarketWorker(),/Isolated QA requires/);
+  await assert.rejects(tickPolymarket(),/Isolated QA requires/);
+ }finally{for(const key of Object.keys(process.env))if(!(key in old))delete process.env[key];Object.assign(process.env,old);}
+});

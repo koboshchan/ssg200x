@@ -73,13 +73,16 @@ test('hydrated Games UI reconciles identical receipts, restoration, concurrent d
  const r=await mount({key:'ssg-games-v1:userA',value:envelope});await count(r,1);await quiet(r);
  assert.equal(await body(r,0),envelope.body);await reply(r,0,200,snap(2,[hilo('restored')]));
  await r.waitForFunction(()=>sessionStorage.getItem('ssg-games-v1:userA')===null);await quiet(r);await r.close();
- // Out-of-order Plinko results retain both identities despite snapshot version ordering.
+ // A stale out-of-order POST never terminates the trail; only a newer authoritative snapshot does.
  const d=await mount();const drop=d.getByRole('button',{name:'Drop',exact:true});await drop.click();await drop.click();await count(d,2);
  assert.equal(await d.getByRole('status',{name:'Game in progress'}).count(),1);
  assert.equal(await d.getByText(/Dropping/i).count(),0);
  const ids=[JSON.parse(await body(d,0)).requestId,JSON.parse(await body(d,1)).requestId];assert.notEqual(ids[0],ids[1]);
  await reply(d,1,200,snap(5,[plinko(ids[1],0,11.31)],{actionGameId:ids[1]}));
  await reply(d,0,200,snap(4,[plinko(ids[0],4,.35)],{actionGameId:ids[0]}));
+ await d.waitForFunction(()=>document.querySelectorAll('[aria-label="Recent drops"] li').length===1);
+ assert.equal(await d.locator('[aria-label="Recent drops"]').innerText().then((t:string)=>/0\.35×/.test(t)),false);
+ await d.evaluate(([a,b]:any)=>{(window as any).__snap={version:6,wallet:99500,maxBet:100000,serverNow:Date.now(),houseEdge:.02,games:[a,b]};window.dispatchEvent(new Event('focus'));},[plinko(ids[1],0,11.31),plinko(ids[0],4,.35)]);
  await d.waitForFunction(()=>document.querySelectorAll('[aria-label="Recent drops"] li').length===2);
  await d.waitForFunction(()=>!document.querySelector('[aria-label="Game in progress"]'));
  const trail=await d.locator('[aria-label="Recent drops"]').innerText();assert.match(trail,/11\.31×/);assert.match(trail,/0\.35×/);
@@ -275,6 +278,8 @@ test('Plinko risk persists per account and each receipt/history retains its orig
   const high={...plinko(second.requestId,0,PLINKO_RISK_TABLES.high[0].multiplier),risk:'high',plinkoTable:PLINKO_RISK_TABLES.high};
   const low={...plinko(first.requestId,4,PLINKO_RISK_TABLES.low[4].multiplier),risk:'low',plinkoTable:PLINKO_RISK_TABLES.low};
   await page.evaluate(([high,low]:any)=>{(window as any).__reqs[1].resolve(200,{version:3,wallet:99000,maxBet:100000,serverNow:Date.now(),houseEdge:.02,games:[high],actionGameId:high.id});(window as any).__reqs[0].resolve(200,{version:2,wallet:99500,maxBet:100000,serverNow:Date.now(),houseEdge:.02,games:[low],actionGameId:low.id});},[high,low]);
+  await page.waitForFunction(()=>document.querySelectorAll('[aria-label="Recent drops"] li').length===1);
+  await page.evaluate(([high,low]:any)=>{(window as any).__snap={version:5,wallet:99500,maxBet:100000,serverNow:Date.now(),houseEdge:.02,games:[high,low]};window.dispatchEvent(new Event('focus'));},[high,low]);
   await page.waitForFunction(()=>document.querySelectorAll('[aria-label="Recent drops"] li').length===2);
   await check('high');
   const history=await page.getByRole('list',{name:'Recent drops'}).innerText();
@@ -282,7 +287,7 @@ test('Plinko risk persists per account and each receipt/history retains its orig
   // Legacy response remains its own stored multiplier even when current risk changes.
   await page.getByRole('button',{name:'Drop',exact:true}).click();await page.waitForFunction(()=>(window as any).__reqs.length===3);
   const legacy=plinko('legacy',0,LEGACY_PLINKO_TABLE[0].multiplier);
-  await page.evaluate((game:any)=>(window as any).__reqs[2].resolve(200,{version:4,wallet:98500,maxBet:100000,serverNow:Date.now(),houseEdge:.02,games:[game],actionGameId:game.id}),legacy);
+  await page.evaluate((game:any)=>(window as any).__reqs[2].resolve(200,{version:6,wallet:98500,maxBet:100000,serverNow:Date.now(),houseEdge:.02,games:[game,...(window as any).__snap.games],actionGameId:game.id}),legacy);
   await page.waitForFunction(()=>document.querySelectorAll('[aria-label="Recent drops"] li').length===3);
   await page.getByRole('button',{name:'Medium',exact:true}).click();await check('medium');
   assert.ok((await page.getByRole('list',{name:'Recent drops'}).innerText()).includes(legacy.multiplier.toFixed(2)+'×'));

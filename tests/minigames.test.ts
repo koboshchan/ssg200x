@@ -4,7 +4,7 @@ import {createRequire} from 'node:module';
 const {marketPayload}=createRequire(import.meta.url)('../runtime/market-payload.mjs') as {marketPayload:(room:import('../lib/types').Room,userId:string)=>{leaderboard:{publicId:string;netWorth:number}[]}};
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {miniAction,miniSnapshot,miniAssets,miniPayout,CHICKEN_LANES,PLINKO_WEIGHTS,type MiniInput} from '../lib/minigames';
+import {miniAction,miniSnapshot,miniAssets,miniPayout,settleMiniGame,CHICKEN_LANES,PLINKO_WEIGHTS,type MiniInput} from '../lib/minigames';
 import {freshRoom,register,assertRoom,totalChips} from '../lib/poker';
 import {publicRoom} from '../lib/public';
 import {leaderboardSnapshot} from '../lib/leaderboard';
@@ -12,7 +12,7 @@ const who={id:'a',email:'a@example.test',name:'A',admin:false},other={...who,id:
 const meta=()=>({requestId:randomUUID(),requestAt:Date.now()});
 const start=(game:'hilo'|'mines'|'chicken'|'dice'|'plinko',extra={})=>({...meta(),type:'start' as const,game,amount:1000,...extra});
 const room=()=>{const r=freshRoom();register(r,who);register(r,other);return r;};
-test('Plinko exact binomial expected payout is 98% before cent rounding',()=>{const probs=[1,8,28,56,70,56,28,8,1];let payout=0;for(let path=0;path<256;path++){const r=room();let i=0;miniAction(r,who,start('plinko'),()=>path>>i++&1);assertRoom(r);payout+=r.miniGames![0].payout;}assert.ok(Math.abs(payout/256/1000-.98)<.001);assert.equal(probs.reduce((n,p,i)=>n+p*PLINKO_WEIGHTS[i],0),355);});
+test('Plinko exact binomial expected payout is 98% before cent rounding',t=>{const probs=[1,8,28,56,70,56,28,8,1];let payout=0;for(let path=0;path<256;path++){const r=room();let i=0;miniAction(r,who,start('plinko'),()=>path>>i++&1);assertRoom(r);const g=r.miniGames![0];assert.equal(g.payout,0);assert.throws(()=>settleMiniGame(r,g,"won"),/not landed/);const clock=t.mock.method(Date,"now",()=>g.landAt!);settleMiniGame(r,g,"won");clock.mock.restore();assertRoom(r);payout+=g.payout;}assert.ok(Math.abs(payout/256/1000-.98)<.001);assert.equal(probs.reduce((n,p,i)=>n+p*PLINKO_WEIGHTS[i],0),355);});
 test('dice strict roll boundaries and payout expected return',()=>{for(const direction of ['over','under'] as const)for(const target of [2,50,98]){let sum=0;for(let roll=1;roll<=100;roll++){const r=room();miniAction(r,who,start('dice',{target,direction}),()=>roll-1);const g=r.miniGames![0];assert.equal(g.status,(direction==='over'?roll>target:roll<target)?'won':'lost');assertRoom(r);sum+=g.payout;}assert.ok(Math.abs(sum/100/1000-.98)<.001);}});
 test('all multi-step games escrow principal without changing net worth or exposing secrets',()=>{for(const kind of ['hilo','mines','chicken'] as const){const r=room();miniAction(r,who,start(kind,{mines:3}),()=>kind==='chicken'?1:0);assertRoom(r);assert.equal(miniAssets(r,who.id),1000);assert.equal(leaderboardSnapshot(r).rows[0].netWorth,100000);assert.equal(publicRoom(r,who).leaderboard[0].netWorth,100000);const s=JSON.stringify(miniSnapshot(r,who));assert.ok(!s.includes('bombs'));assert.ok(!s.includes('owner'));assert.deepEqual(miniSnapshot(r,other).games,[]);assert.equal(totalChips(r),200000);}});
 test('hi-lo ties lose; safe move and cashout use exact fraction once',()=>{const r=room();miniAction(r,who,start('hilo'),()=>5);let g=r.miniGames![0];assert.equal(g.card,7);miniAction(r,who,{...meta(),type:'step',id:g.id,revision:0,choice:'high'},()=>6);assert.equal(g.status,'active');assert.equal(g.steps,1);assert.equal(miniPayout(g),1820);const cash={...meta(),type:'cashout' as const,id:g.id,revision:1};miniAction(r,who,cash);miniAction(r,who,cash);assert.equal(r.members[0].wallet,100820);assertRoom(r);const r2=room();miniAction(r2,who,start('hilo'),()=>5);g=r2.miniGames![0];miniAction(r2,who,{...meta(),type:'step',id:g.id,revision:0,choice:'high'},()=>5);assert.equal(g.status,'lost');assertRoom(r2);});
@@ -55,18 +55,19 @@ test('escrow survives market frames and navigation warning without leaking the b
 
 test('Plinko exact per-request result identity survives overlapping wagers and replays',()=>{
  const r=room(),first=start('plinko'),second=start('plinko');
- assert.equal(miniAction(r,who,first,()=>0),first.requestId);
- assert.equal(miniAction(r,who,second,()=>1),second.requestId);
+ const firstId=miniAction(r,who,first,()=>0),secondId=miniAction(r,who,second,()=>1);
+ assert.notEqual(firstId,first.requestId);assert.notEqual(secondId,second.requestId);assert.notEqual(firstId,secondId);
  const before=r.members[0].wallet,results=structuredClone(r.miniGames);
- assert.equal(miniAction(r,who,first,()=>1),first.requestId);
- assert.equal(miniAction(r,who,second,()=>0),second.requestId);
+ assert.equal(miniAction(r,who,first,()=>1),firstId);
+ assert.equal(miniAction(r,who,second,()=>0),secondId);
  assert.equal(r.members[0].wallet,before);assert.deepEqual(r.miniGames,results);
  assert.throws(()=>miniAction(r,other,first));assertRoom(r);
 });
-test('trimmed Plinko replay acknowledges without replacement, reroll, or wallet changes',()=>{
+test('trimmed Plinko replay acknowledges without replacement, reroll, or wallet changes',t=>{
  const r=room(),input=start('plinko');miniAction(r,who,input,()=>0);
- for(let i=0;i<35;i++)miniAction(r,who,start('plinko'),()=>1);
- assert.ok(!r.miniGames!.some(g=>g.id===input.requestId));
+ const settle=()=>{const g=r.miniGames![0],clock=t.mock.method(Date,'now',()=>g.landAt!);settleMiniGame(r,g,'won');clock.mock.restore();};settle();
+ for(let i=0;i<35;i++){miniAction(r,who,start('plinko'),()=>1);settle();}
+ assert.ok(!r.miniGames!.some(g=>g.requestId===input.requestId));
  const wallet=r.members[0].wallet,len=r.miniGames!.length;
  assert.equal(miniAction(r,who,input),null);
  assert.equal(r.members[0].wallet,wallet);assert.equal(r.miniGames!.length,len);assertRoom(r);
