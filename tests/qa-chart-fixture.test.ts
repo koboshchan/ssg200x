@@ -37,3 +37,11 @@ test("fixture labels and chat layout remain gated on server fixture mode",async(
  const layout=await fs.readFile("app/layout.tsx","utf8");
  assert.ok(layout.includes('data-qa-chart-fixture={fixtureMode()?"true":undefined}'));
 });
+
+test("picker percentage tooltip labels fixture baseline without changing production wording",async()=>{
+ const fs=await import("node:fs/promises");
+ const s=await fs.readFile("app/market-symbol-picker.tsx","utf8");
+ assert.ok(s.includes('fixture?"DEMO FIXTURE — NOT LIVE. Change from fixture baseline":"Change since first live quote today (UTC)"'));
+ assert.ok(s.includes('title={baseline+". Unavailable."}'));
+ assert.ok(s.includes('title={baseline}'));
+});

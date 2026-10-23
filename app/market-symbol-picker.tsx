@@ -1,4 +1,5 @@
 "use client";
+import {useQaFixture} from "./qa-fixture-provider";
 import {formatMarketPrice} from "@/lib/price-display";
 import {useEffect,useMemo,useState} from "react";
 import {createPortal} from "react-dom";
@@ -13,8 +14,10 @@ const rate=(m:number)=>new Intl.NumberFormat("en-US",{minimumFractionDigits:4,ma
 type Props={symbol:string|null;symbols:MarketSymbols;quotes:Record<string,Quote|undefined>;changes?:Record<string,number|null|undefined>;summary?:MarketSummary;forexMock?:boolean;onSelect:(s:string)=>void};
 const price=(m:number)=>formatMarketPrice(m/1e6);
 function Change({v}:{v:number|null|undefined}){
- if(v==null||!Number.isFinite(v))return <span className={styles.na} title="Change since first live quote today (UTC). Unavailable.">n/a</span>;
- return <span title="Change since first live quote today (UTC)" className={v>=0?styles.up:styles.down}>{(v>=0?"+":"")+v.toFixed(2)}%</span>;
+ const fixture=useQaFixture();
+ const baseline=fixture?"DEMO FIXTURE — NOT LIVE. Change from fixture baseline":"Change since first live quote today (UTC)";
+ if(v==null||!Number.isFinite(v))return <span className={styles.na} title={baseline+". Unavailable."}>n/a</span>;
+ return <span title={baseline} className={v>=0?styles.up:styles.down}>{(v>=0?"+":"")+v.toFixed(2)}%</span>;
 }
 /** Current-symbol button (chart top-left) that opens a left sidebar of every active market. */
 export default function MarketSymbolPicker({symbol,symbols,quotes,changes,summary,forexMock,onSelect}:Props){
