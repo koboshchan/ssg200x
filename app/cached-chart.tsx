@@ -24,7 +24,7 @@ export default function CachedChart({symbol,quote,displayContext}:{symbol:Symbol
  useEffect(()=>{if(quote)push.current?.(quote);},[quote?.micro,quote?.at,quote?.source,quote?.cryptoGeneration,displayContext]);
  useEffect(()=>{
  let unsubscribe:(()=>void)|undefined;
- let closed=false,chart:ChartControls|undefined;setFixture(false);push.current=undefined;setReady(false);setTool(null);setSelected(false);setDrawingCount(0);setIndicators([]);const controller=new AbortController();
+ let closed=false,chart:ChartControls|undefined;setFixture(false);setStatus("Loading chart");push.current=undefined;setReady(false);setTool(null);setSelected(false);setDrawingCount(0);setIndicators([]);const controller=new AbortController();
  const width=intervals[interval],cacheKey=symbol+":"+interval;
  async function start(){
  const {createMarketChart}=await import("./market-chart-engine");if(closed||!node.current)return;
@@ -72,7 +72,7 @@ export default function CachedChart({symbol,quote,displayContext}:{symbol:Symbol
  start().catch(()=>{if(!closed)setStatus("Could not load chart");});return()=>{closed=true;controller.abort();unsubscribe?.();emit("candles:subscribe",null);push.current=undefined;controls.current=null;chart?.destroy();};
  },[symbol,interval,subscribe,emit,storeKey]);
  return <div className="cached-chart">
-  {fixture?<p role="note"><strong>FIXTURE DATA · VISUAL DEMO ONLY</strong> · LIVE disabled. Not market history or real-feed acceptance.</p>:null}
+  {fixture?<p role="note"><strong>DEMO FIXTURE — NOT LIVE</strong> · LIVE disabled. Not market history or real-feed acceptance.</p>:null}
   <div className="symbol-tabs" role="group" aria-label="Chart interval">{Object.keys(intervals).map(g=><button key={g} type="button" aria-pressed={g===interval} onClick={()=>setIntervalName(g as keyof typeof intervals)}>{g}</button>)}</div>
   <div className={styles.tools} role="group" aria-label="Chart drawing tools">
    {(["trend","hline","rect","fib"] as const).map(t=><button key={t} type="button" disabled={!ready} aria-pressed={tool===t} onClick={()=>controls.current?.setTool(tool===t?null:t)}>{{trend:"Trend",hline:"Horizontal",rect:"Rectangle",fib:"Fibonacci"}[t]}</button>)}
@@ -82,6 +82,6 @@ export default function CachedChart({symbol,quote,displayContext}:{symbol:Symbol
   </div>
   <div className={styles.indicators} role="group" aria-label="Chart indicators">{INDICATORS.map(name=><button key={name} type="button" disabled={!ready} aria-pressed={indicators.includes(name)} onClick={()=>controls.current?.setIndicators(indicators.includes(name)?indicators.filter(i=>i!==name):[...indicators,name])}>{name}</button>)}</div>
   <div className={"chart-shell "+styles.canvas} ref={node} tabIndex={0} role="region" aria-label={symbol+" price chart"} onKeyDown={e=>{if(e.key==="Escape"){controls.current?.setTool(null);e.preventDefault();}else if(e.key==="Delete"||e.key==="Backspace"){controls.current?.deleteSelected();e.preventDefault();}}}/>
-  <p className="market-note" role="status">{!fixture&&connection==="disconnected"?"Disconnected. Prices are stale. ":""}{status}. {tool?"Tap the chart to place drawing anchors. Escape or Cancel stops drawing. ":""}{drawingCount} drawing{drawingCount===1?"":"s"}. {user?"Drawings and indicators saved on this device.":"Sign in to save drawings and indicators."} {indicators.includes("VOL")?"Quote-only candles have no reported trading volume. ":""}<a href="https://klinecharts.com/" target="_blank" rel="noopener noreferrer">KLineChart</a></p>
+  <p className="market-note" role="status">{!fixture&&connection==="disconnected"?"Disconnected. Prices are stale. ":""}{fixture?"Deterministic fixture candles. Not market history or real-feed acceptance":status}. {tool?"Tap the chart to place drawing anchors. Escape or Cancel stops drawing. ":""}{drawingCount} drawing{drawingCount===1?"":"s"}. {user?"Drawings and indicators saved on this device.":"Sign in to save drawings and indicators."} {indicators.includes("VOL")?"Quote-only candles have no reported trading volume. ":""}<a href="https://klinecharts.com/" target="_blank" rel="noopener noreferrer">KLineChart</a></p>
  </div>;
 }
