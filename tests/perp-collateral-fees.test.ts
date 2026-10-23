@@ -1,13 +1,13 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {freshRoom,register,assertRoom} from '../lib/poker';
+import {freshRoom,register,assertRoom} from './helpers/crypto-room';
 import {openPosition,closePosition,liqPrice,liquidatable,pnl,equity,assetsBook,portfolio,netPnl} from '../lib/finance';
 import {setPerpFees} from '../lib/admin';
 import {publicRoom} from '../lib/public';
 // @ts-expect-error runtime module
 import {marketPayload} from '../runtime/market-payload.mjs';
 const who={id:'collateral',name:'Collateral',email:'c@test',admin:true};
-function setup(){const r=freshRoom();portfolio(register(r,who));r.quotes={BTC:{micro:100000000,at:1000}};return r;}
+function setup(){const r=freshRoom();portfolio(register(r,who));r.quotes={BTC:{cryptoGeneration:"fixture",micro:100000000,at:1000}};return r;}
 for(const side of ['long','short'] as const)test(`${side} opening fee is withheld from posted margin, not charged in addition, with net-margin notional`,()=>{
  const r=setup();setPerpFees(r,who,0.03,0.03);openPosition(r,who,'BTC',side,10000,200,'p',1000);
  const p=r.members[0].positions![0];
@@ -45,7 +45,7 @@ test('existing externally charged opening fees are not withheld again on restart
 });
 test('opening-fee-reduced collateral survives BSON-style persistence and a liquidation gap loses at most the posted margin',()=>{
  const r=setup();setPerpFees(r,who,0.1,0.1);openPosition(r,who,'BTC','short',10000,200,'p',1000);
- const restored=JSON.parse(JSON.stringify(r));restored.quotes.BTC={micro:1000000000000,at:1001};
+ const restored=JSON.parse(JSON.stringify(r));restored.quotes.BTC={cryptoGeneration:"fixture",micro:1000000000000,at:1001};
  closePosition(restored,who,'p',1001);const c=restored.members[0].closedPositions[0];
  assert.equal(restored.members[0].wallet,90000);assert.equal(c.realizedPnl,-10000);assert.equal(c.closingFee,8333);
  assert.ok(c.assessedClosingFee>c.closingFee);assertRoom(restored);

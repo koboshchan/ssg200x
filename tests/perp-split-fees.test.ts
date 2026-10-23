@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {freshRoom,register,assertRoom} from '../lib/poker';
+import {freshRoom,register,assertRoom} from './helpers/crypto-room';
 import {openPosition,closePosition,liqPrice,pnl} from '../lib/finance';
 import {setPerpFees} from '../lib/admin';
 import {feeCents} from "../lib/perp-fees";
@@ -10,7 +10,7 @@ import {roomFeeRates,positionFeeRates} from '../runtime/perp-fee-policy.mjs';
 // @ts-expect-error runtime JavaScript
 import {marketPayload} from '../runtime/market-payload.mjs';
 const who={id:'split-user',name:'Split',email:'split@test',admin:true};
-function setup(){const r=freshRoom();register(r,who);r.quotes={BTC:{micro:100000000,at:1000}};return r;}
+function setup(){const r=freshRoom();register(r,who);r.quotes={BTC:{cryptoGeneration:"fixture",micro:100000000,at:1000}};return r;}
 test('room migration preserves configured single rate including zero, default and independent overrides',()=>{
  for(const ppm of [undefined,0,300,777]){
   const r=setup();r.perpFeePpm=ppm;
@@ -37,7 +37,7 @@ for(const [opening,closing] of [[0,0.05],[0.05,0],[0.02,0.07]])for(const side of
  const p=r.members[0].positions![0];assert.deepEqual(positionFeeRates(p),{openingFeePpm:Math.round(opening*10000),closingFeePpm:Math.round(closing*10000)});
  assert.equal(p.openingFee,Math.round(50000*opening/100));assert.equal(r.members[0].wallet,90000);
  const before=liqPrice(p);setPerpFees(r,who,0.1,0.1);assert.equal(liqPrice(p),before);
- r.quotes!.BTC={micro:side==='long'?110000000:90000000,at:1001};
+ r.quotes!.BTC={cryptoGeneration:"fixture",micro:side==='long'?110000000:90000000,at:1001};
  const wire=marketPayload(r,who.id,1001),full=publicRoom(r,who);
  assert.equal(wire.positions[0].liquidation,full.positions[0].liquidation);assert.equal(wire.positions[0].closingFeePpm,Math.round(closing*10000));
  closePosition(r,who,'p',1001);

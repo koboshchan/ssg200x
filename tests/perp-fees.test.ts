@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {freshRoom,register,assertRoom} from '../lib/poker';
+import {freshRoom,register,assertRoom} from './helpers/crypto-room';
 import {openPosition,closePosition,liquidate,liqPrice,spot,portfolio,pnl} from '../lib/finance';
 import {setPerpFee} from '../lib/admin';
 import {feeCents,validFeePercent} from '../lib/perp-fees';
@@ -10,7 +10,7 @@ import {mergeMarket} from '../lib/room-sync';
 // @ts-expect-error runtime JavaScript
 import {marketPayload} from '../runtime/market-payload.mjs';
 const who={id:'fee-user',name:'Fee',email:'fee@test',admin:true};
-function setup(){const r=freshRoom();register(r,who);r.quotes={BTC:{micro:100000000,at:1000}};return r;}
+function setup(){const r=freshRoom();register(r,who);r.quotes={BTC:{cryptoGeneration:"fixture",micro:100000000,at:1000}};return r;}
 test('fee setting defaults to approved 0.03%, validates precision and bounds, private admin gates and audits exact change',()=>{
  const r=setup();assert.equal(publicRoom(r,who).perpFeePpm,300);
  for(const v of [NaN,Infinity,-0.01,0.1001,0.00001]){assert.equal(validFeePercent(v),false);assert.throws(()=>setPerpFee(r,who,v));}
@@ -33,7 +33,7 @@ for(const side of ['long','short'] as const)for(const reason of ['Manual','TP','
  assert.equal(r.members[0].wallet,90000);assert.equal(r.house,25);assertRoom(r);
  const position={...r.members[0].positions![0]};const before=JSON.stringify(r);assert.throws(()=>openPosition(r,who,'BTC',side,10000,5,'p',1000));assert.equal(JSON.stringify(r),before);
  setPerpFee(r,who,0.1); // Existing position keeps the disclosed rate on close.
- r.quotes!.BTC={micro:exit,at:1001};if(reason==='Manual')closePosition(r,who,'p',1001);else settleTriggers(r,1001);
+ r.quotes!.BTC={cryptoGeneration:"fixture",micro:exit,at:1001};if(reason==='Manual')closePosition(r,who,'p',1001);else settleTriggers(r,1001);
  const c=r.members[0].closedPositions![0],fee=feeCents(position.margin,5,100000000,exit,500),gross=pnl(position,exit);
  assert.equal(c.openingFee,25);assert.equal(c.closingFee,fee);assert.equal(c.realizedPnl,gross-25-fee);assert.equal(c.reason,reason);
  assert.equal(r.members[0].wallet,100000+c.realizedPnl);assertRoom(r);
@@ -57,7 +57,7 @@ test('grandfathered and zero-rate positions stay fee-free at close, no spot fees
 for(const side of ['long','short'] as const)test(`${side} liquidation reserves closing fee and gaps never overdraft wallet`,()=>{
  const r=setup();setPerpFee(r,who,0.1);openPosition(r,who,'BTC',side,1000,200,'p',1000);
  const p=r.members[0].positions![0],threshold=liqPrice(p);assert.ok(side==='long'?threshold>99500000:threshold<100500000);
- const wallet=r.members[0].wallet;r.quotes!.BTC={micro:side==='long'?1:1000000000000,at:1001};liquidate(r,1001);
+ const wallet=r.members[0].wallet;r.quotes!.BTC={cryptoGeneration:"fixture",micro:side==='long'?1:1000000000000,at:1001};liquidate(r,1001);
  const c=r.members[0].closedPositions![0];assert.equal(c.reason,'Liq');assert.equal(c.realizedPnl,-1000);assert.equal(r.members[0].wallet,wallet);
  assert.ok(c.closingFee!<=833);assert.equal(c.assessedClosingFee!-c.closingFee!,c.waivedClosingFee);assertRoom(r);
 });

@@ -1,11 +1,11 @@
 // These legacy accounting/trigger fixtures explicitly exercise the admin zero-fee mode.
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {freshRoom,register,assertRoom} from "../lib/poker";
+import {freshRoom,register,assertRoom} from "./helpers/crypto-room";
 import {spin,payout,spot,openPosition,closePosition,liquidate,pnl,liqPrice,equity,unitsFor,value} from "../lib/finance";
 import type {Identity} from "../lib/types";
 const who:Identity={id:"a",name:"A",email:"a@a.test",admin:true};
-function setup(){const r=Object.assign(freshRoom(),{perpFeePpm:0});register(r,who);r.quotes={BTC:{micro:100_000_000_000,at:1000},XRP:{micro:123456,at:1000}};return r;}
+function setup(){const r=Object.assign(freshRoom(),{perpFeePpm:0});register(r,who);r.quotes={BTC:{cryptoGeneration:"fixture",micro:100_000_000_000,at:1000},XRP:{cryptoGeneration:"fixture",micro:123456,at:1000}};return r;}
 test("European wheel straight and outside returns include stake",()=>{
  assert.equal(payout({kind:"straight",pick:0,amount:100},0),3600);
  for(const kind of ["red","black","odd","even","low","high","dozen","column"] as const)assert.equal(payout({kind,pick:1,amount:100},0),0);

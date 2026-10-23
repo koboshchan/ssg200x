@@ -1,3 +1,4 @@
+import {cryptoExecutable} from "./crypto-policy";
 import {forexLiveConfigured,forexMonotonic,forexClockDomain} from "./forex-config";
 import {forexDecision} from "./forex-policy";
 import {forexSymbol} from "./symbol-registry";
@@ -16,7 +17,7 @@ import type {Room,Identity,Member} from "./types";
 export {SYMBOLS,RED} from "./market-shared";
 import {type Symbol,type Bet,RED} from "./market-shared";
 export type {Symbol,Bet} from "./market-shared";
-export type Quote={micro:number;at:number};
+export type Quote={micro:number;at:number;cryptoGeneration?:string};
 export type Holding={symbol:Symbol;units:number;cost:number};
 /** New positions size notional on margin after opening fees; postedMargin records the wallet debit.
  * Absent collateral retains the pre-migration wallet-paid opening fee behavior. */
@@ -34,7 +35,7 @@ export function equity(p:Position,mark:number){return Math.max(0,(p.collateral??
 /** Same server guard for every stock settlement path; unknown state preserves claims. */
 export function stockExecutable(r:Room,symbol:string,now=Date.now()){
  if(forexSymbol(symbol,r)){const q=r.forexQuotes?.[symbol],mark=r.quotes?.[symbol];return forexLiveConfigured()&&forexDecision(symbol,q,r.forexStatus,now,forexMonotonic(),forexClockDomain).executable&&!!q&&!!mark&&mark.micro===q.micro&&mark.at===q.at;}
- if(!stockSymbol(symbol,r))return true;
+ if(!stockSymbol(symbol,r))return cryptoExecutable(r.cryptoStatus,r.quotes?.[symbol],now);
  const state=(r as Room & {stockExecution?:Partial<Record<string,StockExecutionState>>}).stockExecution?.[symbol];
  const quote=r.quotes?.[symbol as Symbol];
  return !!state&&Number.isFinite(state.leaseUntil)&&now<state.leaseUntil!&&state.symbol===symbol&&stockExecutionPolicy(state,now,marketSymbols(r).stocks).executable&&!!quote&&
@@ -42,8 +43,8 @@ export function stockExecutable(r:Room,symbol:string,now=Date.now()){
 }
 export function requireQuote(r:Room,symbol:Symbol,now=Date.now()){
  ensure(!forexSymbol(symbol,r)||stockExecutable(r,symbol,now),"Forex paused: fresh live stream and USD conversion required.",503);
- ensure(stockExecutable(r,symbol,now),"Stock market closed or verified live state unavailable.",503);
- const q=r.quotes?.[symbol];ensure(q&&Number.isSafeInteger(q.micro)&&q.micro>0&&(forexSymbol(symbol,r)||quoteFresh(q.at,now,stockSymbol(symbol,r))),"Live price unavailable. Trading is paused.",503);return q.micro;
+ ensure(stockExecutable(r,symbol,now),"Market closed or verified live stream unavailable.",503);
+ const q=r.quotes?.[symbol];ensure(q&&Number.isSafeInteger(q.micro)&&q.micro>0&&(!stockSymbol(symbol,r)||quoteFresh(q.at,now,true)),"Live price unavailable. Trading is paused.",503);return q.micro;
 }
 /** Only server-persisted USD quote cache is a settlement source, never USDT candles.
  * Missing/invalid cache retains the original claim without any financial mutation.
@@ -82,7 +83,7 @@ export function settle(r:Room,m:Member,p:Position,mark:number,reason:ClosedPosit
 }
 export function liquidate(r:Room,now=Date.now()){
  for(const m of r.members){for(const p of [...(m.positions||[])]){
- const q=r.quotes?.[p.symbol];if(stockExecutable(r,p.symbol,now)&&activeSymbol(p.symbol,r)&&q&&Number.isSafeInteger(q.micro)&&q.micro>0&&(forexSymbol(p.symbol,r)||quoteFresh(q.at,now,stockSymbol(p.symbol,r)))&&liquidatable(p,q.micro))settle(r,m,p,q.micro,"Liq",now);
+ const q=r.quotes?.[p.symbol];if(stockExecutable(r,p.symbol,now)&&activeSymbol(p.symbol,r)&&q&&Number.isSafeInteger(q.micro)&&q.micro>0&&(!stockSymbol(p.symbol,r)||quoteFresh(q.at,now,true))&&liquidatable(p,q.micro))settle(r,m,p,q.micro,"Liq",now);
  }}
 }
 export function spotMark(r:Room,symbol:string){return forexSymbol(symbol,r)?r.forexQuotes?.[symbol]?.usdMicro:r.quotes?.[symbol]?.micro;}

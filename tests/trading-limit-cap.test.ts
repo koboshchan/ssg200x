@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {setLimits} from "../lib/admin";
-import {freshRoom,register,assertRoom} from "../lib/poker";
+import {freshRoom,register,assertRoom} from "./helpers/crypto-room";
 import {spot,openPosition} from "../lib/finance";
 import {sellAllSpot} from "../lib/spot-sell-all";
 import {financeSchema} from "../lib/finance-input";
@@ -22,7 +22,7 @@ test("admin can save positive cent caps above a million with audited finite-safe
 test("saved cap alone gates funded large spot orders, sell-all and perps; lowered limits still block",()=>{
  const r=Object.assign(freshRoom(),{perpFeePpm:0}),m=register(r,admin);
  m.wallet+=500_000_000;m.adjustments=500_000_000;r.issuance=(r.issuance||0)+500_000_000;
- r.quotes={BTC:{micro:100_000_000_000,at:Date.now()}};
+ r.quotes={BTC:{cryptoGeneration:"fixture",micro:100_000_000_000,at:Date.now()}};
  setLimits(r,admin,3_000_000,200);
  spot(r,admin,"BTC","buy",200_000_000);
  assert.throws(()=>spot(r,admin,"BTC","buy",300_000_001),/host/);

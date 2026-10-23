@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {freshRoom,register} from "../lib/poker";
+import {freshRoom,register} from "./helpers/crypto-room";
 import {openPosition,closePosition,liquidate,requireQuote} from "../lib/finance";
 import {settleTriggers} from "../lib/position-triggers";
 import {publicStockState} from "../lib/stock-room-policy";
@@ -8,7 +8,7 @@ const now=Date.parse("2026-10-19T15:00:00Z");
 const who={id:"policy",name:"Policy",email:"policy@example.com",admin:false};
 function fixture(age=59999,price=200){
  const r=freshRoom(),m=register(r,who);m.wallet=100000;m.holdings=[];m.spins=[];m.closedPositions=[];
- r.quotes={AAPL:{micro:price*1e6,at:now-age}};
+ r.quotes={AAPL:{cryptoGeneration:"fixture",micro:price*1e6,at:now-age}};
  r.stockExecution={AAPL:{symbol:"AAPL",leaseUntil:now+120000,connected:true,authorized:true,leader:true,halt:"unknown",corporateActionsReconciled:false,tick:{symbol:"AAPL",price,timestamp:now-age,receivedAt:now-age,feed:"alpaca-iex"},clock:{isOpen:true,timestamp:now,receivedAt:now,nextOpen:now+86400000,nextClose:now+3600000},sessions:[{date:"2026-10-19",open:now-3600000,close:now+3600000}]}};
  return {r,m};
 }
@@ -38,7 +38,7 @@ test("closed session and mismatched provider price still deny",()=>{
  }
 });
 test("crypto retains its existing inclusive 10s quote deadline",()=>{
- const r=freshRoom();r.quotes={BTC:{micro:100e6,at:now-10000}};
+ const r=freshRoom();r.quotes={BTC:{cryptoGeneration:"fixture",micro:100e6,at:now-10000}};
  assert.equal(requireQuote(r,"BTC",now),100e6);assert.throws(()=>requireQuote(r,"BTC",now+1));
 });
 

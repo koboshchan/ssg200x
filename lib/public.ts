@@ -37,6 +37,7 @@ export function publicRoom(r:Room,who:Identity,tableId:PokerTableId="01") {
  const me=portfolio(r.members.find(m=>m.id===who.id)!);
  const mySeat=seatOf(r,who.id),summary=marketSummary(r);
  return {
+  cryptoStatus:r.cryptoStatus??null,
   forexQuotes:r.forexQuotes??{},forexStatus:{...(r.forexStatus??{mode:"unconfigured" as const,stream:"down" as const,message:"OANDA practice credentials required."}),marketOpen:forexMarketOpen(Date.now())},forexExecution:Object.fromEntries(marketSymbols(r).forex.map(s=>[s,forexDecision(s,r.forexQuotes?.[s],r.forexStatus,Date.now(),forexMonotonic(),forexClockDomain)])),
   pokerKickVote:publicPokerKickVote(ledger,tableId),pokerTableId:tableId,pokerTables:pokerTablesView(ledger),pokerInPlay:(()=>{const id=seatedPokerTable(ledger,who.id);if(!id)return 0;const t=pokerTableRoom(ledger,id),s=t.seats.find(s=>s?.userId===who.id)!;return s.stack+(active(t)?s.committed:0)})(),
   perpsCloseAll:r.financeReceipts?.find(x=>x.userId===who.id&&x.closeAll)?.closeAll??null,

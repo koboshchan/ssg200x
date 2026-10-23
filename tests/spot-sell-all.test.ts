@@ -1,10 +1,10 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {freshRoom,register,assertRoom} from "../lib/poker";
+import {freshRoom,register,assertRoom} from "./helpers/crypto-room";
 import {spot,value} from "../lib/finance";
 import {sellAllSpot} from "../lib/spot-sell-all";
 const who={id:"spot-owner",name:"Spot Owner",email:"spot@example.test",admin:false};
-function setup(){const r=freshRoom();register(r,who);r.quotes={BTC:{micro:82_700_000_000,at:1000}};spot(r,who,"BTC","buy",100,1000);return r;}
+function setup(){const r=freshRoom();register(r,who);r.quotes={BTC:{cryptoGeneration:"fixture",micro:82_700_000_000,at:1000}};spot(r,who,"BTC","buy",100,1000);return r;}
 test("exact screenshot-sized BTC holding sells without rounded-dollar dust",()=>{
  const r=setup(),m=r.members[0];assert.equal(m.holdings![0].units,1209);
  r.quotes!.BTC!.micro=84_500_000_000;const expected=value(m.holdings![0].units,r.quotes!.BTC!.micro),cash=m.wallet;
@@ -25,7 +25,7 @@ test("stale/future quote, closed stock, non-owner and host limit fail without mu
   const r=setup();let actor=who,symbol="BTC",now=1000;
   if(kind==="stale")now=11001;
   if(kind==="future")r.quotes!.BTC!.at=1001;
-  if(kind==="stock"){r.members[0].holdings![0].symbol="AAPL";r.quotes!.AAPL={micro:200_000_000,at:1000};symbol="AAPL";}
+  if(kind==="stock"){r.members[0].holdings![0].symbol="AAPL";r.quotes!.AAPL={cryptoGeneration:"fixture",micro:200_000_000,at:1000};symbol="AAPL";}
   if(kind==="owner")actor={...who,id:"other"};
   if(kind==="limit"){r.quotes!.BTC!.micro*=2;r.limits={maxTrade:1,maxLeverage:200};}
   const before=structuredClone(r);assert.throws(()=>sellAllSpot(r,actor,symbol,now));assert.deepEqual(r,before);

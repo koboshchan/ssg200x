@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {openingFeeCents,feeCents} from '../lib/perp-fees';
-import {freshRoom,register,assertRoom} from '../lib/poker';
+import {freshRoom,register,assertRoom} from './helpers/crypto-room';
 import {setPerpFees} from '../lib/admin';
 import {openPosition,closePosition,netPnl} from '../lib/finance';
 
@@ -32,7 +32,7 @@ test('rational cent rounding conserves posted margin and stays within disclosed 
 
 for(const side of ['long','short'] as const)test(`self-consistent ${side} sizing survives restart and settles fees from position proceeds`,()=>{
  const who={id:'solved',name:'Solved',email:'s@test',admin:true},r=freshRoom();register(r,who);
- r.quotes={BTC:{micro:100000000,at:1000}};setPerpFees(r,who,0.05,0.03);
+ r.quotes={BTC:{cryptoGeneration:"fixture",micro:100000000,at:1000}};setPerpFees(r,who,0.05,0.03);
  openPosition(r,who,'BTC',side,10000,200,'p',1000);
  const p=r.members[0].positions![0];
  assert.equal(p.openingFee,909);assert.equal(p.margin,9091);assert.equal(p.collateral,9091);

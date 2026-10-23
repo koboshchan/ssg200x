@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {freshRoom,register,assertRoom} from "../lib/poker";
+import {freshRoom,register,assertRoom} from "./helpers/crypto-room";
 import {openPosition,liqPrice} from "../lib/finance";
 import {editPositionTriggers} from "../lib/position-triggers";
 import {triggerInputMode,setTradingSettings,resolveTriggerInput,skipCloseConfirmation,setCloseConfirmation} from "../lib/trading-settings";
@@ -12,7 +12,7 @@ for(const side of ["long","short"] as const)for(const leverage of [2,200]){
  test(`${side} ${leverage}x converts $5 profit/$1 loss, open/edit use entry basis`,()=>{
   const r=freshRoom(),member=register(r,who),entry=100_000_000;
   setTradingSettings(r,who,"pnl");
-  r.quotes={BTC:{micro:entry,at:1000}};
+  r.quotes={BTC:{cryptoGeneration:"fixture",micro:entry,at:1000}};
   const basis={entry,margin:1000,leverage,side};
   const triggers=resolveTriggerInput(member,basis,{takeProfitPnl:500,stopLossPnl:100});
   const direction=side==="long"?1:-1;
@@ -41,7 +41,7 @@ test("conversion exact rounding, positive integer inputs, unreachable/zero price
  assert.throws(()=>pnlTriggerPrice({...p,side:"short"},200,"takeProfit"));
  const tiny={...p,entry:1,margin:1000000};
  // A rounded unchanged price is rejected by existing trigger validation, not silently accepted.
- const r=freshRoom(),m=register(r,who);setTradingSettings(r,who,"pnl");r.quotes={BTC:{micro:1,at:1000}};
+ const r=freshRoom(),m=register(r,who);setTradingSettings(r,who,"pnl");r.quotes={BTC:{cryptoGeneration:"fixture",micro:1,at:1000}};
  assert.throws(()=>openPosition(r,who,"BTC","long",1000,2,"tiny",1000,resolveTriggerInput(m,tiny,{takeProfitPnl:1}) as {takeProfit:number}));
  assert.equal(m.wallet,100000);
 });

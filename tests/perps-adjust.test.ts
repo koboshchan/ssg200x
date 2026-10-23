@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
-import {freshRoom,register,assertRoom} from "../lib/poker";
+import {freshRoom,register,assertRoom} from "./helpers/crypto-room";
 import {openPosition,closePosition,pnl,netPnl,liqPrice} from "../lib/finance";
 import {adjustPerp} from "../lib/perps-adjust";
 import {positionSlice,increasedEntry} from "../runtime/perp-adjustments.mjs";
@@ -9,7 +9,7 @@ import {openingFeeCents,closingFeeCents} from "../runtime/perp-fee-policy.mjs";
 import {financeSchema} from "../lib/finance-input";
 const who={id:"a",name:"A",email:"a@example.test",admin:true};
 function setup(side:"long"|"short"="long",mode:"notional"|"profit"="notional"){
- const r=freshRoom();register(r,who);r.perpOpeningFeePpm=300;r.perpClosingFeePpm=mode==="profit"?100000:300;r.perpClosingFeeMode=mode;r.quotes={BTC:{micro:100_000_000_000,at:1000}};
+ const r=freshRoom();register(r,who);r.perpOpeningFeePpm=300;r.perpClosingFeePpm=mode==="profit"?100000:300;r.perpClosingFeeMode=mode;r.quotes={BTC:{cryptoGeneration:"fixture",micro:100_000_000_000,at:1000}};
  openPosition(r,who,"BTC",side,10000,5,randomUUID(),1000,{takeProfit:side==="long"?140_000_000_000:60_000_000_000,stopLoss:side==="long"?90_000_000_000:110_000_000_000});
  const m=r.members[0],p=m.positions![0];return {r,m,p};
 }

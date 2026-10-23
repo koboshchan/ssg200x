@@ -2,13 +2,13 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
-import {freshRoom,register} from '../lib/poker';
+import {freshRoom,register} from './helpers/crypto-room';
 import {setPerpFee} from '../lib/admin';
 import {openPosition,closePosition} from '../lib/finance';
 import {publicRoom} from '../lib/public';
 const require=createRequire(import.meta.url),{chromium}=require(process.env.PLAYWRIGHT_MODULE||'/home/kit/out/cal-browser-evidence/node_modules/playwright'),{build}=require('esbuild');
 test('hydrated real market previews opening charge before confirmation, submits disclosed rate and shows actual fees/net history',async()=>{
- const who={id:'ui',name:'UI',email:'ui@test',admin:true},r=freshRoom();register(r,who);r.quotes={BTC:{micro:100000000,at:Date.now()}};setPerpFee(r,who,0.05);
+ const who={id:'ui',name:'UI',email:'ui@test',admin:true},r=freshRoom();register(r,who);r.quotes={BTC:{cryptoGeneration:"fixture",micro:100000000,at:Date.now()}};setPerpFee(r,who,0.05);
  openPosition(r,who,'BTC','long',10000,5,'closed',Date.now());closePosition(r,who,'closed',Date.now());openPosition(r,who,'BTC','short',10000,5,'open',Date.now());
  const out=await build({stdin:{contents:`import React from 'react';import {createRoot} from 'react-dom/client';import {Markets} from './app/finance-client';createRoot(document.getElementById('root')).render(<Markets room={${JSON.stringify(publicRoom(r,who))}} busy={false} post={async(path,body)=>{window.submitted={path,body}}}/>);`,resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,format:'iife',platform:'browser',jsx:'automatic',loader:{'.css':'empty'},plugins:[{name:'isolated-chart-and-css',setup(b:any){
  b.onResolve({filter:/^\.\/live-provider$/},()=>({path:"live",namespace:"live-stub"}));

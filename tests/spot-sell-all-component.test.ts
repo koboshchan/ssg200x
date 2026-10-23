@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {createRequire} from "node:module";
-import {freshRoom,register,assertRoom} from "../lib/poker";
+import {freshRoom,register,assertRoom} from "./helpers/crypto-room";
 import {publicRoom} from "../lib/public";
 import {spot} from "../lib/finance";
 import {sellAllSpot} from "../lib/spot-sell-all";
@@ -18,7 +18,7 @@ test("portfolio Sell all works in desktop/mobile light/dark using exact-unit set
  const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH||"/opt/hako/bin/google-chrome"});
  try{for(const width of [390,1440])for(const colorScheme of ["light","dark"]){
  const who={id:"fixture",name:"Fixture",email:"fixture@example.test",admin:false},r=freshRoom();register(r,who);
- r.quotes={BTC:{micro:82_700_000_000,at:Date.now()}};spot(r,who,"BTC","buy",100);r.quotes!.BTC!.micro=84_500_000_000;
+ r.quotes={BTC:{cryptoGeneration:"fixture",micro:82_700_000_000,at:Date.now()}};spot(r,who,"BTC","buy",100);r.quotes!.BTC!.micro=84_500_000_000;
  const page=await browser.newPage({viewport:{width,height:1000},colorScheme});
  await page.route("https://spot.test/**",async(route:any)=>{
  const url=route.request().url();

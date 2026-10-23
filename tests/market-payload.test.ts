@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {freshRoom,register} from "../lib/poker";
+import {freshRoom,register} from "./helpers/crypto-room";
 import {spot,openPosition} from "../lib/finance";
 import {publicStockState} from "../lib/stock-room-policy";
 import {publicRoom} from "../lib/public";
@@ -9,7 +9,7 @@ import {publicRoom} from "../lib/public";
 import {marketPayload} from "../runtime/market-payload.mjs";
 test("socket payload uses verified identity only and matches private market calculations",()=>{
  const r=freshRoom(),now=Date.now(),who={id:"alice-private",name:"Alice",email:"alice-secret@test",admin:true};register(r,who);register(r,{id:"bob-private",name:"Bob",email:"bob-secret@test",admin:false});
- r.quotes={BTC:{micro:100_000_000_000,at:now}};spot(r,who,"BTC","buy",10000,now);openPosition(r,who,"BTC","long",1000,200,"alice-position",now);r.quotes.BTC!.micro+=100_000_000;
+ r.quotes={BTC:{cryptoGeneration:"fixture",micro:100_000_000_000,at:now}};spot(r,who,"BTC","buy",10000,now);openPosition(r,who,"BTC","long",1000,200,"alice-position",now);r.quotes.BTC!.micro+=100_000_000;
  const payload=marketPayload(r,who.id,now),full=publicRoom(r,who);
  assert.deepEqual(payload.holdings,full.holdings);assert.equal(payload.positions[0].pnl,full.positions[0].pnl);assert.equal(payload.positions[0].equity,full.positions[0].equity);assert.equal(payload.positions[0].liquidation,full.positions[0].liquidation);assert.equal(payload.wallet,full.me.wallet);assert.deepEqual(payload.leaderboard,full.leaderboard);assert.equal(payload.netWorth,full.leaderboard.find(m=>m.publicId===full.me.publicId)!.netWorth);
  assert.equal(marketPayload(r,"unknown"),null);const bob=marketPayload(r,"bob-private",now);assert.deepEqual(bob.positions,[]);assert.deepEqual(bob.holdings,[]);
@@ -31,7 +31,7 @@ test("SPY socket execution status matches the shared stock policy",()=>{
   tick:{symbol:"SPY",price:600,timestamp:now-100,receivedAt:now,feed:"alpaca-iex"},
   clock:{timestamp:now,receivedAt:now,isOpen:true,nextOpen:now+86400000,nextClose:close},
   sessions:[{date:"2026-10-19",open:Date.parse("2026-10-19T13:30:00Z"),close}]}};
- r.quotes={SPY:{micro:600_000_000,at:now-100}};
+ r.quotes={SPY:{cryptoGeneration:"fixture",micro:600_000_000,at:now-100}};
  assert.equal(marketPayload(r,who.id,now).stockExecution.SPY.executable,true);
  assert.equal(marketPayload(r,who.id,now).stockExecution.SPY.executable,publicStockState(r,now).SPY.executable);
  assert.equal(marketPayload(r,who.id,close).stockExecution.SPY.executable,false);

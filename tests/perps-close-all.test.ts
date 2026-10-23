@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
-import {freshRoom,register,assertRoom} from "../lib/poker";
+import {freshRoom,register,assertRoom} from "./helpers/crypto-room";
 import {openPosition,closePosition} from "../lib/finance";
 import {closeAllPerps} from "../lib/perps-close-all";
 import {publicRoom} from "../lib/public";
@@ -10,7 +10,7 @@ import {checkFinanceRequest,recordFinanceRequest} from "../lib/finance-requests"
 const who={id:"a",name:"A",email:"a@example.test",admin:true},other={...who,id:"b"};
 function setup(){
  const r=freshRoom();register(r,who);register(r,other);
- r.quotes={BTC:{micro:100_000_000_000,at:1000},ETH:{micro:3_000_000_000,at:1000}};
+ r.quotes={BTC:{cryptoGeneration:"fixture",micro:100_000_000_000,at:1000},ETH:{cryptoGeneration:"fixture",micro:3_000_000_000,at:1000}};
  const ids=[randomUUID(),randomUUID()];
  openPosition(r,who,"BTC","long",10000,5,ids[0],1000);
  openPosition(r,who,"ETH","short",10000,5,ids[1],1000);

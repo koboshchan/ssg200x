@@ -1,5 +1,7 @@
+import {randomUUID} from "node:crypto";
+import {CRYPTO_HEALTH_MS,type CryptoStatus} from "./crypto-policy";
 import {SYMBOLS} from "./market-shared";
-export type Tick={symbol:string;micro:number;at:number;sequence:number};
+export type Tick={symbol:string;micro:number;at:number;sequence:number;cryptoGeneration?:string};
 type Socket=Pick<WebSocket,"send"|"close"|"readyState"|"onopen"|"onmessage"|"onerror"|"onclose">;
 import {STALE_MS} from "./price-policy";
 export {STALE_MS} from "./price-policy";
@@ -22,6 +24,9 @@ export class ExchangeFeed {
  private retryAt=0;
  private attempts=0;
  private lastMessage=0;
+ private heartbeatSubscribed=false;
+ private generation=randomUUID();
+ health(leaseUntil:number):CryptoStatus{return {connected:this.connected&&!this.stopped,heartbeatSubscribed:this.heartbeatSubscribed,generation:this.generation,lastMessage:this.lastMessage,leaseUntil};}
  private unknown=new Set<string>();
  private seen=new Map<string,{sequence:number;at:number}>();
  private startedAt:number;
@@ -35,17 +40,17 @@ export class ExchangeFeed {
  step(){
   if(this.stopped)return;
   this.sync();
-  if(this.socket && this.now()-this.lastMessage>STALE_MS){this.disconnect("stalled");}
+  if(this.socket && this.now()-this.lastMessage>CRYPTO_HEALTH_MS){this.disconnect("stalled");}
   if(!this.socket&&this.now()>=this.retryAt)this.connect();
  }
  private disconnect(reason:string){
-  const ws=this.socket;this.socket=undefined;
+  const ws=this.socket;this.socket=undefined;this.heartbeatSubscribed=false;
   if(ws){ws.onopen=ws.onmessage=ws.onclose=ws.onerror=null;ws.close();}
   this.retryAt=this.now()+Math.min(30_000,500*2**Math.min(6,this.attempts++));
   this.log("Coinbase feed "+reason);
  }
  private connect(){
-  this.lastMessage=this.now();
+  this.lastMessage=this.now();this.generation=randomUUID();this.heartbeatSubscribed=false;this.seen.clear();
   try{
    const ws=this.deps.socket();this.socket=ws;
    ws.onopen=()=>{if(this.socket!==ws)return;this.subscribed=[];this.sync();};
@@ -61,6 +66,8 @@ export class ExchangeFeed {
   if(m.type==="error"){this.log("Coinbase subscription rejected: "+String(m.message).slice(0,200));return;}
   if(m.type==="subscriptions"){
    const channels=Array.isArray(m.channels)?m.channels:[];const ticker=channels.find(c=>c?.name==="ticker");
+   const heartbeat=channels.find(c=>c?.name==="heartbeat");
+   this.heartbeatSubscribed=Array.isArray(heartbeat?.product_ids)&&this.symbols().some(s=>heartbeat.product_ids.includes(s+"-USD"));
    const accepted=new Set(Array.isArray(ticker?.product_ids)?ticker.product_ids:[]);
    const missing=this.symbols().filter(s=>!accepted.has(s+"-USD"));
    if(missing.length)this.log("Coinbase missing ticker products: "+missing.join(","));
@@ -74,15 +81,15 @@ export class ExchangeFeed {
   }
   const at=typeof m.time==="string"?Date.parse(m.time):NaN;
   if(!Number.isSafeInteger(at)||at>this.now()+FUTURE_SKEW_MS||this.now()-at>STALE_MS)return;
-  this.lastMessage=this.now();
-  if(m.type==="heartbeat")return; // Heartbeats never refresh a stale mark.
+  if(m.type==="heartbeat"){this.lastMessage=this.now();return;} // Heartbeats keep quiet-symbol prices executable, without rewriting quote timestamps.
   const sequence=m.sequence,price=typeof m.price==="string"&&m.price.trim()?Number(m.price):NaN,micro=Math.round(price*1e6);
   if(!Number.isSafeInteger(sequence)||Number(sequence)<0||!Number.isFinite(price)||price<=0||!Number.isSafeInteger(micro)||micro<=0||micro>1e13)return;
   const previous=this.seen.get(symbol);
   if(previous&&(Number(sequence)<=previous.sequence||at<previous.at))return;
   if(this.queue.length>=this.capacity){this.disconnect("queue overflow; reconnecting verified feed");return;}
+  this.lastMessage=this.now();
   this.seen.set(symbol,{sequence:Number(sequence),at});
-  this.queue.push({symbol,micro,at:Math.min(at,this.now()),sequence:Number(sequence)});
+  this.queue.push({symbol,micro,at:Math.min(at,this.now()),sequence:Number(sequence),cryptoGeneration:this.generation});
   void this.drain();
  }
  private async drain(){

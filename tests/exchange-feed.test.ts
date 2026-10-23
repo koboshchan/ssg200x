@@ -1,8 +1,9 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
+import {CRYPTO_HEALTH_MS} from "../lib/crypto-policy";
 import {ExchangeFeed,STALE_MS,type Tick} from "../lib/exchange-feed";
 import {SYMBOLS} from "../lib/market-shared";
-import {freshRoom,register} from "../lib/poker";
+import {freshRoom,register} from "./helpers/crypto-room";
 import {applyMarketTick} from "../lib/market-tick";
 import {openPosition} from "../lib/finance";
 function fixture(apply?:(ticks:Tick[])=>Promise<void>,capacity?:number){
@@ -39,9 +40,9 @@ test("bounded queue disconnects loudly without coalescing accepted burst crossin
 });
 test("zero-client serial burst settles transient TP crossing before reversal",async()=>{
  const room=freshRoom(),at=Date.now(),who={id:"feed",name:"Feed",email:"feed@test",admin:true};register(room,who);
- applyMarketTick(room,{BTC:{micro:100e6,at}},at);
+ applyMarketTick(room,{BTC:{cryptoGeneration:"fixture",micro:100e6,at}},at);
  openPosition(room,who,"BTC","long",1000,2,"burst",at,{takeProfit:101e6});
- const f=fixture(async ticks=>{for(const t of ticks){if(room.quotes!.BTC?.at===t.at)delete room.quotes!.BTC;applyMarketTick(room,{BTC:{micro:t.micro,at:t.at}},t.at);}});
+ const f=fixture(async ticks=>{for(const t of ticks){if(room.quotes!.BTC?.at===t.at)delete room.quotes!.BTC;applyMarketTick(room,{BTC:{cryptoGeneration:"fixture",micro:t.micro,at:t.at}},t.at);}});
  f.feed.receive(f.tick(1,"102"));f.feed.receive(f.tick(2,"100"));await flush();
  assert.equal(room.members[0].positions?.length,0);assert.match(room.members[0].activity![0],/^Take-profit/);assert.equal(room.quotes!.BTC!.micro,100e6);f.feed.stop();
 });
@@ -60,7 +61,7 @@ test("all active healthy products suppress fallback until stale and fresh tick r
  await flush();assert.deepEqual(f.feed.staleSymbols(),[]);f.feed.stop();
 });
 test("transport stalls close and reconnect even without close event",()=>{
- const f=fixture();f.feed.step();f.advance(STALE_MS+1);f.feed.step();assert.equal(f.sockets[0].readyState,3);
+ const f=fixture();f.feed.step();f.advance(CRYPTO_HEALTH_MS+1);f.feed.step();assert.equal(f.sockets[0].readyState,3);
  f.advance(500);f.feed.step();assert.equal(f.sockets.length,2);f.feed.stop();
 });
 

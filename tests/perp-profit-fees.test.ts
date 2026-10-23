@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {freshRoom,register,assertRoom} from "../lib/poker";
+import {freshRoom,register,assertRoom} from "./helpers/crypto-room";
 import {setPerpFees} from "../lib/admin";
 import {openPosition,closePosition,netPnl,liqPrice,pnl,liquidate,type Position} from "../lib/finance";
 import {closingFeeCents,closingFeeMode,closingFeeReserve} from "../runtime/perp-fee-policy.mjs";
@@ -10,7 +10,7 @@ import {marketPayload} from "../runtime/market-payload.mjs";
 import {mergeMarket} from "../lib/room-sync";
 import {financeAuditSnapshot} from "../lib/finance-audit";
 const who={id:"profit",name:"Profit",email:"profit@test",admin:true};
-function setup(){const r=freshRoom();register(r,who);r.quotes={BTC:{micro:100000000,at:1000}};return r;}
+function setup(){const r=freshRoom();register(r,who);r.quotes={BTC:{cryptoGeneration:"fixture",micro:100000000,at:1000}};return r;}
 for(const side of ["long","short"] as const)test(`${side} profit share takes 1% of $200 after opening fee, not $10k position`,()=>{
  const p:Position={id:"example",symbol:"BTC",side,margin:1000000,postedMargin:1001000,collateral:1000000,leverage:1,entry:100000000,opened:1000,openingFee:1000,closingFeePpm:10000,closingFeeMode:"profit"};
  const mark=side==="long"?102100000:97900000;

@@ -1,4 +1,5 @@
 "use client";
+import {cryptoExecutable} from "../lib/crypto-policy";
 import {useFeatures} from "./use-features";
 import {visibleMarketSymbols} from "@/lib/visible-markets";
 import {FEATURE_LABELS,type FeatureKey} from "@/lib/feature-catalog";
@@ -60,7 +61,7 @@ export function Markets({room,busy,post}:Props){
  const {connection,emit}=useLive();
  useEffect(()=>{if(connection==="connected")emit("market:subscribe",symbol||null);return()=>emit("market:subscribe",null);},[symbol,connection,emit]);
  const tmode=room.me.triggerInputMode,pnlMode=tmode==="pnl",rawBasis=q0(room,symbol,amount,leverage,direction),basis:Basis|null=rawBasis?{...rawBasis,margin:rawBasis.margin-openingFeeCents(rawBasis.margin,rawBasis.leverage,room.perpOpeningFeePpm)}:null;
- const lev=String(Math.min(Number(leverage),room.limits.maxLeverage)),q=(room.quotes as Record<string,{micro:number;at:number}|undefined>)[symbol],fresh=Boolean((!isStockSymbol(symbol)||(room.stockExecution?.[symbol]?.executable&&clock<room.stockExecution[symbol].validUntil))&&q&&Math.max(clock,room.serverNow)>=q.at&&Math.max(clock,room.serverNow)-q.at<(isStockSymbol(symbol)?60_000:10_000));
+ const lev=String(Math.min(Number(leverage),room.limits.maxLeverage)),q=(room.quotes as Record<string,{micro:number;at:number}|undefined>)[symbol],fresh=Boolean((!isStockSymbol(symbol)||(room.stockExecution?.[symbol]?.executable&&clock<room.stockExecution[symbol].validUntil))&&q&&Math.max(clock,room.serverNow)>=q.at&&(isStockSymbol(symbol)?Math.max(clock,room.serverNow)-q.at<60_000:cryptoExecutable(room.cryptoStatus??undefined,room.quotes[symbol],Math.max(clock,room.serverNow))));
  const marketKey:FeatureKey=isFx(symbol)?"forex":isStockSymbol(symbol)?"stocks":mode==="spot"?"cryptoSpot":"cryptoPerps";
  const openOff=!(mode==="spot"&&side==="sell")&&ft[marketKey]===false;
  const selling=mode==="spot"&&side==="sell",holding=room.holdings.find(h=>h.symbol===symbol);
@@ -74,7 +75,7 @@ export function Markets({room,busy,post}:Props){
  const sellReason=(h:PublicRoom["holdings"][number])=>{
   if(h.symbol!==symbol)return h.value<1?"Worth less than $0.01 · units retained":h.value>room.limits.maxTrade*100?"Above trade limit · use order ticket":"";
   const quote=(room.quotes as Record<string,{micro:number;at:number}|undefined>)[h.symbol];
-  if(!quote||!Number.isSafeInteger(quote.micro)||quote.micro<=0||Math.max(clock,room.serverNow)<quote.at||Math.max(clock,room.serverNow)-quote.at>=(isStockSymbol(h.symbol)?60_000:10_000))return "Live price unavailable";
+  if(!quote||!Number.isSafeInteger(quote.micro)||quote.micro<=0||Math.max(clock,room.serverNow)<quote.at||(isStockSymbol(h.symbol)?Math.max(clock,room.serverNow)-quote.at>=60_000:!isFx(h.symbol)&&!cryptoExecutable(room.cryptoStatus??undefined,room.quotes[h.symbol],Math.max(clock,room.serverNow))))return "Live price unavailable";
   if(isStockSymbol(h.symbol)&&(!room.stockExecution?.[h.symbol]?.executable||clock>=room.stockExecution[h.symbol].validUntil))return stockPause(h.symbol);
   if(h.value<1)return "Worth less than $0.01 · units retained";
   if(h.value>room.limits.maxTrade*100)return "Above trade limit · use order ticket";

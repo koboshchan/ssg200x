@@ -1,7 +1,7 @@
 // These legacy accounting/trigger fixtures explicitly exercise the admin zero-fee mode.
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import {freshRoom,register,assertRoom} from "../lib/poker";
+import {freshRoom,register,assertRoom} from "./helpers/crypto-room";
 import {closePosition,openPosition,liquidate} from "../lib/finance";
 import {settleTriggers} from "../lib/position-triggers";
 import {publicRoom} from "../lib/public";
@@ -10,7 +10,7 @@ import {mergeMarket} from "../lib/room-sync";
 import {marketPayload} from "../runtime/market-payload.mjs";
 const who={id:"owner",name:"Owner",email:"private@test",admin:true};
 function setup(side:"long"|"short"="long"){
- const r=Object.assign(freshRoom(),{perpFeePpm:0});register(r,who);r.quotes={BTC:{micro:100_000_000,at:1000}};
+ const r=Object.assign(freshRoom(),{perpFeePpm:0});register(r,who);r.quotes={BTC:{cryptoGeneration:"fixture",micro:100_000_000,at:1000}};
  openPosition(r,who,"BTC",side,1001,3,"position",1000,{takeProfit:side==="long"?110_000_000:90_000_000,stopLoss:side==="long"?95_000_000:105_000_000});
  return r;
 }
@@ -20,7 +20,7 @@ for(const side of ["long","short"] as const){
   const direction=side==="long"?1:-1;
   const move=reason==="SL"?-6_123_457:reason==="Liq"?-40_000_000:12_345_679;
   const exit=100_000_000+direction*move;
-  r.quotes!.BTC={micro:exit,at:2345};
+  r.quotes!.BTC={cryptoGeneration:"fixture",micro:exit,at:2345};
   if(reason==="Manual")closePosition(r,who,"position",2345);
   else if(reason==="Liq")liquidate(r,2345);
   else settleTriggers(r,2345);
@@ -33,7 +33,7 @@ for(const side of ["long","short"] as const){
  });
 }
 test("manual close beyond liquidation is recorded as liquidation at actual gap mark",()=>{
- const r=setup();r.quotes!.BTC={micro:50_000_000,at:2000};closePosition(r,who,"position",2000);
+ const r=setup();r.quotes!.BTC={cryptoGeneration:"fixture",micro:50_000_000,at:2000};closePosition(r,who,"position",2000);
  assert.equal(r.members[0].closedPositions![0].reason,"Liq");assert.equal(r.members[0].closedPositions![0].exit,50_000_000);
 });
 test("closed history is private in full and market snapshots and survives market merge",()=>{
@@ -58,7 +58,7 @@ test("newest closed positions come first without overwriting older fills",()=>{
  assert.deepEqual(r.members[0].closedPositions!.map(p=>[p.id,p.closedAt]),[["second",1001],["position",1000]]);
 });
 for(const side of ["long","short"] as const)test(`unchanged-entry manual ${side} returns full margin with plain Closed notice, not trigger or liquidation`,()=>{
- const r=Object.assign(freshRoom(),{perpFeePpm:0});register(r,who);r.quotes={BTC:{micro:100_000_000_000,at:1000}};
+ const r=Object.assign(freshRoom(),{perpFeePpm:0});register(r,who);r.quotes={BTC:{cryptoGeneration:"fixture",micro:100_000_000_000,at:1000}};
  openPosition(r,who,"BTC",side,2000,200,"manual-entry",1000,{takeProfit:undefined,stopLoss:undefined});
  settleTriggers(r,1000);assert.equal(r.members[0].positions!.length,1);assert.deepEqual(r.members[0].activity,undefined);
  closePosition(r,who,"manual-entry",1000);

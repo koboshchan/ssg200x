@@ -15,21 +15,23 @@ import {randomUUID} from "node:crypto";
 import {ExchangeFeed,type Tick} from "./exchange-feed";
 type Worker={runOnce:()=>Promise<void>;ready:Promise<void>;owner:string;feed:ExchangeFeed;timer:ReturnType<typeof setInterval>;stop:()=>void};
 const globalWorker=globalThis as typeof globalThis & {exchangePriceWorker?:Worker};
-export async function persistExchangeTicks(ticks:Tick[]){
+export async function persistExchangeTicks(ticks:Tick[],health?:import("./crypto-policy").CryptoStatus,owner?:string){
 
  // Queued prints can age out during a persistence failure or CAS retry.
- ticks=ticks.filter(t=>quoteFresh(t.at,Date.now()));
+ ticks=ticks.filter(t=>quoteFresh(t.at,Date.now())&&(!health||t.cryptoGeneration===health.generation));
  if(!ticks.length)return;
- await mutate(room=>{
+ const publish=(room:import("./types").Room)=>{
+  if(health)room.cryptoStatus=health;
   for(const tick of ticks){
    if(!marketSymbols(room).crypto.includes(tick.symbol)||!quoteFresh(tick.at,Date.now()))continue;
    const previous=room.quotes?.[tick.symbol as keyof typeof room.quotes];
    if(previous&&previous.at>tick.at)continue;
    // Feed sequence validation proves these are newer trades, even within one millisecond.
    if(previous?.at===tick.at)delete room.quotes![tick.symbol as keyof typeof room.quotes];
-   applyMarketTick(room,{[tick.symbol]:{micro:tick.micro,at:tick.at}});
+   applyMarketTick(room,{[tick.symbol]:{micro:tick.micro,at:tick.at,cryptoGeneration:tick.cryptoGeneration}});
   }
- });
+ };
+ if(owner)await mutateStockPublication(owner,publish);else await mutate(publish);
  // Preserve every print's high/low and bucket boundary, not just the last mark.
  await candleUpdate(ticks.filter(t=>quoteFresh(t.at,Date.now())).map(tick=>({[tick.symbol]:{micro:tick.micro,at:tick.at}})));
 }
@@ -38,12 +40,13 @@ export function startPriceWorker(){
  const owner=randomUUID();
  let running=false,leaseUntil=0,stopped=false;
  let flags:FeatureSettings|undefined;
+ let lastHealthPublication=0,lastHealthState="";
  const cryptoOn=()=>!!flags&&(flags.enabled("cryptoPerps")||flags.enabled("cryptoSpot"));
  const stocksOn=()=>flags?.enabled("stocks")===true;
  const forexOn=()=>flags?.enabled("forex")===true;
  let feed:ExchangeFeed;
  let symbols=marketSymbols();
- const makeFeed=()=>new ExchangeFeed({symbols:()=>symbols.crypto,socket:()=>{if(stopped||!cryptoOn()||Date.now()>=leaseUntil-1000)throw new Error("Price lease unavailable");return new WebSocket("wss://ws-feed.exchange.coinbase.com");},apply:async ticks=>{if(stopped||!cryptoOn()||Date.now()>=leaseUntil)throw new Error("Price lease expired");await persistExchangeTicks(ticks);},log:message=>console.warn(message)});
+ const makeFeed=()=>new ExchangeFeed({symbols:()=>symbols.crypto,socket:()=>{if(stopped||!cryptoOn()||Date.now()>=leaseUntil-1000)throw new Error("Price lease unavailable");return new WebSocket("wss://ws-feed.exchange.coinbase.com");},apply:async ticks=>{if(stopped||!cryptoOn()||Date.now()>=leaseUntil)throw new Error("Price lease expired");await persistExchangeTicks(ticks,feed.health(leaseUntil),owner);},log:message=>console.warn(message)});
  feed=makeFeed();
  const forex=createForexStream({leaseId:()=>fx.leaseId(),observe:forexObserver(),owner,symbols:()=>symbols.forex,leader:()=>!stopped&&forexOn()&&fx.leader(),leaseUntil:()=>fx.leaseUntil()});
  const fx=new ForexIsolation({options:()=>({...forexStreamOptions(),enabled:forexOn()&&forexStreamOptions().enabled}),now:Date.now,step:()=>forex.step(),revoke:()=>forex.revoke(),claim:async id=>{
@@ -94,10 +97,15 @@ export function startPriceWorker(){
    symbols=marketSymbols(await readRoom());
    await fx.step();
    if(stocksOn())void stocks.step();
-   if(cryptoOn()){feed.step();feed.retryPending();}
+   if(cryptoOn()){feed.step();feed.retryPending();
+    const health=feed.health(leaseUntil),healthState=JSON.stringify([health.connected,health.heartbeatSubscribed,health.generation]);
+    if(Date.now()-lastHealthPublication>=1000||healthState!==lastHealthState){
+     await mutateStockPublication(owner,room=>{room.cryptoStatus=health;});
+     lastHealthPublication=Date.now();lastHealthState=healthState;
+    }}
    // No executable REST fallback. The v2 rates body has no provider event time:
    // changing values, HTTP Date/Age and receipt time cannot establish freshness.
-   // Keep reconnecting the verified WS source; expired marks pause all execution.
+   // Keep reconnecting the verified WS source; unhealthy transport pauses execution.
 
   }catch{await fx.stop();stocks.revoke();feed.stop();feed=makeFeed();leaseUntil=0;}
   finally{running=false;}
