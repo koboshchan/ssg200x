@@ -4,6 +4,7 @@ import {readFileSync} from "node:fs";
 import {casinoInputCents,isWholeCasinoAmount,isCasinoInputText} from "../lib/casino-amount";
 import {wholeCasinoCents,rouletteBetSchema} from "../lib/casino-schemas";
 import {actionSchema} from "../lib/schemas";
+import {rouletteRequestSchema} from "../lib/roulette-request";
 import {freshRoom,register,applyAction,act,totalChips} from "../lib/poker";
 import {blackjackAction,blackjackTablesAction} from "../lib/blackjack";
 import {rouletteState,rouletteAction,rouletteTick} from "../lib/roulette";
@@ -34,7 +35,11 @@ test("roulette and poker request schemas reject fractional dollars and preserve 
  for(const to of invalid)assert.equal(actionSchema.safeParse({...base,type:"raise",to}).success,false);
  for(const buyIn of [10001,10050,"10000",9999,100000100])assert.equal(actionSchema.safeParse({...base,type:"join",seat:0,buyIn}).success,false);
  for(const buyIn of [10000,100000])assert.equal(actionSchema.safeParse({...base,type:"join",seat:0,buyIn}).success,true);
- for(const f of ["app/api/roulette/route.ts","lib/finance-input.ts"]){
+ const request={type:"bet",tableId:"01",requestId:base.requestId,requestAt:base.requestAt,round:1};
+ for(const amount of [...invalid,99,100001,0,-100])assert.equal(rouletteRequestSchema.safeParse({...request,bet:{kind:"red",amount}}).success,false);
+ for(const amount of [100,100000])assert.equal(rouletteRequestSchema.safeParse({...request,bet:{kind:"red",amount}}).success,true);
+ assert.match(readFileSync("app/api/roulette/route.ts","utf8"),/rouletteRequestSchema as schema/);
+ for(const f of ["lib/roulette-request.ts","lib/finance-input.ts"]){
   assert.match(readFileSync(f,"utf8"),/casino-schemas/);
  }
 });
