@@ -108,6 +108,10 @@ test("receipt replay binds canonical action, round, timestamp and owner, fails c
  const wallet=room.members[0].wallet;
  const reordered={type:"bet",tableId:"01",round:captured.round,requestId:captured.requestId,requestAt:captured.requestAt,bet:{kind:"red",amount:100}};
  assert.equal((await POST(request(reordered))).status,200);
+ // Shared transport context is not part of the semantic wager identity.
+ assert.equal((await POST(request({...reordered,tableId:"02"}))).status,200);
+ const {tableId,...withoutTable}=reordered;
+ assert.equal((await POST(request(withoutTable))).status,200);
  assert.equal(room.members[0].wallet,wallet);
  assert.equal(rouletteState(room,now).bets.length,1);
  for(const body of [{...captured,bet:{kind:"red",amount:200}},{...captured,round:captured.round+1},{...captured,requestAt:captured.requestAt+1},{...captured,type:"rebet",bet:undefined}]){

@@ -71,3 +71,16 @@ test("direct feed worker entry points refuse isolated QA before any database or 
   await assert.rejects(tickPolymarket(),/Isolated QA requires/);
  }finally{for(const key of Object.keys(process.env))if(!(key in old))delete process.env[key];Object.assign(process.env,old);}
 });
+
+
+test("merged startup guard retains fixture safety alongside external feed isolation",()=>{
+ const valid={SSG_ISOLATED_QA:"1",QA_PROTECTED_COLLECTIONS:"candles",QA_CHART_FIXTURES:"1",FX_STREAM_ENABLED:"false",NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:"pk_test_fixture",CLERK_SECRET_KEY:"sk_test_fixture"};
+ assert.doesNotThrow(()=>assertIsolatedQa(valid));
+ for(const key of Object.keys(valid)){
+  const env:Record<string,string>={...valid};delete env[key];
+  if(key==="QA_CHART_FIXTURES")assert.doesNotThrow(()=>assertIsolatedQa(env));
+  else assert.throws(()=>assertIsolatedQa(env),/Chart fixtures require/);
+ }
+ for(const invalid of [{QA_CHART_FIXTURES:"true"},{FX_STREAM_ENABLED:"true"},{CLERK_SECRET_KEY:"sk_live_fixture"},{NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:"pk_live_fixture"}])
+  assert.throws(()=>assertIsolatedQa({...valid,...invalid}),/Chart fixtures require/);
+});

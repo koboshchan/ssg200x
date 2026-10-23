@@ -32,6 +32,9 @@ async function main(){
  [{type:"bet",bet:{kind:"red",amount:300}},1,req.at+1]
  ] as const){const before=JSON.stringify(await readRoom());await assert.rejects(()=>rouletteMove(a,action,round,req.id,at),{status:409});assert.equal(JSON.stringify(await readRoom()),before);}
 
+ // Real CAS replay ignores transport metadata while preserving the wager.
+ const transportReplay={type:"bet" as const,bet:{kind:"red" as const,amount:300},tableId:"02",requestId:req.id,requestAt:req.at,round:1};
+ assert.equal((await rouletteMove(a,transportReplay,1,req.id,req.at)).members[0].wallet,99700);
  assert.equal(dup.members[0].wallet,99700);assert.equal(rouletteState(dup,0).bets[0].bet.amount,300);
  await assert.rejects(()=>rouletteMove(b,{type:"bet",bet:{kind:"red",amount:500}},1,req.id,req.at),{status:409});
  r=await readRoom();const before=JSON.stringify(r);await assert.rejects(()=>rouletteMove(a,{type:"change",betId:req.id,bet:{kind:"red",amount:150}},1,randomUUID(),Date.now()));assert.equal(JSON.stringify(await readRoom()),before);
