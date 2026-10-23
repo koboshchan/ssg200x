@@ -117,7 +117,7 @@ export default function Wallet(){
    </section>
    {ft.payments?<section aria-labelledby="send-title"><h2 id="send-title">Send</h2>
     <form onSubmit={e=>{e.preventDefault();void run(recipient?send:resolve);}}>
-     <WordEntry count={2} label="Recipient’s two-word code" value={code} disabled={busy} onChange={value=>{setCode(value);editSend();}}/>
+     <WordEntry count={2} maxWords={4} label="Recipient’s two-word code" value={code} disabled={busy} onChange={value=>{setCode(value);editSend();}}/>
      {recipient?<div role="status" className={styles.preview}>{recipient.avatar?<img src={recipient.avatar} alt="" width={40} height={40} style={{borderRadius:"50%"}}/>:null}<p>Send <strong>{money(recipient.amount)}</strong> to <strong>{recipientName}</strong>{recipient.note?<>. Note: “{recipient.note}”</>:null}. {expired?"Code expired. Ask for a new code.":"The amount is set by the receiver."}</p></div>:null}
      <button className="primary" disabled={busy||!ready||expired}>{busy?"Working…":recipient?"Confirm send to "+recipientName:"Check code"}</button>{recipient?<button type="button" disabled={busy} onClick={editSend}>Cancel</button>:null}
     </form>

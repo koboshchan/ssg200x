@@ -1,128 +1,89 @@
 "use client";
-
-import {useEffect, useId, useLayoutEffect, useRef, useState} from "react";
+import {useEffect,useId,useLayoutEffect,useRef,useState} from "react";
 import {wordlist} from "@scure/bip39/wordlists/english.js";
+import {replaceWord,wordSuggestions} from "@/lib/word-entry";
 import "./word-entry.css";
 
-export type WordEntryProps = {
-  value: string;
-  onChange: (value: string) => void;
-  count: number;
-  disabled?: boolean;
-  label?: string;
+export type WordEntryProps={
+ value:string; onChange:(value:string)=>void; count:number;
+ dictionary?:readonly string[]; separatorPattern?:RegExp; separator?:string;
+ // A suggestion limit only, never a typing, paste, or submission validator.
+ maxWords?:number; disabled?:boolean; readOnly?:boolean; label?:string;
+ placeholder?:string; inputClassName?:string;
 };
 
-// Phrase strings, including whitespace and older four-word codes, stay intact.
-export default function WordEntry({value, onChange, count, disabled = false, label = "Recovery words"}: WordEntryProps) {
-  const id = useId();
-  const input = useRef<HTMLInputElement>(null);
-  const mirror = useRef<HTMLSpanElement>(null);
-  const pendingCaret = useRef<number | null>(null);
-  const [caret, setCaret] = useState(0);
-  const [focused, setFocused] = useState(false);
-  const [active, setActive] = useState(0);
-  const [dismissed, setDismissed] = useState(false);
-  const [anchor, setAnchor] = useState(0);
-  const position = Math.min(caret, value.length);
-  const start = value.slice(0, position).search(/\S*$/);
-  const tail = value.slice(position).search(/\s/);
-  const end = tail < 0 ? value.length : position + tail;
-  const prefix = value.slice(start, position).toLowerCase();
-  const matches = prefix ? wordlist.filter(word => word.startsWith(prefix)) : [];
-  const expanded = !disabled && focused && !dismissed && matches.length > 0;
-  const selected = Math.min(active, Math.max(0, matches.length - 1));
-
-  function measure() {
-    const element = input.current, text = mirror.current;
-    if (!element || !text) return;
-    const style = getComputedStyle(element);
-    text.style.font = style.font;
-    text.style.letterSpacing = style.letterSpacing;
-    text.textContent = value.slice(0, start);
-    const x = text.getBoundingClientRect().width + parseFloat(style.paddingLeft) - element.scrollLeft;
-    setAnchor(Math.max(0, Math.min(x, element.clientWidth - 160)));
+export default function WordEntry({value,onChange,count,dictionary=wordlist,
+ separatorPattern,separator=" ",maxWords=count,disabled=false,readOnly=false,
+ label="Recovery words",placeholder,inputClassName}:WordEntryProps){
+ const id=useId(),input=useRef<HTMLInputElement>(null),pendingCaret=useRef<number|null>(null);
+ const [selection,setSelection]=useState({start:0,end:0});
+ const [focused,setFocused]=useState(false),[active,setActive]=useState(-1);
+ const [dismissed,setDismissed]=useState(false),[composing,setComposing]=useState(false);
+ const options={dictionary,maxWords,separatorPattern,separator};
+ const matches=wordSuggestions(value,selection.end,options,selection.start);
+ const expanded=focused&&!disabled&&!readOnly&&!composing&&!dismissed&&matches.length>0;
+ const selected=active>=0?Math.min(active,matches.length-1):-1;
+ useLayoutEffect(()=>{
+  if(pendingCaret.current!==null&&input.current){
+   input.current.setSelectionRange(pendingCaret.current,pendingCaret.current);
+   pendingCaret.current=null;
   }
-
-  useLayoutEffect(() => {
-    if (pendingCaret.current !== null && input.current) {
-      input.current.setSelectionRange(pendingCaret.current, pendingCaret.current);
-      pendingCaret.current = null;
-    }
-    measure();
-  }, [value, start, caret]);
-
-  useEffect(() => {
-    const element = input.current;
-    if (!element) return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [value, start]);
-
-  useEffect(() => {
-    if (expanded) document.getElementById(id + "-option-" + selected)?.scrollIntoView({block: "nearest"});
-  }, [expanded, id, selected]);
-
-  function syncCaret() {
-    const next = input.current?.selectionStart ?? 0;
-    if (next !== caret) {setActive(0); setDismissed(false);}
-    setCaret(next);
-  }
-
-  function pick(word: string) {
-    const suffix = value.slice(end);
-    const separator = suffix ? "" : " ";
-    const next = value.slice(0, start) + word + separator + suffix;
-    const nextCaret = start + word.length + (suffix ? (suffix.match(/^\s+/)?.[0].length ?? 0) : 1);
-    pendingCaret.current = nextCaret;
-    setCaret(nextCaret);
-    setActive(0);
-    setDismissed(true);
-    onChange(next);
-    input.current?.focus();
-  }
-
-  return <div className="word-entry">
-    <label className="word-entry-label" htmlFor={id}>{label}</label>
-    <div className="word-entry-textbox">
-      <span className="word-entry-mirror" ref={mirror} aria-hidden="true"/>
-      {expanded && <div className="word-entry-suggestions" style={{left: anchor}} role="listbox" aria-label="Word suggestions" id={id + "-suggestions"}>
-        {matches.map((word, option) => <button type="button" role="option" tabIndex={-1}
-          key={word} id={id + "-option-" + option} aria-selected={option === selected}
-          onPointerDown={event => event.preventDefault()} onClick={() => pick(word)}>{word}</button>)}
-      </div>}
-      <input ref={input} id={id} role="combobox" aria-autocomplete="list" aria-expanded={expanded}
-        aria-controls={expanded ? id + "-suggestions" : undefined}
-        aria-activedescendant={expanded ? id + "-option-" + selected : undefined}
-        autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
-        placeholder={Array.from({length: count}, () => "word").join(" ")}
-        value={value} disabled={disabled}
-        onFocus={() => {setFocused(true); setActive(0); setDismissed(false); syncCaret();}}
-        onBlur={() => {setFocused(false); setDismissed(true);}}
-        onSelect={syncCaret} onScroll={measure}
-        onChange={event => {
-          setCaret(event.target.selectionStart ?? event.target.value.length);
-          setActive(0);
-          setDismissed(false);
-          onChange(event.target.value);
-        }}
-        onKeyDown={event => {
-          if (event.nativeEvent.isComposing) return;
-          if (event.key === "Escape") {
-            if (expanded) {event.preventDefault(); event.stopPropagation();}
-            setDismissed(true);
-            return;
-          }
-          if ((event.key === "ArrowDown" || event.key === "ArrowUp") && matches.length) {
-            event.preventDefault();
-            setDismissed(false);
-            setActive((selected + (event.key === "ArrowDown" ? 1 : -1) + matches.length) % matches.length);
-          }
-          if ((event.key === "Enter" || (event.key === "Tab" && !event.shiftKey)) && expanded) {
-            event.preventDefault();
-            pick(matches[selected]);
-          }
-        }}/>
-    </div>
-  </div>;
+ },[value,selection.start,selection.end]);
+ useEffect(()=>{
+  if(expanded&&selected>=0)document.getElementById(id+"-option-"+selected)?.scrollIntoView({block:"nearest"});
+ },[expanded,id,selected]);
+ function syncSelection(){
+  const element=input.current;if(!element)return;
+  const next={start:element.selectionStart??0,end:element.selectionEnd??0};
+  if(next.start!==selection.start||next.end!==selection.end){setActive(-1);setDismissed(false);}
+  setSelection(next);
+ }
+ function pick(word:string){
+  if(disabled||readOnly||composing)return;
+  const next=replaceWord(value,selection.end,word,options,selection.start);
+  pendingCaret.current=next.caret;
+  setSelection({start:next.caret,end:next.caret});setActive(-1);setDismissed(true);
+  onChange(next.value);
+  // Pointer-down keeps focus on the input. Never steal focus back from elsewhere.
+ }
+ return <div className="word-entry">
+  <label className="word-entry-label" htmlFor={id}>{label}</label>
+  <div className="word-entry-textbox">
+   <input ref={input} id={id} role="combobox" aria-autocomplete="list" aria-haspopup="listbox"
+    aria-expanded={expanded} aria-controls={expanded?id+"-suggestions":undefined}
+    aria-activedescendant={expanded&&selected>=0?id+"-option-"+selected:undefined}
+    autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+    data-1p-ignore data-lpignore="true" data-form-type="other"
+    className={inputClassName} placeholder={placeholder??Array.from({length:count},()=>"word").join(separator)}
+    value={value} disabled={disabled} readOnly={readOnly}
+    onFocus={()=>{setFocused(true);setActive(-1);setDismissed(false);syncSelection();}}
+    onBlur={()=>{setFocused(false);setDismissed(true);}}
+    onSelect={syncSelection}
+    onCompositionStart={()=>{setComposing(true);setActive(-1);}}
+    onCompositionEnd={()=>{setComposing(false);syncSelection();setDismissed(false);}}
+    onChange={event=>{
+     setSelection({start:event.target.selectionStart??event.target.value.length,end:event.target.selectionEnd??event.target.value.length});
+     setActive(-1);setDismissed(false);onChange(event.target.value);
+    }}
+    onKeyDown={event=>{
+     if(disabled||readOnly||composing||event.nativeEvent.isComposing||event.nativeEvent.keyCode===229)return;
+     if(event.key==="Escape"){
+      if(expanded){event.preventDefault();event.stopPropagation();}
+      setDismissed(true);setActive(-1);return;
+     }
+     if(event.key==="Tab"){setDismissed(true);setActive(-1);return;}
+     if((event.key==="ArrowDown"||event.key==="ArrowUp")&&matches.length){
+      event.preventDefault();setDismissed(false);
+      setActive(!expanded||selected<0?(event.key==="ArrowDown"?0:matches.length-1):
+       (selected+(event.key==="ArrowDown"?1:-1)+matches.length)%matches.length);
+     }
+     if(event.key==="Enter"&&expanded&&selected>=0){event.preventDefault();pick(matches[selected]);}
+    }}/>
+   {expanded?<div className="word-entry-suggestions" role="listbox" aria-label="Word suggestions" id={id+"-suggestions"}>
+    {matches.map((word,index)=><button type="button" role="option" tabIndex={-1} key={word}
+     id={id+"-option-"+index} aria-selected={index===selected}
+     onPointerDown={event=>event.preventDefault()} onClick={()=>pick(word)}>{word}</button>)}
+   </div>:null}
+  </div>
+ </div>;
 }
