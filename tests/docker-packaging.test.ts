@@ -40,3 +40,11 @@ test('custom server bundle includes pure JS dependencies and inventories every e
  assert.ok(!manifest.externals.includes('@scure/bip39'));
  assert.ok(readFileSync('client-dist/socket.io.js').length>1000);
 });
+
+test('prebuilt revision proof survives the strict context allowlist',()=>{
+ const dockerfile=readFileSync('Dockerfile.prebuilt','utf8');
+ const allowlist=readFileSync('Dockerfile.prebuilt.dockerignore','utf8').split(/\r?\n/);
+ assert.ok(allowlist.includes('!.next/GIT_COMMIT'));
+ assert.match(dockerfile,/COPY --chown=node:node \.next\/GIT_COMMIT \.\/\.next\/GIT_COMMIT/);
+ assert.ok(dockerfile.indexOf('.next/GIT_COMMIT')>dockerfile.indexOf('COPY --chown=node:node .next/standalone'));
+});

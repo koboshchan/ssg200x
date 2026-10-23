@@ -9,6 +9,7 @@ ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000
 COPY --from=production-deps --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node .next/standalone ./
 RUN find node_modules -type f -name '*.map' -delete && rm -rf node_modules/@next/swc-*
+COPY --chown=node:node .next/GIT_COMMIT ./.next/GIT_COMMIT
 COPY --chown=node:node .next/static ./.next/static
 COPY --chown=node:node public ./public
 COPY --chown=node:node dist ./dist
