@@ -5,7 +5,7 @@ import {rouletteAction,rouletteTick,rouletteState,initialAnchor,ROULETTE_MS,type
 import {ROULETTE_OPEN_MS,ROULETTE_RESULT_MS} from './roulette-clock';
 import {PHYS_VERSION,type PhysicsRound} from './roulette-physics';
 import {solveRoulette} from './roulette-solver';
-import {randomInt,randomUUID} from 'node:crypto';
+import {createHash,randomInt,randomUUID} from 'node:crypto';
 import type {Identity,Room} from './types';
 import {readRoom} from './db';
 type RRoom=Room&{roulette?:RouletteState};
@@ -64,11 +64,23 @@ async function prepareRound(state:RouletteState){
  throw new Error('Unable to publish a future roulette launch');
 }
 
+function canonical(value:unknown):unknown{
+ if(Array.isArray(value))return value.map(canonical);
+ if(value!==null&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical((value as Record<string,unknown>)[key])]));
+ return value;
+}
+function rouletteFingerprint(action:RouletteAction,round:number,requestAt:number){
+ // Transport fields do not belong to the semantic action envelope.
+ const semantic=action.type==='bet'?{type:action.type,bet:action.bet}:action.type==='change'?{type:action.type,betId:action.betId,bet:action.bet}:action.type==='cancel'?{type:action.type,betId:action.betId}:{type:action.type};
+ return createHash('sha256').update(JSON.stringify(canonical({action:semantic,round,requestAt}))).digest('hex');
+}
+
 export async function rouletteMove(who:Identity,action:RouletteAction,round:number,requestId:string,requestAt:number){
+ const fingerprint=rouletteFingerprint(action,round,requestAt);
  return (await mutate(r=>{
   register(r,who);const now=Date.now();ensure(now-requestAt>=-10_000&&now-requestAt<=120_000,'Request expired.',409);
-  const receipt=r.receipts.find(x=>x.id===requestId);if(receipt){ensure(receipt.userId===who.id,'Invalid request.',409);return;}
+  const receipt=r.receipts.find(x=>x.id===requestId);if(receipt){ensure(receipt.userId===who.id&&receipt.rouletteFingerprint===fingerprint,'Invalid request.',409);return;}
   rouletteAction(r,who,action,round,requestId,now);
-  r.receipts=[{id:requestId,userId:who.id,at:now},...r.receipts.filter(x=>x.at&&now-x.at<300_000)];
+  r.receipts=[{id:requestId,userId:who.id,at:now,rouletteFingerprint:fingerprint},...r.receipts.filter(x=>x.at&&now-x.at<300_000)];
  })).room;
 }

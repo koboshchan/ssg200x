@@ -102,4 +102,25 @@ test("malformed table context, payload, expiry, round and lock fences retain ato
   assert.equal(response.status,status,scenario+" "+await response.text());assert.deepEqual(room,before);
  }
 });
+test("receipt replay binds canonical action, round, timestamp and owner, fails closed for legacy",async()=>{
+ setup();
+ assert.equal((await POST(request())).status,200);
+ const wallet=room.members[0].wallet;
+ const reordered={type:"bet",tableId:"01",round:captured.round,requestId:captured.requestId,requestAt:captured.requestAt,bet:{kind:"red",amount:100}};
+ assert.equal((await POST(request(reordered))).status,200);
+ assert.equal(room.members[0].wallet,wallet);
+ assert.equal(rouletteState(room,now).bets.length,1);
+ for(const body of [{...captured,bet:{kind:"red",amount:200}},{...captured,round:captured.round+1},{...captured,requestAt:captured.requestAt+1},{...captured,type:"rebet",bet:undefined}]){
+  const before=structuredClone(room);
+  assert.equal((await POST(request(body))).status,409);
+  assert.deepEqual(room,before);
+ }
+ const receipt=room.receipts.find(r=>r.id===captured.requestId)!;
+ receipt.userId="another-user";
+ let before=structuredClone(room);
+ assert.equal((await POST(request())).status,409);assert.deepEqual(room,before);
+ receipt.userId=owner.id;delete receipt.rouletteFingerprint;
+ before=structuredClone(room);
+ assert.equal((await POST(request())).status,409);assert.deepEqual(room,before);
+});
 test.after(()=>{Date.now=originalNow;globalThis.fetch=originalFetch;});

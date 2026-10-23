@@ -25,7 +25,12 @@ async function main(){
  await(await rooms()).updateOne({_id:"main"},{$set:{auditPending:durable}});
  await(await db()).collection("audit").deleteMany({});
  assert.equal((await rouletteAudit({...a,admin:true})).events.length,1);
- const dup=await rouletteMove(a,{type:"bet",bet:{kind:"red",amount:500}},1,req.id,req.at);
+ const dup=await rouletteMove(a,{type:"bet",bet:{kind:"red",amount:300}},1,req.id,req.at);
+ for(const [action,round,at] of [
+ [{type:"bet",bet:{kind:"red",amount:500}},1,req.at],
+ [{type:"bet",bet:{kind:"red",amount:300}},2,req.at],
+ [{type:"bet",bet:{kind:"red",amount:300}},1,req.at+1]
+ ] as const){const before=JSON.stringify(await readRoom());await assert.rejects(()=>rouletteMove(a,action,round,req.id,at),{status:409});assert.equal(JSON.stringify(await readRoom()),before);}
  assert.equal(dup.members[0].wallet,99700);assert.equal(rouletteState(dup,0).bets[0].bet.amount,300);
  await assert.rejects(()=>rouletteMove(b,{type:"bet",bet:{kind:"red",amount:500}},1,req.id,req.at),{status:409});
  r=await readRoom();const before=JSON.stringify(r);await assert.rejects(()=>rouletteMove(a,{type:"change",betId:req.id,bet:{kind:"red",amount:150}},1,randomUUID(),Date.now()));assert.equal(JSON.stringify(await readRoom()),before);
