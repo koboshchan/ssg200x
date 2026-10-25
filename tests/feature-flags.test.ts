@@ -21,3 +21,11 @@ test('FX metadata validates list in one provider request',async()=>{let calls=0;
 import {bindRoomFeatures} from '../lib/feature-context';
 import {settleAdvancements} from '../lib/advancements';
 test('advancements disabled at server settlement, without removing old rewards',()=>{const r=freshRoom();bindRoomFeatures(r,off);const m={id:'u',wallet:100,advancements:{streak:4,lastRound:0,unlocked:{}}} as any;settleAdvancements(m,[{id:'w',userId:'u',bet:{kind:'red',amount:100}}],2,1,100,r);assert.equal(m.wallet,100);assert.equal(m.advancements.streak,4);});
+test('single-tab enforcement defaults on and uses strict admin feature values',()=>{
+ assert.equal(FEATURE_DEFAULTS.singleTab,true);
+ assert.equal(resolveFeatures({},{}).singleTab,true);
+ assert.equal(resolveFeatures({singleTab:false},{}).singleTab,false);
+ assert.equal(resolveFeatures({singleTab:true},{}).singleTab,true);
+ assert.equal(resolveFeatures({singleTab:'false'} as any,{}).singleTab,true);
+ assert.equal(resolveFeatures({singleTab:true},{SSG_FEATURES_FORCE_OFF:'singleTab'}).singleTab,false);
+});
