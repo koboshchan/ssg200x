@@ -16,7 +16,17 @@ test("Mongo double choices persist and simultaneous duplicate paid throws have o
  for(const u of users.slice(1))await doudizhuMove(u,input({type:"join",code}));
  for(const u of users){v=await doudizhuRead(u);await doudizhuMove(u,input({type:"ready",version:v.room!.version}));}
  v=await doudizhuRead(users[0]);await doudizhuMove(users[0],input({type:"bid",bid:3,version:v.room!.version}));
- for(const [i,u] of users.entries()){v=await doudizhuRead(u);await doudizhuMove(u,input({type:"double",doubleMultiplier:[4,2,1][i],version:v.room!.version}));}
+ const first=input({type:"double",doubleMultiplier:4,version:(await doudizhuRead(users[0])).room!.version});
+ await Promise.all(Array.from({length:6},()=>doudizhuMove(users[0],first)));
+ let funded=await readRoom();assert.deepEqual(funded.doudizhu![0].players.map(p=>p.escrow),[40000,40000,40000]);
+ const version=funded.doudizhu![0].version;
+ const competing=[1,2].map(i=>input({type:"double",doubleMultiplier:i===1?2:1,version}));
+ const results=await Promise.allSettled([1,2].map((i,n)=>doudizhuMove(users[i],competing[n])));
+ assert.equal(results.filter(x=>x.status==="fulfilled").length,1);
+ for(const [n,result] of results.entries())if(result.status==="rejected"){
+  assert.match(result.reason.message,/changed/);const i=n+1;
+  v=await doudizhuRead(users[i]);await doudizhuMove(users[i],input({type:"double",doubleMultiplier:i===1?2:1,version:v.room!.version}));
+ }
  await closeDatabase();let r=await readRoom();assert.equal(r.doudizhu![0].phase,"playing");assert.deepEqual(r.doudizhu![0].players.map(p=>p.escrow),[80000,80000,40000]);assert.deepEqual(r.doudizhu![0].players.map(p=>p.doubleMultiplier),[4,2,1]);
  const targetId=r.members.find(m=>m.id===users[1].id)!.publicId;
  const req=input({type:"reaction",code,kind:"throw",value:"egg",target:1,targetId,expectedPrice:5000});
