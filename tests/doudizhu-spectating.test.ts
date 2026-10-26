@@ -44,10 +44,12 @@ test("spectators still receive one hand only at reveal and finish; can leave mid
 test("heartbeat does not change turn version, expiry revokes access and excludes count",()=>{
  const {r,g,now,move}=setup();move(3,{type:"spectate",code:g.code});const version=g.version;
  touchDoudizhuSpectator(r,users[3].id,now+15_000);assert.equal(g.version,version);
- g.spectators![0].seenAt=Date.now()-DOUDIZHU_SPECTATOR_TTL-1;
+ const expiredAt=Date.now();
+ g.spectators![0].seenAt=expiredAt-DOUDIZHU_SPECTATOR_TTL;
  assert.equal(publicDoudizhu(r,users[3]).room,null);assert.equal(publicDoudizhu(r,users[0]).room!.spectatorCount,0);
- const expired=g.spectators![0].seenAt;touchDoudizhuSpectator(r,users[3].id);assert.equal(g.spectators![0].seenAt,expired);
- assert.throws(()=>move(3,{type:"watch",watchSeat:0}),/Room not found/);
+ const expired=g.spectators![0].seenAt;touchDoudizhuSpectator(r,users[3].id,expiredAt);assert.equal(g.spectators![0].seenAt,expired);
+ // Use the same observation clock, not setup()'s older move timestamp.
+ assert.throws(()=>move(3,{type:"watch",watchSeat:0},expiredAt),/Room not found/);
 });
 test("switching rooms clears old membership and later joining reserves normally",()=>{
  const {r,g,move}=setup();g.phase="waiting";g.players.forEach(p=>{p.hand=[];p.ready=false;});

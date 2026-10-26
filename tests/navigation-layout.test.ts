@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 const read=(p:string)=>readFileSync(p,"utf8");
 test("only root owns the shared room shell across game and public route segments",()=>{
- assert.match(read("app/layout.tsx"),/<body><ReleaseProvider><RoomClient configured=\{configured\(\)\}>\{children\}<\/RoomClient><\/ReleaseProvider><\/body>/);
+ assert.match(read("app/layout.tsx"),/<body data-qa-chart-fixture=\{fixtureMode\(\)\?"true":undefined\}><QaFixtureProvider enabled=\{fixtureMode\(\)\}><ReleaseProvider><RoomClient configured=\{configured\(\)\}>\{children\}<\/RoomClient><\/ReleaseProvider><\/QaFixtureProvider><\/body>/);
  assert.doesNotMatch(read("app/(room)/layout.tsx"),/RoomClient|LiveProvider|ChatDock/);
  assert.doesNotMatch(read("app/leaderboard/page.tsx"),/RoomClient|LiveProvider|ChatDock/);
 });

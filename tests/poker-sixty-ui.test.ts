@@ -33,6 +33,8 @@ test("real poker UI shows sixty-second rules and only the final thirty-second co
    const page=await browser.newPage({viewport:{width,height:1000}}),errors:string[]=[];
    page.on("pageerror",(e:Error)=>errors.push(e.message));
    await page.clock.install({time:base+999999999});
+   // Freeze browser time: the 1ms boundary cases (29999/30000) must not depend on real elapsed render time.
+   await page.clock.pauseAt(base+1000000000);
    let elapsed=0;
    await page.route("https://poker.test/**",async(route:any)=>{
     if(route.request().url().endsWith("/api/room")){
