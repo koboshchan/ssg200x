@@ -61,7 +61,7 @@ export default function ChatDock(){
  const {features:ft}=useFeatures();
  type Tab="room"|"game"|"dm"|"qa";
  const [pickedTab,setTab]=useState<Tab>("room");
- const gameFailed=gameError&&gameError.key===gameKey&&gameError.code;
+ const gameFailed=gameError&&gameError.key===gameKey?gameError.code:null;
  const hasGame=!!game&&ft.tableTalk;
  // Entering a game context selects Game; leaving it returns to Global.
  useEffect(()=>{setTab(hasGame?"game":"room");},[gameRoom,hasGame]);
