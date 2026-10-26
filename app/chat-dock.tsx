@@ -12,9 +12,10 @@ import WordEntry from "./word-entry";
 import {MAX_TEXT_BYTES} from "@/lib/chat-crypto";
 import DmPanel from "./dm-panel";
 import {useFeatures} from "./use-features";
+import {createPacer} from "@/lib/chat-pacer";
 import {useActiveGameChat} from "./game-chat-context";
 
-const errorText:Record<string,string>={admin_reset:"An admin reset your chat words. Create and save new words. Old words no longer unlock this account. Unsent messages were discarded and will not be retried. Older history needs a new key grant; a trusted member can share the current room key.",setup_words_lost:"Setup was interrupted. Enter the six words you saved.",wrong_words:"Those words don't match. Check the order and spelling.",bad_words:"Enter exactly six words from the list.",disconnected:"Not connected. Try again in a moment.",timeout:"The server didn't answer in time.",rate_limited:"Slow down a little.",busy:"The server is busy. Trying again.",identity_exists:"Chat keys already exist for this account. Retry loading chat to check recovery availability.",identity_inconsistent:"Existing chat key records could not be matched to a current recovery backup. Keep your recovery words and any browser that can still read chat. Ask an admin to check the key records without resetting them.",identity_unavailable:"Chat could not load a current recovery backup. Retry loading chat. Keep your recovery words and any browser that can still read chat.",identity_conflict:"Your keys changed on another device. Reload to continue.",forbidden:"Chat is only open to approved members."};
+const errorText:Record<string,string>={admin_reset:"An admin reset your chat words. Create and save new words. Old words no longer unlock this account. Unsent messages were discarded and will not be retried. Older history needs a new key grant; a trusted member can share the current room key.",setup_words_lost:"Setup was interrupted. Enter the six words you saved.",wrong_words:"Those words don't match. Check the order and spelling.",bad_words:"Enter exactly six words from the list.",disconnected:"Not connected. Try again in a moment.",timeout:"The server didn't answer in time.",rate_limited:"Slow down a little.",busy:"The server is busy. Trying again.",identity_exists:"Chat keys already exist for this account. Retry loading chat to check recovery availability.",identity_inconsistent:"Existing chat key records could not be matched to a current recovery backup. Keep your recovery words and any browser that can still read chat. Ask an admin to check the key records without resetting them.",identity_unavailable:"Chat could not load a current recovery backup. Retry loading chat. Keep your recovery words and any browser that can still read chat.",identity_conflict:"Your keys changed on another device. Reload to continue.",forbidden:"Chat is only open to approved members.",room_closed:"This room has closed, so its chat is gone.",context_required:"Chat for this room needs a fresh connection. Reconnecting.",unavailable:"Game chat is unavailable right now."};
 const friendly=(code:string|null)=>code?errorText[code]||"Chat is unavailable right now.":null;
 const group=(f:string)=>(f.match(/.{1,5}/g)||[]).join(" ");
 const time=(ts:number)=>new Date(ts).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
@@ -25,11 +26,12 @@ export default function ChatDock(){
  const pathname=usePathname(),fixture=useQaFixture();
  const [qaRoom,setQaRoom]=useState<string|null>(null),[qaClient,setQaClient]=useState<ChatClient|null>(null);
  const game=useActiveGameChat();
- type Binding={user:string;main:ChatClient;make:(room:string)=>ChatClient};
+ type Binding={user:string;main:ChatClient;make:(room:string)=>ChatClient;paced:<T,>(fn:()=>Promise<T>)=>Promise<T>};
  const [binding,setBinding]=useState<Binding|null>(null);
  const bound=binding&&binding.user===userId?binding:null;
  const mainClient=bound?.main??null;
  // Only Global plus the one active game client exist. Leaving a game closes its client; drafts live in the keyed pane.
+ const [gameError,setGameError]=useState<{key:string;code:string}|null>(null),[retryTick,setRetryTick]=useState(0);
  const [gameBinding,setGameBinding]=useState<{user:string;room:string;client:ChatClient}|null>(null);
  const drafts=useRef(new Map<string,string>()),draftUser=useRef(userId);
  if(draftUser.current!==userId){draftUser.current=userId;drafts.current.clear();}
@@ -40,12 +42,14 @@ export default function ChatDock(){
   if(!bound||!userId||!game||live.connection!=="connected"){setGameBinding(null);return;}
   let dead=false,c:ChatClient|null=null;
   const {kind,id}=game,key=kind+":"+id;
-  live.request("game-chat:subscribe",{kind,id}).then(r=>{
-   if(dead||typeof r?.chatRoom!=="string"){return;}
+  setGameError(null);
+  bound.paced(()=>live.request("game-chat:subscribe",{kind,id})).then(r=>{
+   if(dead)return;
+   if(typeof r?.chatRoom!=="string")throw new Error("unavailable");
    c=bound.make(r.chatRoom);chatRoomOf.current.set(key,r.chatRoom);setGameBinding({user:userId,room:key,client:c});
-  }).catch(()=>{if(!dead)setGameBinding(null);});
+  }).catch((e:Error)=>{if(!dead){setGameBinding(null);setGameError({key,code:e?.message||"unavailable"});}});
   return()=>{dead=true;c?.close();setGameBinding(null);void live.request("game-chat:leave",{kind,id}).catch(()=>{});};
- },[bound,userId,gameKey,live.connection,live.request]);
+ },[bound,userId,gameKey,live.connection,live.request,retryTick]);
  const chatRoomOf=useRef(new Map<string,string>());
  useLiveEvent("game-chat:closed",(p:{kind?:string;id?:string})=>{if(game&&p?.kind===game.kind&&p?.id===game.id){setGameBinding(null);setTab("room");}});
  const [open,setOpen]=useState(false),[names,setNames]=useState<Record<string,string>>({}),[seen,setSeen]=useState<number|null>(null);
@@ -57,7 +61,8 @@ export default function ChatDock(){
  const {features:ft}=useFeatures();
  type Tab="room"|"game"|"dm"|"qa";
  const [pickedTab,setTab]=useState<Tab>("room");
- const hasGame=!!game&&!!gameClient&&ft.tableTalk;
+ const gameFailed=gameError&&gameError.key===gameKey&&!["room_closed","forbidden"].includes(gameError.code)?gameError.code:null;
+ const hasGame=!!game&&(!!gameClient||!!gameFailed)&&ft.tableTalk;
  // Entering a game context selects Game; leaving it returns to Global.
  useEffect(()=>{setTab(hasGame?"game":"room");},[gameRoom,hasGame]);
  const tab:Tab=pickedTab==="qa"?(qaClient&&ft.tableTalk?"qa":"room"):pickedTab==="game"&&!hasGame?"room":pickedTab==="room"&&!ft.tableTalk&&ft.dms?"dm":pickedTab==="dm"&&!ft.dms&&ft.tableTalk?(hasGame?"game":"room"):pickedTab;
@@ -67,6 +72,7 @@ export default function ChatDock(){
   if(!isLoaded||!userId)return;
   // Table changes select a retained room client, not a new identity/key lifecycle.
   // All three rooms share LiveProvider's one authenticated socket.
+  const paced=createPacer();
   let requests:Promise<unknown>=Promise.resolve();
   // A previously viewed room can still be finishing sync. Queue budget claims
   // across retained clients instead of rejecting the next room as busy.
@@ -75,9 +81,9 @@ export default function ChatDock(){
    requests=next.catch(()=>{});
    return next;
   }};
-  const make=(room:string)=>new ChatClient(userId,(event,payload)=>live.request("chat:"+event,{...(payload as object),chatRoom:room}),indexedDbStore(room),Date.now,undefined,budget,room);
+  const make=(room:string)=>new ChatClient(userId,(event,payload)=>paced(()=>live.request("chat:"+event,{...(payload as object),chatRoom:room})),indexedDbStore(room),Date.now,undefined,budget,room);
   const main=make("main");
-  setBinding({user:userId,main,make});
+  setBinding({user:userId,main,make,paced});
   return()=>{main.close();};
  },[isLoaded,userId,live.request]);
  useEffect(()=>{
@@ -125,13 +131,14 @@ export default function ChatDock(){
   {open&&<aside className="chat-dock" aria-label="TableTalk chat">
    <header><div><strong>TableTalk</strong><span className="chat-lock">End-to-end encrypted</span></div><button onClick={()=>setOpen(false)} aria-label="Hide chat">Hide</button></header>
    <div className="chat-tabs" role="tablist">{ft.tableTalk?<button role="tab" aria-selected={tab==="room"} onClick={()=>setTab("room")}>Global</button>:null}{hasGame?<button role="tab" aria-selected={tab==="game"} onClick={()=>setTab("game")}>{game!.label}</button>:null}{ft.dms?<button role="tab" aria-selected={tab==="dm"} onClick={()=>setTab("dm")}>Messages{dmUnread>0&&<span className="dm-unread" aria-label={`${dmUnread} unread messages`}>{dmUnread}</span>}</button>:null}{qaClient&&ft.tableTalk?<button role="tab" aria-selected={tab==="qa"} onClick={()=>setTab("qa")}>Room (DEV QA)</button>:null}</div>
-   {tab==="room"?<Body snap={snap} client={mainClient} names={names} drafts={drafts.current} draftKey="main"/>:tab==="game"?<GamePane key={gameRoom} client={gameClient} names={names} drafts={drafts.current} draftKey={gameRoom??""}/>:tab==="qa"?<GamePane key="qa" client={qaClient} names={names} drafts={drafts.current} draftKey="qa"/>:<DmPanel phase={snap.phase} goSetup={()=>setTab("room")}/>}
+   {tab==="room"?<Body snap={snap} client={mainClient} names={names} drafts={drafts.current} draftKey="main"/>:tab==="game"?<GamePane key={gameRoom} error={gameFailed} retry={()=>setRetryTick(n=>n+1)} client={gameClient} names={names} drafts={drafts.current} draftKey={gameRoom??""}/>:tab==="qa"?<GamePane key="qa" error={null} retry={()=>{}} client={qaClient} names={names} drafts={drafts.current} draftKey="qa"/>:<DmPanel phase={snap.phase} goSetup={()=>setTab("room")}/>}
   </aside>}
  </>;
 }
 type DraftProps={drafts:Map<string,string>;draftKey:string};
-function GamePane({client,names,drafts,draftKey}:{client:ChatClient|null;names:Record<string,string>}&DraftProps){
+function GamePane({client,names,drafts,draftKey,error,retry}:{client:ChatClient|null;names:Record<string,string>;error:string|null;retry:()=>void}&DraftProps){
  const snap=useSyncExternalStore(client?client.subscribe:()=>()=>{},client?client.getSnapshot:()=>idle,()=>idle);
+ if(!client&&error)return <div className="chat-panel"><p className="chat-note" role="alert">{friendly(error)}</p><button onClick={retry}>Try again</button></div>;
  return <Body snap={snap} client={client} names={names} drafts={drafts} draftKey={draftKey}/>;
 }
 function Body({snap,client,names,drafts,draftKey}:{snap:Snapshot;client:ChatClient|null;names:Record<string,string>}&DraftProps){

@@ -47,13 +47,15 @@ test("phone chat button is a bottom bar and the page scrolls above it",()=>{
  assert.match(m[0],/html:has\(\.chat-toggle\) body\{height:calc\(100dvh - 46px - env\(safe-area-inset-bottom\)\);min-height:0;overflow-y:auto/);
  assert.match(m[0],/\.chat-toggle\{left:0;right:0;bottom:0;width:auto;height:calc\(46px \+ env\(safe-area-inset-bottom\)\)/);
 });
-test("poker switching retains all room clients on the same live transport",()=>{
- assert.match(ui,/new Map\(\["main","poker-02","poker-03"\]/);
+test("game chat follows the active context over one transport with scoped hints and paced requests",()=>{
  assert.match(ui,/\},\[isLoaded,userId,live.request\]\)/);
- assert.doesNotMatch(ui,/\[isLoaded,userId,live.request,chatRoom\]/);
- assert.match(ui,/clients\?\.get\(chatRoom\)/);
- assert.match(ui,/chatRoom:room/);
- assert.match(ui,/for\(const c of retained.values\(\)\)c.close\(\)/);
+ assert.match(ui,/game-chat:subscribe/);
+ assert.match(ui,/game-chat:leave/);
+ assert.match(ui,/createPacer\(\)/);
+ assert.match(ui,/chatRoomOf\.current\.get\(gameKey\)===room\)gameClient\?\.hint\(\)/);
+ assert.doesNotMatch(ui,/client\?\.hint\(\);gameClient\?\.hint\(\)/);
+ assert.match(ui,/drafts\.get\(draftKey\)/);
+ assert.match(ui,/room_closed/);
 });
 test("dense poker tables keep the stadium felt and ring seats, centred board, no grid on any width",()=>{
  assert.match(css,/\.felt-wrapper\.dense \.board\{inset:auto 0;top:50%;transform:translateY\(-50%\)\}/);
