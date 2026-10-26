@@ -1,10 +1,11 @@
 import {chatRoomIds} from './chat-room-policy.mjs';
+import {validChatRoom} from './game-chat-context.mjs';
 import {createIdentityStore} from './chat-identity.mjs';
 import {randomUUID} from 'node:crypto';
 import {shape,uuid,binary,text,fail,digest,registerData,bundleFingerprint,signedWrap,signedMessage,verify,validateDevice} from './chat-protocol.mjs';
 // All persistence is constructed field by field. Never spread caller input into Mongo.
-export function createChatService(db,{now=Date.now,clerk,roomId='main',canSend=()=>true,env=process.env}={}){
- if(!chatRoomIds(env).includes(roomId))throw new Error('Invalid chat room');
+export function createChatService(db,{now=Date.now,clerk,roomId='main',canSend=()=>true,env=process.env,resolveContext,fenceContext}={}){
+ if(!(roomId.startsWith('game-')?validChatRoom(roomId):chatRoomIds(env).includes(roomId))||(roomId.startsWith('game-')&&(typeof resolveContext!=='function'||typeof fenceContext!=='function')))throw new Error('Invalid chat room');
  const scope=roomId==='main'?{$or:[{room:'main'},{room:{$exists:false}}]}:{room:roomId};
  const scoped=collection=>new Proxy(collection,{get(target,key){if(['find','findOne','countDocuments'].includes(key))return (query={},...args)=>target[key]({$and:[query,scope]},...args);const value=target[key];return typeof value==='function'?value.bind(target):value;}});
  const identity=clerk?createIdentityStore(db,clerk):null;
@@ -14,14 +15,19 @@ export function createChatService(db,{now=Date.now,clerk,roomId='main',canSend=(
  const ready=Promise.all([messages.createIndex({epoch:1,senderUserId:1,id:1},{unique:true}),messages.createIndex({epoch:1,cursor:-1}),devices.createIndex({userId:1,deviceId:1},{unique:true}),rates.createIndex({expiresAt:1},{expireAfterSeconds:0})]);
  async function rate(user){const minute=Math.floor(now()/60000),id=user+':'+minute;await rates.updateOne({_id:id},{$setOnInsert:{count:0,expiresAt:new Date(now()+180000)}},{upsert:true});if(!(await rates.updateOne({_id:id,count:{$lt:120}},{$inc:{count:1}})).matchedCount)fail('rate_limited');}
  async function snapshot(user){
-  const room=await rooms.findOne({_id:'main'});const members=(room?.members||[]).filter(m=>m.approved===true&&!m.accessRevoked).map(m=>m.id).sort();
+  const room=await rooms.findOne({_id:'main'});
+  const context=resolveContext?await resolveContext(roomId,user):null;
+  if(resolveContext&&(!context||context.closed))fail('room_closed');
+  if(context&&(typeof context.creatorId!=='string'||!context.creatorId))fail('forbidden');
+  const allowed=context?new Set(context.members):null;
+  const members=(room?.members||[]).filter(m=>m.approved===true&&!m.accessRevoked&&(!allowed||allowed.has(m.id))).map(m=>m.id).sort();
   if(!members.includes(user))fail('forbidden');
   const directory=await devices.find({userId:{$in:members}},{projection:{_id:0,userId:1,deviceId:1,dhPublic:1,signPublic:1}}).sort({userId:1,deviceId:1}).limit(4096).toArray();
-  const fingerprint=digest(JSON.stringify([members,directory]));
+  const fingerprint=digest(JSON.stringify(context?[members,directory,context.version]:[members,directory]));
   let state=await states.findOne({_id:roomId});
   if(!state){await states.updateOne({_id:roomId},{$setOnInsert:{revision:1,epoch:randomUUID(),fingerprint,status:'unclaimed',owner:null,leaseUntil:0,counter:0,removalVersion:room.chatRemovalVersion||0,members,directory}},{upsert:true});state=await states.findOne({_id:roomId});}
   if(state.fingerprint!==fingerprint||(state.removalVersion||0)!==(room.chatRemovalVersion||0)){const removed=(state.members||[]).some(u=>!members.includes(u));const rotate=removed||(state.removalVersion||0)!==(room.chatRemovalVersion||0);if(rotate&&state.bootstrap)await wraps.updateOne({_id:state.bootstrap._id},{$setOnInsert:state.bootstrap},{upsert:true});const changed=await states.updateOne({_id:roomId,revision:state.revision,fingerprint:state.fingerprint},{$set:{fingerprint,members,directory,removalVersion:room.chatRemovalVersion||0,...(rotate?{epoch:randomUUID(),status:'unclaimed',owner:null,leaseUntil:0,counter:0,bootstrap:null}:{})},$inc:{revision:1}});if(!changed.matchedCount)fail('stale_revision');state=await states.findOne({_id:roomId});}
-  return {room,members,directory,state};
+  return {room,members,directory,state,context};
  }
  async function fence(s,user,{retryRoomContention=false}={}){
   // Unsigned identity/state/history reads may retry an economic-room CAS miss. Every attempt
@@ -31,6 +37,10 @@ export function createChatService(db,{now=Date.now,clerk,roomId='main',canSend=(
   for(let attempt=0;attempt<attempts;attempt++){
    const current=await snapshot(user);
    if(current.state.revision!==s.state.revision||current.state.epoch!==s.state.epoch)fail('stale_revision');
+   if(s.context){
+    if(await fenceContext(roomId,user,s.context.version)!==true)fail('stale_revision');
+    return;
+   }
    if((await rooms.updateOne({_id:'main',version:current.room.version},{$inc:{version:1}})).matchedCount)return;
    if(attempt+1<attempts)await new Promise(resolve=>setTimeout(resolve,Math.min(40,5*2**attempt)));
   }
@@ -104,7 +114,8 @@ export function createChatService(db,{now=Date.now,clerk,roomId='main',canSend=(
    return view(await snapshot(user),user,[]);
   }
   if(event==='claim'){
-   shape(p,['v','revision','epoch','deviceId']);current(p,s);await device(user,p.deviceId);await fence(s,user);
+   shape(p,['v','revision','epoch','deviceId']);current(p,s);
+   if(s.context&&s.context.creatorId!==user)fail('waiting');await device(user,p.deviceId);await fence(s,user);
    if(s.state.status==='claimed'&&s.state.owner?.userId===user&&s.state.owner?.deviceId===p.deviceId&&s.state.leaseUntil>now())return view(s,user,[]);
    const takeover=s.state.status==='claimed'&&s.state.leaseUntil<=now();
    if(s.state.status!=='unclaimed'&&!takeover)fail('waiting');

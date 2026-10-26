@@ -42,7 +42,7 @@ export class ChatClient{
  // Claim retries/removals synchronously, before any storage or render await.
  private sending=new Set<string>();private removed=new Set<string>();
  private opened=new Map<string,{key:CryptoKey;res:Awaited<ReturnType<typeof openMessage>>}>();private inflight=new Map<string,Promise<Awaited<ReturnType<typeof openMessage>>>>();private windowStart=0;private extra=0;
- constructor(private user:string,private transport:Transport,private store:ChatStore,private now:()=>number=Date.now,private open:typeof openMessage=openMessage,private budget=chatRequestBudget,private room="main",runtime:{isolatedQaChatRoom?:boolean}={}){if(!["main","poker-02","poker-03",...(runtime.isolatedQaChatRoom===true?["qa-isolated"]:[])].includes(room))throw new Error("Invalid chat room");}
+ constructor(private user:string,private transport:Transport,private store:ChatStore,private now:()=>number=Date.now,private open:typeof openMessage=openMessage,private budget=chatRequestBudget,private room="main",runtime:{isolatedQaChatRoom?:boolean}={}){if(!["main","poker-02","poker-03",...(runtime.isolatedQaChatRoom===true?["qa-isolated"]:[])].includes(room)&&!/^game-(?:(?:poker|blackjack)-0[123]|roulette-01|(?:ddz|pool)-[A-Za-z0-9_]{1,64})$/.test(room))throw new Error("Invalid chat room");}
  private request:Transport=(event,payload)=>this.budget.request(this.user,event,payload,this.transport);
  private recovering:Promise<void>|undefined;
  reconnect=()=>{
