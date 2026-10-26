@@ -57,7 +57,8 @@ test("game chat follows the active context over one transport with scoped hints 
  assert.match(ui,/drafts\.get\(draftKey\)/);
  assert.match(ui,/room_closed/);
  assert.match(ui,/IDENTITY=\["register","keys:get","keys:put"\]/);
- assert.match(ui,/isId\?"main":room/);
+ assert.doesNotMatch(ui,/identityCache/);
+ assert.match(ui,/IDENTITY.includes\(event\)\?"main":room/);
 });
 test("dense poker tables keep the stadium felt and ring seats, centred board, no grid on any width",()=>{
  assert.match(css,/\.felt-wrapper\.dense \.board\{inset:auto 0;top:50%;transform:translateY\(-50%\)\}/);
