@@ -1,5 +1,6 @@
 import test,{after} from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {MongoClient} from 'mongodb';
 import {createIdentity,newEpochKey,makeWrap,sealMessage,openMessage,signText,registerData} from '../../lib/chat-crypto';
 // @ts-expect-error runtime
@@ -196,5 +197,28 @@ test('queued subscribe B followed by old A error cleanup preserves B inside disp
  await next;assert.equal(await cleanup,undefined);
  assert.equal(a.data.gameChatRoom,'game-blackjack-02');
  assert.equal((await service.handle('alice','state',{v:1,chatRoom:'game-blackjack-02'},a)).room,'game-blackjack-02');
+ assert.equal(a.connected,true);
+});
+
+test('actual server closed-context cleanup call preserves queued newer subscription',async()=>{
+ const source=readFileSync(new URL('../../server.mjs',import.meta.url),'utf8');
+ const start=source.indexOf('     const match=/^game-');
+ const end=source.indexOf('\n    }\n    if((error.chatCode',start);
+ assert.ok(start>=0&&end>start,'server contextual cleanup source is present');
+ const cleanupSource=source.slice(start,end);
+ assert.equal(cleanupSource.includes('socket.data.gameChatRoom==='),false);
+ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ // Execute the actual server catch body, not a reconstructed runtime.leave call.
+ const cleanup=new AsyncFunction('socket','chat','payload','hintChatChanged',cleanupSource);
+ const service=createPokerChatService(db);await service.ready;
+ const a=socket('actual-cleanup-race','alice'),events:any[]=[],hints:any[]=[];
+ a.emit=(event:string,payload:any)=>events.push({event,payload});
+ await service.subscribe(a,{kind:'poker',id:'02'});
+ const newer=service.subscribe(a,{kind:'blackjack',id:'03'});
+ const oldCleanup=cleanup(a,service,{chatRoom:'game-poker-02'},(room:any)=>hints.push(room));
+ await Promise.all([newer,oldCleanup]);
+ assert.equal(a.data.gameChatRoom,'game-blackjack-03');
+ assert.equal((await service.handle('alice','state',{v:1,chatRoom:'game-blackjack-03'},a)).room,'game-blackjack-03');
+ assert.deepEqual(events,[{event:'game-chat:closed',payload:{chatRoom:'game-poker-02',kind:'poker',id:'02'}}]);
  assert.equal(a.connected,true);
 });
