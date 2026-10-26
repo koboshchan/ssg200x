@@ -227,6 +227,21 @@ io.on("connection",socket=>{
   if(!["01","02","03"].includes(id))return;
   socket.data.pokerTableId=id;socket.data.forceFull=true;socket.data.initialized=false;socket.data.statusAt=0;
  });
+ socket.on("game-chat:subscribe",async(payload,ack)=>{
+  if(typeof ack!=="function")return;
+  try{
+   await checkChatSession(socket);
+   if(!socket.connected||socket.data.expires<=Date.now())throw Error("session");
+   const result=await chat.subscribe(socket,payload);
+   if(!socket.connected||socket.data.expires<=Date.now()){await chat.leave(socket);return;}
+   ack({ok:true,...result});hintChatChanged();
+  }catch(error){ack({ok:false,error:error.chatCode||"unavailable"});}
+ });
+ socket.on("game-chat:leave",async ack=>{
+  try{await chat.leave(socket);if(typeof ack==="function")ack({ok:true});hintChatChanged();}
+  catch(error){if(typeof ack==="function")ack({ok:false,error:error.chatCode||"unavailable"});}
+ });
+ socket.on("disconnect",()=>{void chat.leave(socket).then(hintChatChanged).catch(()=>{});});
  socket.data.marketRoute=socket.handshake.auth?.route;
  for(const event of ["register","state","claim","wrap","send","history","keys:get","keys:put"]){
   socket.on("chat:"+event,async(payload,ack)=>{
@@ -237,7 +252,7 @@ io.on("connection",socket=>{
     await checkChatSession(socket);
     if(!socket.connected||socket.data.expires<=Date.now()){socket.disconnect(true);return;}
     if(event==="send"&&(!featureSettings.enabled("chat")||!featureSettings.enabled("tableTalk"))){ack({ok:false,error:"feature_disabled",feature:"chat"});return;}
-    const result=await chat.handle(socket.data.identity.id,event,payload);
+    const result=await chat.handle(socket.data.identity.id,event,payload,socket);
     if(socket.data.expires<=Date.now()){socket.disconnect(true);return;}
     // Include current names for historical senders as well as seated members.
     // Bounded per socket and refreshed by the next live snapshot, not cached names.

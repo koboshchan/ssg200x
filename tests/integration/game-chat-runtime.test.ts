@@ -1,0 +1,117 @@
+import test,{after} from 'node:test';
+import assert from 'node:assert/strict';
+import {MongoClient} from 'mongodb';
+import {createIdentity,newEpochKey,makeWrap,sealMessage,openMessage,signText,registerData} from '../../lib/chat-crypto';
+// @ts-expect-error runtime
+import {createPokerChatService} from '../../runtime/poker-chat-service.mjs';
+// @ts-expect-error runtime
+import {gameChatTransactions} from '../../runtime/game-chat-transaction.mjs';
+// @ts-expect-error runtime
+import {createGameChatRuntime} from '../../runtime/game-chat-runtime.mjs';
+// @ts-expect-error runtime
+import {gameChatRoom} from '../../runtime/game-chat-context.mjs';
+if(!process.env.MONGODB_DB?.startsWith('fakebucks_test_'))throw Error('Isolated database required');
+const client=new MongoClient(process.env.MONGODB_URI!),db=client.db(process.env.MONGODB_DB+'_game_runtime');
+after(async()=>{await db.dropDatabase();await client.close();});
+const socket=(id:string,user:string)=>({id,connected:true,data:{identity:{id:user}}});
+test('real Mongo runtime authorizes fixed viewers, actual DDZ roster and spectators, no route-only access or closed-room archive',async()=>{
+ await db.collection('rooms').insertOne({_id:'main' as never,version:1,members:['alice','bob','carol','revoked'].map(id=>({id,approved:true,accessRevoked:id==='revoked'})),doudizhu:[{code:'a0b1-1234',ownerId:'alice',players:[{userId:'alice'}],spectators:[{userId:'bob',seenAt:Date.now()}]}]});
+ const service=createPokerChatService(db);await service.ready;
+ const a=socket('a','alice'),b=socket('b','bob'),c=socket('c','carol'),r=socket('r','revoked');
+ await assert.rejects(service.handle('alice','state',{v:1,chatRoom:'game-poker-01'},a),/context_required/);
+ await assert.rejects(service.subscribe(r,{kind:'poker',id:'01'}),/forbidden/);
+ assert.deepEqual(await service.subscribe(a,{kind:'poker',id:'01'}),{chatRoom:'game-poker-01'});
+ await service.subscribe(b,{kind:'poker',id:'01'});
+ let state=await service.handle('alice','state',{v:1,chatRoom:'game-poker-01'},a);
+ assert.deepEqual(state.members.map((m:any)=>m.userId),['alice','bob']);
+ assert.equal((await db.collection('game_chat_contexts').findOne({_id:'game-poker-01' as never}))?.creatorId,'alice');
+ await service.subscribe(b,{kind:'blackjack',id:'02'});
+ await assert.rejects(service.handle('bob','state',{v:1,chatRoom:'game-poker-01'},b),/context_required/);
+ state=await service.handle('alice','state',{v:1,chatRoom:'game-poker-01'},a);assert.deepEqual(state.members.map((m:any)=>m.userId),['alice']);
+ await service.subscribe(a,{kind:'ddz',id:'a0b1-1234'});await service.subscribe(b,{kind:'ddz',id:'a0b1-1234'});
+ await assert.rejects(service.subscribe(c,{kind:'ddz',id:'a0b1-1234'}),/forbidden/);
+ const ddz='game-ddz-a0b1-1234';
+ assert.equal(gameChatRoom('ddz','a0b1-1234'),ddz);
+ state=await service.handle('alice','state',{v:1,chatRoom:ddz},a);assert.deepEqual(state.members.map((m:any)=>m.userId),['alice','bob']);
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{'doudizhu.0.spectators.0.seenAt':Date.now()-46000},$inc:{version:1}});
+ await assert.rejects(service.handle('bob','state',{v:1,chatRoom:ddz},b),/forbidden/);
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{doudizhu:[]},$inc:{version:1}});
+ await assert.rejects(service.handle('alice','state',{v:1,chatRoom:ddz},a),/room_closed/);
+ await assert.rejects(service.subscribe(a,{kind:'pool',id:crypto.randomUUID()}),/room_closed/);
+ assert.equal((await service.handle('alice','state',{v:1})).room,'main');
+ await service.subscribe(a,{kind:'roulette',id:'01'});await service.leave(a);
+ await assert.rejects(service.handle('alice','state',{v:1,chatRoom:'game-roulette-01'},a),/context_required/);
+});
+test('real dispatcher keeps ciphertext and creator-owned bootstrap across namespaces, global reset gate serializes every game operation',async()=>{
+ const service=createPokerChatService(db);await service.ready;
+ const a=socket('crypto-a','alice'),b=socket('crypto-b','bob');
+ const ai=(await createIdentity('alice',0)).identity,bi=(await createIdentity('bob',0)).identity;
+ for(const [user,identity]of [['alice',ai],['bob',bi]]as const)await service.handle(user,'register',{v:1,deviceId:identity.deviceId,dhPublic:identity.dhPublic,signPublic:identity.signPublic,signature:await signText(identity.signPrivate,registerData(user,identity))});
+ await service.subscribe(a,{kind:'blackjack',id:'03'});await service.subscribe(b,{kind:'blackjack',id:'03'});
+ const chatRoom='game-blackjack-03';
+ let state=await service.handle('alice','state',{v:1,chatRoom},a);
+ await assert.rejects(service.handle('bob','claim',{v:1,chatRoom,revision:state.revision,epoch:state.epoch,deviceId:bi.deviceId},b),/waiting/);
+ state=await service.handle('alice','claim',{v:1,chatRoom,revision:state.revision,epoch:state.epoch,deviceId:ai.deviceId},a);
+ const key=await newEpochKey(),header={room:chatRoom,revision:state.revision,epoch:state.epoch};
+ await service.handle('alice','wrap',{chatRoom,...await makeWrap(ai,'alice',{...header,toUserId:'alice',toDeviceId:ai.deviceId},ai.dhPublic,key)},a);
+ await service.handle('alice','wrap',{chatRoom,...await makeWrap(ai,'alice',{...header,toUserId:'bob',toDeviceId:bi.deviceId},bi.dhPublic,key)},a);
+ const secret='ACTUAL_DISPATCHER_CIPHERTEXT_ONLY';
+ await service.handle('alice','send',{chatRoom,...await sealMessage(ai,'alice',{...header,id:crypto.randomUUID(),ts:Date.now()},secret,key)},a);
+ const history=await service.handle('bob','history',{v:1,chatRoom,epoch:state.epoch,deviceId:bi.deviceId},b);
+ assert.equal(history.messages.length,1);const decoded=await openMessage(history.messages[0],key);assert.equal(decoded.ok,true);if(decoded.ok)assert.equal(decoded.text,secret);
+ assert.equal(JSON.stringify(await db.collection('chat_messages').find({}).toArray()).includes(secret),false);
+ // The same dispatch queue owns the reset call and game handlers, including all dynamic services.
+ // An invalid reset must not poison the queue or expose game operations around it.
+ const reset=service.adminReset('alice',{v:1});
+ const following=service.handle('bob','state',{v:1,chatRoom},b);
+ await assert.rejects(reset,/malformed/);assert.equal((await following).room,chatRoom);
+ await service.leave(b);b.connected=false;
+ await assert.rejects(service.handle('bob','history',{v:1,chatRoom,epoch:state.epoch,deviceId:bi.deviceId},b),/context_required/);
+ const remaining=await service.handle('alice','state',{v:1,chatRoom},a);assert.notEqual(remaining.epoch,state.epoch);
+});
+test('admin reset blocks all dynamic game handlers until global key revocation completes',async()=>{
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{'members.1.publicId':'bbbbbbbbbbbbbbbb'},$inc:{version:1}});
+ let release!:()=>void,entered!:()=>void;
+ const paused=new Promise<void>(r=>entered=r),barrier=new Promise<void>(r=>release=r);
+ const clerk={users:{getUser:async(id:string)=>{if(id==='bob'){entered();await barrier;}return {privateMetadata:{admin:id==='alice'},publicMetadata:{}};},updateUserMetadata:async()=>({})}};
+ const service=createPokerChatService(db,{clerk});await service.ready;
+ const a=socket('reset-a','alice'),b=socket('reset-b','bob');
+ await service.subscribe(a,{kind:'poker',id:'02'});await service.subscribe(b,{kind:'poker',id:'02'});
+ const reset=service.adminReset('alice',{v:1,publicId:'bbbbbbbbbbbbbbbb',requestId:crypto.randomUUID(),requestAt:Date.now(),confirm:true});
+ await paused;
+ let completed=false;
+ const following=service.handle('alice','state',{v:1,chatRoom:'game-poker-02'},a).then((s:any)=>{completed=true;return s;});
+ await new Promise(r=>setImmediate(r));assert.equal(completed,false);
+ release();assert.deepEqual(await reset,{reset:true});await following;
+ assert.equal((await db.collection('chat_identity_versions').findOne({_id:'bob' as never}))?.status,'setup_required');
+ assert.equal(await db.collection('chat_devices').countDocuments({userId:'bob'}),0);
+ assert.equal(await db.collection('chat_wraps').countDocuments({toUserId:'bob'}),0);
+});
+test('transaction fences independent production-style room CAS writers, aborting stale chat effects',async()=>{
+ const tx=gameChatTransactions(db),runtime=createGameChatRuntime(tx.db),a=socket('txn','alice');
+ await tx.run(()=>runtime.subscribe(a,{kind:'poker',id:'03'}));
+ let release!:()=>void,observed!:()=>void;
+ const barrier=new Promise<void>(r=>release=r),started=new Promise<void>(r=>observed=r);
+ const operation=tx.run(async()=>{
+  const ctx=await runtime.resolveContext('game-poker-03','alice');
+  await tx.db.collection('chat_test_receipts').insertOne({_id:'must-abort'});
+  observed();await barrier;
+  assert.equal(await runtime.fenceContext('game-poker-03','alice',ctx.version),true);
+ });
+ await started;
+ const room=await db.collection('rooms').findOne({_id:'main' as never});
+ assert.equal((await db.collection('rooms').updateOne({_id:'main' as never,version:room!.version},{$set:{'members.0.accessRevoked':true},$inc:{version:1}})).matchedCount,1);
+ release();await assert.rejects(operation,/stale_revision/);
+ assert.equal(await db.collection('chat_test_receipts').countDocuments({}),0);
+ await assert.rejects(tx.run(()=>runtime.resolveContext('game-poker-03','alice')),/forbidden/);
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{'members.0.accessRevoked':false},$inc:{version:1}});
+});
+test('transactions reject standalone Mongo instead of using a local queue as production guarantee',async()=>{
+ const uri=process.env.GAME_CHAT_STANDALONE_URI;if(!uri)return;
+ const standalone=new MongoClient(uri),standaloneDb=standalone.db(process.env.MONGODB_DB+'_standalone');
+ try{
+  const tx=gameChatTransactions(standaloneDb);
+  await assert.rejects(tx.run(()=>tx.db.collection('probe').insertOne({_id:'no'})),/context_transactions_required/);
+  assert.equal(await standaloneDb.collection('probe').countDocuments({}),0);
+ }finally{await standaloneDb.dropDatabase();await standalone.close();}
+});
