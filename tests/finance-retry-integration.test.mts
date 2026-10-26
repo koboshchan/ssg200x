@@ -19,8 +19,9 @@ mock.module("../lib/public.ts",{namedExports:{freshPublicRoom:async(r:Room)=>str
 const {POST}=await import("../app/api/finance/route");
 const {POST:STATUS}=await import("../app/api/finance/status/route");
 const req=(body:object)=>new Request("https://test.invalid/api/finance",{method:"POST",body:JSON.stringify(body)});
-const input=()=>({type:"open",symbol:"BTC",side:"long",margin:10000,leverage:5,expectedOpeningFeePpm:300,expectedClosingFeePpm:300,requestAt:Date.now(),requestId:randomUUID()});
-async function setup(){const r=freshRoom();register(r,who);r.quotes={BTC:{micro:100000000,at:Date.now()}};await(await db()).collection<Room>("rooms").replaceOne({_id:"main"},r,{upsert:true});}
+// Match the current default 300/100 fee contract and a healthy generation-bound quote.
+const input=()=>({type:"open",symbol:"BTC",side:"long",margin:10000,leverage:5,expectedOpeningFeePpm:300,expectedClosingFeePpm:100,requestAt:Date.now(),requestId:randomUUID()});
+async function setup(){const r=freshRoom();register(r,who);r.quotes={BTC:{cryptoGeneration:"retry-fixture",micro:100000000,at:Date.now()}};r.cryptoStatus={connected:true,heartbeatSubscribed:true,generation:"retry-fixture",lastMessage:Date.now(),leaseUntil:Date.now()+10000};await(await db()).collection<Room>("rooms").replaceOne({_id:"main"},r,{upsert:true});}
 after(async()=>{await(await db()).dropDatabase();await closeDatabase();});
 test("real Mongo CAS concurrent original-key execution charges once and persists fingerprint through DB reconnect",async()=>{
  await setup();const body=input();

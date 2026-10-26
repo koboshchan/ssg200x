@@ -25,12 +25,14 @@ mock.module("../lib/store.ts",{namedExports:{rateLimit:async()=>{},mutate:async(
 const {POST}=await import("../app/api/finance/route");
 const {POST:STATUS}=await import("../app/api/finance/status/route");
 const req=(body:object)=>new Request("https://test.invalid/api/finance",{method:"POST",body:JSON.stringify(body)});
-function setup(){room=freshRoom();register(room,who);room.quotes={BTC:{micro:100000000,at:Date.now()}};beforeCommit=null;}
-const input=()=>({type:"open",symbol:"BTC",side:"long",margin:10000,leverage:5,expectedOpeningFeePpm:300,expectedClosingFeePpm:300,requestAt:Date.now(),requestId:randomUUID()});
+function setup(){room=freshRoom();register(room,who);room.quotes={BTC:{cryptoGeneration:"retry-fixture",micro:100000000,at:Date.now()}};room.cryptoStatus={connected:true,heartbeatSubscribed:true,generation:"retry-fixture",lastMessage:Date.now(),leaseUntil:Date.now()+10000};beforeCommit=null;}
+// Match the current default 300/100 fee contract and a healthy generation-bound quote.
+const input=()=>({type:"open",symbol:"BTC",side:"long",margin:10000,leverage:5,expectedOpeningFeePpm:300,expectedClosingFeePpm:100,requestAt:Date.now(),requestId:randomUUID()});
 test("actual route same-key concurrent retries settle once; mismatched payload/owner rejected; explicit new intent allowed",async()=>{
  setup();const body=input();
  const responses=await Promise.all([POST(req(body)),POST(req(body))]);assert.deepEqual(responses.map(r=>r.status),[200,200]);
- assert.equal(room.members[0].positions!.length,1);assert.equal(room.auditPending!.filter(a=>a.what==="finance-open").length,1);
+ assert.equal(room.members[0].positions!.length,1);assert.equal(room.members[0].wallet,90000);assert.equal(room.house,15);
+ assert.equal(room.members[0].positions![0].closingFeePpm,100);assert.equal(room.auditPending!.filter(a=>a.what==="finance-open").length,1);
  assert.equal((await POST(req({...body,margin:20000}))).status,409);
  const old=who;who={...who,id:"other"};assert.equal((await STATUS(req(body))).status,409);who=old;
  assert.equal((await POST(req(input()))).status,200);assert.equal(room.members[0].positions!.length,2);
@@ -91,10 +93,38 @@ test("reconnect requires fresh room even when a late successful response arrives
  const gate=new Promise<void>(r=>resolve=r),began=new Promise<void>(r=>started=r);let reads=0;
  const c=new PendingFinanceController({storage:storage(),key:"test",headers:()=>({}),change:()=>{},room:()=>{},fetch:async(path,options)=>{
   if(path==="/api/room"){reads++;return Response.json(room);}
+  if(path==="/api/finance/status"){reads++;return STATUS(req(JSON.parse(String(options?.body))));}
   const res=await POST(req(JSON.parse(String(options?.body))));started();await gate;return res;
  }});
  c.connection(true);await wait(()=>c.ready);const pending=c.submit(input(),Date.now());await began;c.connection(false);c.connection(true);assert.equal(c.ready,false);
  resolve();await pending;await wait(()=>c.ready);assert.ok(reads>=2);
  const newer={version:100,quotes:{}} as any,older={version:99,quotes:{}} as any;
  assert.equal(mergeRoom(newer,older),newer);
+});
+
+test("late pre-disconnect response cannot publish a stale room or clear intent before fresh reconciliation",async()=>{
+ setup();const saved=storage(),published:Room[]=[];
+ let release!:()=>void,started!:()=>void;
+ const gate=new Promise<void>(r=>release=r),began=new Promise<void>(r=>started=r);
+ let allowStatus=false,statusCalls=0;
+ const c=new PendingFinanceController({storage:saved,key:"late",headers:()=>({}),change:()=>{},room:r=>published.push(r),fetch:async(path,options)=>{
+  if(path==="/api/room")return Response.json(room);
+  if(path==="/api/finance/status"){
+   statusCalls++;if(!allowStatus)throw new Error("offline during reconciliation");
+   return STATUS(req(JSON.parse(String(options?.body))));
+  }
+  const response=await POST(req(JSON.parse(String(options?.body))));started();await gate;return response;
+ }});
+ c.connection(true);await wait(()=>c.ready);
+ const pending=c.submit(input(),Date.now());await began;
+ const publishedBefore=published.length;
+ c.connection(false);c.connection(true);
+ room.version+=10;
+ release();await pending;await wait(()=>!c.working);
+ assert.equal(published.length,publishedBefore,"old connection response must not reach room callback");
+ assert.ok(c.pending,"keep durable intent until new connection confirms its status");
+ assert.ok(saved.getItem("late"));assert.equal(c.ready,false);assert.equal(statusCalls,1);
+ allowStatus=true;await c.sync();assert.equal(c.ready,true);assert.equal(c.pending,null);
+ assert.match(c.message,/completed/);assert.equal(published.at(-1)!.version,room.version);
+ assert.equal(room.members[0].positions!.length,1);
 });

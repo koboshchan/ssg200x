@@ -53,6 +53,9 @@ export class PendingFinanceController {
    const pending={...body,requestId:crypto.randomUUID(),requestAt:serverNow};
    this.save(pending);this.notify();
    const data=await this.request("/api/finance",pending);
+   // A prior connection cannot publish snapshots or retire the durable intent.
+   // The current connection must reconcile that same key before trading resumes.
+   if(epoch!==this.epoch)return;
    this.options.room(data);
    this.save(null);this.ready=this.connected&&epoch===this.epoch;
   }catch(e){

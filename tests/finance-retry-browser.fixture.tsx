@@ -4,7 +4,7 @@ import {usePendingFinance} from "../app/use-pending-finance";
 function App(){
  const [connected,setConnected]=useState(true),[room,setRoom]=useState<any>(null);
  const controller=usePendingFinance("browser-test",connected,setRoom);
- const submit=()=>controller?.submit({type:"open",symbol:"BTC",side:"long",margin:10000,leverage:5,expectedOpeningFeePpm:300,expectedClosingFeePpm:300},Date.now());
+ const submit=()=>controller?.submit({type:"open",symbol:"BTC",side:"long",margin:10000,leverage:5,expectedOpeningFeePpm:300,expectedClosingFeePpm:100},Date.now());
  return <main><button id="connection" onClick={()=>setConnected(v=>!v)}>{connected?"Disconnect":"Reconnect"}</button>
  <button id="open" disabled={!controller?.ready} onClick={()=>void submit()}>Open</button>
  <button id="check" disabled={!connected||controller?.working} onClick={()=>void controller?.sync()}>Check again</button>
