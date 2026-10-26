@@ -41,11 +41,22 @@ export async function polyDiscover(q="",cursor="",tag=""){
   ensure(cursor===""||/^\d{1,4}$/.test(cursor),"Invalid search page.");
   path=GAMMA+"/public-search?"+new URLSearchParams({q,page:cursor||"1",limit_per_type:"20",search_profiles:"false",search_tags:"false",events_status:"active"});
  }else{
-  const p=new URLSearchParams({closed:"false",limit:"20",order:"volume24hr",ascending:"false"});p.append("version","v1");p.append("version","v2");if(cursor)p.set("after_cursor",cursor);if(tag)p.set("tag_id",tag);path=GAMMA+"/events/keyset?"+p;
+  // Events embed every market; a 20-event trending page can exceed the shared 6 MB cap.
+  // Keep pages small and use the upstream cursor rather than increasing that safety cap.
+  const p=new URLSearchParams({closed:"false",limit:"10",order:"volume24hr",ascending:"false"});p.append("version","v1");p.append("version","v2");if(cursor)p.set("after_cursor",cursor);if(tag)p.set("tag_id",tag);path=GAMMA+"/events/keyset?"+p;
  }
- const x=record(await get(path,15_000)),events=array(x.events).slice(0,20).flatMap(e=>{try{return[normalizeEvent(e)];}catch{return[];}});
- const pagination=x.pagination?record(x.pagination):{};
- return {events,nextCursor:q?(pagination.hasMore===true?String(Number(cursor||"1")+1):null):typeof x.next_cursor==="string"?x.next_cursor:null,asOf:Date.now()};
+ const events:PolyEvent[]=[];let nextCursor:string|null=null;
+ // Preserve the original 20-card discovery result without a single oversized response.
+ // Normalize each bounded page immediately, discarding unused upstream relations/fields.
+ for(let page=0;page<(q?1:2);page++){
+  const x=record(await get(path,15_000));
+  events.push(...array(x.events).slice(0,q?20:10).flatMap(e=>{try{return[normalizeEvent(e)];}catch{return[];}}));
+  const pagination=x.pagination?record(x.pagination):{};
+  nextCursor=q?(pagination.hasMore===true?String(Number(cursor||"1")+1):null):typeof x.next_cursor==="string"?x.next_cursor:null;
+  if(q||!nextCursor)break;
+  const next=new URL(path);next.searchParams.set("after_cursor",nextCursor);path=next.href;
+ }
+ return {events,nextCursor,asOf:Date.now()};
 }
 export async function polyEvent(id:string){polyId.parse(id);return normalizeEvent(await get(GAMMA+"/events/"+id,10_000));}
 export async function polyMarket(id:string,fresh=false){polyId.parse(id);return normalizePolyMarket(await get(GAMMA+"/markets/"+id,3000,fresh));}

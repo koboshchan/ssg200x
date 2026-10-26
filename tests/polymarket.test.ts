@@ -122,3 +122,30 @@ test('book adapter reads only authenticated local stream bridge, rejects REST-sh
  try{assert.equal((await polyBook('7654321')).source,'stream');assert.ok(paths[0].startsWith('http://127.0.0.1:'));mode='rest';await assert.rejects(()=>polyBook('7654321'),/stream/);mode='missing';await assert.rejects(()=>polyBook('7654321'),/stream/);}
  finally{globalThis.fetch=original;}
 });
+
+
+test("discovery aggregates two small pages to preserve 20 cards and continuation filters",async()=>{
+ const original=globalThis.fetch,paths:URL[]=[];
+ globalThis.fetch=async(url,init)=>{
+  assert.ok(String(url).startsWith("http://127.0.0.1:"));
+  const {publicData}=JSON.parse(String(init?.body));const path=new URL(publicData.path);paths.push(path);
+  const second=path.searchParams.has("after_cursor");
+  return Response.json({events:Array.from({length:10},(_,i)=>({id:String(i+(second?11:1)),title:"Trending",markets:[],tags:[]})),next_cursor:second?"next-page":"opaque+/= cursor"});
+ };
+ try{
+  const found=await polyDiscover("","","123");
+  assert.equal(found.events.length,20);assert.equal(new Set(found.events.map(e=>e.id)).size,20);
+  assert.equal(found.nextCursor,"next-page");assert.equal(paths.length,2);
+  for(const path of paths){
+   assert.equal(path.pathname,"/events/keyset");assert.equal(path.searchParams.get("limit"),"10");
+   assert.equal(path.searchParams.get("closed"),"false");assert.equal(path.searchParams.get("order"),"volume24hr");
+   assert.equal(path.searchParams.get("ascending"),"false");assert.deepEqual(path.searchParams.getAll("version"),["v1","v2"]);
+   assert.equal(path.searchParams.get("tag_id"),"123");
+  }
+  assert.equal(paths[0].searchParams.has("after_cursor"),false);
+  assert.equal(paths[1].searchParams.get("after_cursor"),"opaque+/= cursor");
+  paths.length=0;
+  globalThis.fetch=async()=>Response.json({events:[]});
+  assert.equal((await polyDiscover()).nextCursor,null);
+ }finally{globalThis.fetch=original;}
+});

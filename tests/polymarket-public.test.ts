@@ -40,3 +40,18 @@ test('every REST consumer uses one server-owned gate and browser never needs pub
  const data=readFileSync(new URL('../lib/polymarket-data.ts',import.meta.url),'utf8'),server=readFileSync(new URL('../server.mjs',import.meta.url),'utf8'),history=readFileSync(new URL('../runtime/polymarket-history.mjs',import.meta.url),'utf8'),stream=readFileSync(new URL('../runtime/polymarket-stream.mjs',import.meta.url),'utf8');
  assert.match(data,/publicData:\{path,ttl,fresh\}/);assert.doesNotMatch(data,/fetch\(path/);assert.match(server,/polyPublic.get\(publicData.path/);assert.match(server,/fetchHistory:async tokenId=>\(await polyPublic.get/);assert.doesNotMatch(history,/fetch\(/);assert.match(stream,/new WebSocket\(url\)/);assert.doesNotMatch(stream,/api[_-]?key|authorization|secret/i);
 });
+
+test('response cap counts UTF-8 bytes rather than characters and cancels oversized streams',async()=>{
+ const payload=JSON.stringify({text:'猫'.repeat(2_000_000)});
+ assert(payload.length<6_000_000);assert(Buffer.byteLength(payload,'utf8')>6_000_000);
+ let cancelled=false;
+ const bytes=new TextEncoder().encode(payload);
+ const large=setup({fetcher:async()=>new Response(new ReadableStream({
+  start(controller){controller.enqueue(bytes);},
+  cancel(){cancelled=true;}
+ }))});
+ await assert.rejects(()=>large.service.get(gamma+'/events/keyset?limit=10'));
+ assert.equal(cancelled,true);
+ const small=setup({fetcher:async()=>Response.json({text:'猫'.repeat(1000)})});
+ assert.equal((await small.service.get(gamma+'/events/keyset?limit=10')).text.length,1000);
+});
