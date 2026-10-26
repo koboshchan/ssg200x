@@ -11,7 +11,7 @@ async function fixture(scenario:string){await original("/__fixture",{method:"POS
 const nav=()=><nav style={{display:"flex",gap:12,margin:"8px 5%",fontSize:13}}><a href="#ddz">Dou Dizhu</a><a href="#poker">Poker receiver preview</a></nav>;
 function DdzPage(){const [seat,setSeat]=useState(seatOf());
  return <><header className="mast dd-demo-mast"><strong>ssg200x · isolated demo</strong><label>Test player <select aria-label="Test player" value={seat} onChange={e=>{sessionStorage.setItem("dd-demo-seat",e.target.value);setSeat(e.target.value);location.reload();}}>{NAMES.map((n,i)=><option key={i} value={i}>{n}</option>)}</select></label></header>{nav()}
- <p style={{margin:"8px 5%",fontSize:12,color:"var(--muted)"}}>Fictional play-money accounts, in-memory fixture, not production.</p>
+ <p style={{margin:"8px 5%",fontSize:12,color:"var(--muted)"}}>Fictional play-money accounts, isolated Mongo fixture, not production.</p>
  <div className="dd-demo-fx" role="group" aria-label="Fixture scenarios (demo only)">{(["doubling","poor","playing","reset"] as const).map(s=><button key={s} type="button" onClick={()=>fixture(s)}>Scenario {s}</button>)}</div>
  <Doudizhu/></>;}
 const seats:ReactionSeat[]=[{publicId:"fx-sora",name:"Sora",isYou:true},{publicId:"fx-mochi",name:"Mochi"},{publicId:"fx-dango",name:"Dango"}];
