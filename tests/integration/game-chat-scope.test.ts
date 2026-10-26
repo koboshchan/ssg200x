@@ -76,6 +76,15 @@ test('per-game ciphertext namespaces use existing signed key shares, creator boo
   const r=records.get(room),history=await r.service.handle('alice','history',{v:1,epoch:r.state.epoch,deviceId:a.deviceId});
   assert.equal(history.messages.length,1);
  }
+ // A failed or stale context fence cannot silently fall back to economic-room writes.
+ contexts.set('game-pool-fence',{creatorId:'alice',members:['alice'],version:7});
+ for(const result of [false,undefined]){
+  const strict=createChatService(db,{roomId:'game-pool-fence',resolveContext,fenceContext:async()=>result});await strict.ready;
+  const before=await db.collection('rooms').findOne({_id:'main' as never});
+  await assert.rejects(strict.handle('alice','state',{v:1}),/stale_revision/);
+  assert.deepEqual(await db.collection('rooms').findOne({_id:'main' as never}),before);
+ }
+ assert.equal(await fenceContext('game-pool-fence','alice',6),false);
  // An economically approved user still gets no contextual membership or directory through missing resolver data.
  const absent=createChatService(db,{roomId:'game-pool-missing',resolveContext,fenceContext});await absent.ready;
  await assert.rejects(absent.handle('alice','state',{v:1}),/room_closed/);
