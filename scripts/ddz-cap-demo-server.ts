@@ -53,8 +53,8 @@ const server=createServer(async(req,res)=>{res.setHeader("Cache-Control","no-sto
   let text="";for await(const chunk of req){text+=chunk;if(Buffer.byteLength(text)>4096)throw Error("Request too large");}
   res.end(JSON.stringify(await doudizhuMove(who,schema.parse(JSON.parse(text)))));return;
  }
- const path=req.url==="/demo.js"?"demo.js":req.url==="/demo.css"?"demo.css":req.url==="/"?"index.html":null;
- if(!path){res.writeHead(404).end();return;}res.setHeader("Content-Type",path.endsWith(".js")?"text/javascript":path.endsWith(".css")?"text/css":"text/html");res.end(readFileSync(resolve(root,path)));
+ const path=req.url==="/demo.js"?"demo.js":req.url==="/demo.css"?"demo.css":req.url==="/demo-desktop.mp4"?"demo-desktop.mp4":req.url==="/demo-mobile.mp4"?"demo-mobile.mp4":req.url==="/"?"index.html":null;
+ if(!path){res.writeHead(404).end();return;}res.setHeader("Content-Type",path.endsWith(".js")?"text/javascript":path.endsWith(".css")?"text/css":path.endsWith(".mp4")?"video/mp4":"text/html");res.end(readFileSync(resolve(root,path)));
 }catch(e){res.writeHead((e as any).status||400,{"Content-Type":"application/json"});res.end(JSON.stringify({error:e instanceof Error?e.message:"Error"}));}
 }).listen(Number(process.env.PORT||43879),"0.0.0.0");
 server.on("error",error=>{console.error(error);process.exit(1);});
