@@ -24,10 +24,10 @@ test("mounted provider reports routes without reconnect, blocks accessibly, and 
  const bundle=await build({stdin:{contents:`
  import React from "react";import {createRoot} from "react-dom/client";
  import ReleaseProvider from "./app/release-provider";
- import LiveProvider from "./app/live-provider";import {getTabIdentity,getTabHeaders} from "./lib/tab-identity";
+ import LiveProvider,{ConnectionBadge} from "./app/live-provider";import {getTabIdentity,getTabHeaders} from "./lib/tab-identity";
  const root=createRoot(document.getElementById("root"));
  window.harness={
-  mount:()=>root.render(<ReleaseProvider><LiveProvider><button id="game">Game action</button></LiveProvider></ReleaseProvider>),
+  mount:()=>root.render(<ReleaseProvider><LiveProvider><ConnectionBadge/><button id="game">Game action</button></LiveProvider></ReleaseProvider>),
   unmount:()=>root.unmount(),identity:getTabIdentity,headers:getTabHeaders,
   navigate:(path)=>{history.pushState(null,"",path);window.dispatchEvent(new Event("popstate"));}
  };window.harness.mount();
@@ -46,7 +46,7 @@ test("mounted provider reports routes without reconnect, blocks accessibly, and 
     const handlers=new Map();const reports=[];const auths=[];
     const socket={connected:true,active:true,on(event,handler){handlers.set(event,handler);return socket;},
      off(event,handler){if(handlers.get(event)===handler)handlers.delete(event);return socket;},
-     io:{on(){}},emit(event,payload){reports.push({event,payload});return socket;},
+     io:{on(){}},emit(event,payload,ack){reports.push({event,payload});if(event==="tab:report"&&typeof ack==="function"&&!window.noLeaseAck)ack({ok:true,leaseTtlMs:16000});return socket;},
      disconnect(){socket.connected=false;},timeout(){return socket;},connect(){}};
     window.testSocket={reports,auths,state:(payload)=>handlers.get("tab:state")(payload),
      refresh:()=>handlers.get("auth:refresh")({expiresAt:Date.now()+20000}),
@@ -105,6 +105,14 @@ test("mounted provider reports routes without reconnect, blocks accessibly, and 
   await page.evaluate(()=>(window as any).testSocket.state({blocked:false,tabs:1}));
   await dialog.waitFor({state:"detached"});assert.equal(await page.locator("#game").isEnabled(),true);
   assert.deepEqual(await page.evaluate(()=>(window as any).harness.identity()),identity);
+  // Action readiness needs an accepted tab:report ack on the CURRENT connection, not just an open transport.
+  const state=()=>page.locator(".connection-status").getAttribute("data-state");
+  assert.equal(await state(),"connected","acked connection is ready");
+  await page.evaluate(()=>{(window as any).noLeaseAck=true;(window as any).testSocket.disconnect();(window as any).testSocket.connect();});
+  assert.equal(await state(),"connecting","transport open without ack is not action-ready");
+  await page.clock.runFor(4000);assert.equal(await state(),"connecting","still not ready without an ack");
+  await page.evaluate(()=>{(window as any).noLeaseAck=false;document.dispatchEvent(new Event("visibilitychange"));});
+  assert.equal(await state(),"connected","first valid ack makes it ready");
 
   const isolated=await context.newPage();
   await isolated.route("https://identity.test/**",(route:any)=>route.fulfill({contentType:"text/html",body:"<!doctype html><meta charset=utf-8>"}));

@@ -16,6 +16,7 @@ import {getTabIdentity} from "@/lib/tab-identity";
 import {readPokerTableId} from "@/lib/poker-table-selection";
 import {useAuth} from "@clerk/nextjs";
 import {createStateReceiver,STATE_STREAMS} from "../runtime/state-stream.mjs";
+import {createLeaseReadiness} from "@/lib/lease-readiness";
 import type {Socket} from "socket.io-client";
 export type MaintenanceStatus={admin:boolean;active:boolean;blocked:boolean;manual:boolean};
 export type Connection="connecting"|"connected"|"disconnected";
@@ -33,9 +34,11 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
  const pathname=usePathname(),routeRef=useRef(pathname||"/");routeRef.current=pathname||"/";
  const [tabBlocked,setTabBlocked]=useState(false);
  const {getToken}=useAuth(),tokenRef=useRef(getToken);tokenRef.current=getToken;
- const [connection,setConnection]=useState<Connection>("connecting"),[maintenance,setMaintenance]=useState<MaintenanceStatus>(),[lastMessageAt,setLast]=useState(0);
+ const [transport,setTransport]=useState<Connection>("connecting"),[leaseFresh,setLeaseFresh]=useState(false),reportRef=useRef<()=>void>(()=>{}),[maintenance,setMaintenance]=useState<MaintenanceStatus>(),[lastMessageAt,setLast]=useState(0);
  const airdropReceiver=useRef<ReturnType<typeof createAirdropReceiver>|null>(null);
  const socketRef=useRef<Socket>(undefined),listeners=useRef(new Map<string,Set<(p:any)=>void>>()),latest=useRef(new Map<string,unknown>());
+ // Transport "connected" is only action-ready while the server has acknowledged a recent tab:report.
+ const connection:Connection=transport==="connected"&&!leaseFresh?"connecting":transport;
  const api=useMemo(()=>({subscribe(event:string,handler:(p:any)=>void){let set=listeners.current.get(event);if(!set){set=new Set();listeners.current.set(event,set);}set.add(handler);if(latest.current.has(event)&&event!=="market:update")handler(latest.current.get(event));return()=>{set!.delete(handler);};},emit(event:string,payload?:unknown){socketRef.current?.connected&&socketRef.current.emit(event,payload);},request(event:string,payload?:unknown){
    const socket=socketRef.current;
    if(!socket?.connected)return Promise.reject(new Error("disconnected"));
@@ -44,7 +47,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    }));
   }}),[]);
  useEffect(()=>{
-  if(socketRef.current?.connected)socketRef.current.emit("tab:report",{route:routeRef.current});
+  reportRef.current();
  },[pathname]);
  useEffect(()=>{
   let closed=false,paused=false,authGeneration=0,retry:ReturnType<typeof setTimeout>|undefined,attempts=0,socket:Socket|undefined,disposeAuth:(()=>void)|undefined;
@@ -52,21 +55,29 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
   airdropReceiver.current??=createAirdropReceiver(p=>listeners.current.get(AIRDROP_EVENT)?.forEach(h=>h(p)));
   const receiver=createStateReceiver(event=>socket?.connected&&socket.emit("state:resync",event));
   const later=()=>{if(closed||paused||!socket||socket.active)return;clearTimeout(retry);attempts++;retry=setTimeout(()=>{if(!closed&&!paused)socket?.connect();},Math.min(10000,500*2**Math.min(attempts,5)));};
-  const report=()=>{if(!paused&&socket?.connected)socket.emit("tab:report",{route:routeRef.current});};
+  const lease=createLeaseReadiness({now:()=>performance.now(),recover:()=>{if(closed||paused||!socket)return;socket.disconnect();socket.connect();}});
+  const report=()=>{
+   if(paused||!socket?.connected)return;
+   const token=lease.sending();
+   // Servers without the ack contract never call back, so the connection simply never becomes action-ready.
+   socket.emit("tab:report",{route:routeRef.current},(res:unknown)=>{if(!closed&&lease.ack(token,res))setLeaseFresh(lease.fresh());});
+  };
+  reportRef.current=report;
   const reportTimer=setInterval(report,5000);
+  const leaseTimer=setInterval(()=>{if(closed||paused)return;const fresh=lease.fresh();setLeaseFresh(f=>f===fresh?f:fresh);lease.check();},1000);
   document.addEventListener("visibilitychange",report);
   // A cached document keeps React mounted. Stop transport/retries and pending
   // credential renewals before it freezes; resume once with fresh handshake auth.
   const pause=()=>{
    if(closed||paused)return;
    paused=true;authGeneration++;clearTimeout(retry);disposeAuth?.();disposeAuth=undefined;
-   receiver.clear();latest.current.clear();setConnection("disconnected");socket?.disconnect();
+   receiver.clear();latest.current.clear();setTransport("disconnected");lease.closed();setLeaseFresh(false);socket?.disconnect();
   };
   const resume=()=>{
    if(closed)return;
    if(!paused){report();return;}
    paused=false;
-   if(socket){disposeAuth=attachSocketAuthClient(socket,()=>tokenRef.current({skipCache:true}));setConnection("connecting");socket.connect();}
+   if(socket){disposeAuth=attachSocketAuthClient(socket,()=>tokenRef.current({skipCache:true}));setTransport("connecting");socket.connect();}
   };
   window.addEventListener("pagehide",pause);
   window.addEventListener("pageshow",resume);
@@ -79,10 +90,10 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    socketRef.current=socket;
    socket.on(RELEASE_EVENT,release.observe);socket.on("features:state",release.observeFeatures);
    if(!paused)disposeAuth=attachSocketAuthClient(socket,()=>tokenRef.current({skipCache:true}));
-   socket.on("connect",()=>{receiver.clear();latest.current.clear();void release.check();attempts=0;setConnection("connected");socket?.emit("poker:subscribe",readPokerTableId());report();});
-   socket.on("disconnect",()=>{receiver.clear();latest.current.clear();setConnection("disconnected");later();});
-   socket.on("connect_error",e=>{void release.check();setConnection("disconnected");if(e.message==="maintenance")setMaintenance(m=>({admin:false,active:true,manual:false,...m,blocked:true}));later();});
-   socket.io.on("reconnect_attempt",()=>setConnection("connecting"));
+   socket.on("connect",()=>{receiver.clear();latest.current.clear();void release.check();attempts=0;lease.opened();setLeaseFresh(false);setTransport("connected");socket?.emit("poker:subscribe",readPokerTableId());report();});
+   socket.on("disconnect",()=>{receiver.clear();latest.current.clear();lease.closed();setLeaseFresh(false);setTransport("disconnected");later();});
+   socket.on("connect_error",e=>{void release.check();lease.closed();setLeaseFresh(false);setTransport("disconnected");if(e.message==="maintenance")setMaintenance(m=>({admin:false,active:true,manual:false,...m,blocked:true}));later();});
+   socket.io.on("reconnect_attempt",()=>setTransport("connecting"));
    for(const event of STATE_STREAMS)socket.on(event,(message:unknown)=>{
     const result=receiver.receive(event,message);if(!result.ok)return;
     if(event==="maintenance:state")setMaintenance(result.value as MaintenanceStatus);
@@ -103,13 +114,13 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    socket.on("polymarket:positions",(p:unknown)=>dispatch("polymarket:positions",p));
    socket.on("dm:changed",(p:unknown)=>dispatch("dm:changed",p));
    if(!paused)socket.connect();
-  }).catch(()=>{if(!closed)setConnection("disconnected");});
-  return()=>{closed=true;authGeneration++;clearInterval(reportTimer);document.removeEventListener("visibilitychange",report);window.removeEventListener("pagehide",pause);window.removeEventListener("pageshow",resume);receiver.clear();latest.current.clear();clearTimeout(retry);disposeAuth?.();socket?.disconnect();socketRef.current=undefined;};
+  }).catch(()=>{if(!closed)setTransport("disconnected");});
+  return()=>{closed=true;lease.closed();reportRef.current=()=>{};authGeneration++;clearInterval(reportTimer);clearInterval(leaseTimer);document.removeEventListener("visibilitychange",report);window.removeEventListener("pagehide",pause);window.removeEventListener("pageshow",resume);receiver.clear();latest.current.clear();clearTimeout(retry);disposeAuth?.();socket?.disconnect();socketRef.current=undefined;};
  },[release]);
  const value=useMemo<Live>(()=>({connection,maintenance,lastMessageAt,...api}),[connection,maintenance,lastMessageAt,api]);
  return <Context.Provider value={value}>{children}<AirdropAnnouncement subscribe={api.subscribe}/><AdvancementAnnouncement subscribe={api.subscribe}/><FlagGated k="checkIn"><CheckInBanner/></FlagGated><PaymentAnnouncement subscribe={api.subscribe}/>{tabBlocked?<TabBlockedOverlay/>:null}</Context.Provider>;
 }
-export function ConnectionBadge(){const fixture=useQaFixture();const {connection}=useLive();return <p className="connection-status" role="status" data-state={fixture?"fixture":connection}>{fixture?"DEMO FIXTURE — NOT LIVE":connection==="connected"?"Live":connection==="connecting"?"Connecting…":"Disconnected. Trading is paused until the connection returns."}</p>;}
+export function ConnectionBadge(){const fixture=useQaFixture();const {connection}=useLive();/* Fixture warning belongs to charts; the badge always shows the real transport. */return <p className="connection-status" role="status" data-state={connection} data-qa-fixture={fixture?"true":undefined}>{connection==="connected"?"Live":connection==="connecting"?"Connecting…":"Disconnected. Trading is paused until the connection returns."}</p>;}
 
 function TabBlockedOverlay(){
  const dialogRef=useRef<HTMLDialogElement>(null);

@@ -31,7 +31,8 @@ test("fixture MACD retains small price differences and mobile default preserves 
 test("fixture labels and chat layout remain gated on server fixture mode",async()=>{
  const fs=await import("node:fs/promises");
  const badge=await fs.readFile("app/live-provider.tsx","utf8");
- assert.ok(badge.includes('fixture?"DEMO FIXTURE — NOT LIVE"'));
+ // The global badge reports the real transport; fixture mode only adds a data attribute (chart-level warnings stay in charts).
+ assert.ok(!badge.includes("DEMO FIXTURE — NOT LIVE")&&badge.includes('data-state={connection} data-qa-fixture={fixture?"true":undefined}'));
  const css=await fs.readFile("app/globals.css","utf8");
  assert.ok(css.includes('body[data-qa-chart-fixture="true"] .chat-dock{position:relative!important'));
  const layout=await fs.readFile("app/layout.tsx","utf8");
