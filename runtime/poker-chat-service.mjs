@@ -4,10 +4,13 @@ import {fail} from './chat-protocol.mjs';
 import {validChatRoom} from './game-chat-context.mjs';
 import {gameChatTransactions} from './game-chat-transaction.mjs';
 import {createGameChatRuntime} from './game-chat-runtime.mjs';
+// Supported deployment: ONE createPokerChatService instance in ONE server process.
+// A renewable transaction-bound process-owner fence rejects overlapping servers;
+// this is not distributed presence or supported horizontal scaling.
 // A single process queue also serializes reset and all server-owned presence changes.
 // Mongo transactions, not this queue, fence independent economic/revocation writers.
 export function createPokerChatService(database,options={}){
- const transactions=gameChatTransactions(database),db=transactions.db;
+ const transactions=gameChatTransactions(database,{enforceOwner:true}),db=transactions.db;
  const runtime=createGameChatRuntime(db,{poolContext:options.poolContext});
  const services=new Map(chatRoomIds(options.env).map(roomId=>[roomId,createChatService(db,{...options,roomId})]));
  let queue=Promise.resolve(),pending=0;

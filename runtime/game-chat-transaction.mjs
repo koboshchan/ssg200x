@@ -1,8 +1,11 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
+import {randomUUID} from 'node:crypto';
 import {fail} from './chat-protocol.mjs';
+const processOwner=randomUUID();
 // All collections used by game chat, including resolver reads, share one snapshot.
 // The authoritative main-room write conflicts with EVERY existing version-CAS writer.
-export function gameChatTransactions(database){
+export function gameChatTransactions(database,{enforceOwner=false}={}){
+ const owner=processOwner;
  const storage=new AsyncLocalStorage();
  let capability;
  const positions={find:1,findOne:1,countDocuments:1,insertOne:1,insertMany:1,updateOne:2,updateMany:2,deleteOne:1,deleteMany:1,findOneAndUpdate:2};
@@ -21,7 +24,16 @@ export function gameChatTransactions(database){
   try{
    // No automatic callback replay of signed mutations or external identity writes.
    session.startTransaction({readConcern:{level:'snapshot'},writeConcern:{w:'majority'}});
-   const result=await storage.run(session,fn);await session.commitTransaction();return result;
+   const result=await storage.run(session,async()=>{
+    if(enforceOwner){
+     // One chat runtime owns process-local presence. A second server must not
+     // rewrite shared crypto state from a different local roster.
+     const leases=db.collection('game_chat_runtime_owner'),now=Date.now();
+     try{await leases.updateOne({_id:'single-owner',$or:[{owner},{until:{$lte:now}}]},{$set:{owner,until:now+30000}},{upsert:true});}
+     catch(error){if(error.code===11000)fail('chat_owner_conflict');throw error;}
+    }
+    return fn();
+   });await session.commitTransaction();return result;
   }catch(error){
    if(session.inTransaction())await session.abortTransaction().catch(()=>{});
    if(error.code===20||error.codeName==='IllegalOperation')fail('context_transactions_required');

@@ -161,3 +161,28 @@ test('disconnected presence and cross-scope signed envelopes fail closed; author
  await db.collection('test_authoritative_pool').updateOne({_id:id as never},{$set:{closed:true}});
  await assert.rejects(tx.run(()=>runtime.resolveContext('game-pool-'+id,'alice')),/room_closed/);
 });
+
+test('remaining approved viewer can claim fresh fixed-table epoch after former creator leaves or is revoked',async()=>{
+ const service=createPokerChatService(db);await service.ready;
+ const a=socket('fresh-owner-a','alice'),c=socket('fresh-owner-c','carol');
+ const ai=(await createIdentity('alice',0)).identity,ci=(await createIdentity('carol',0)).identity;
+ for(const [user,identity]of [['alice',ai],['carol',ci]]as const)await service.handle(user,'register',{v:1,deviceId:identity.deviceId,dhPublic:identity.dhPublic,signPublic:identity.signPublic,signature:await signText(identity.signPrivate,registerData(user,identity))});
+ await service.subscribe(a,{kind:'roulette',id:'01'});await service.subscribe(c,{kind:'roulette',id:'01'});
+ let state=await service.handle('alice','state',{v:1,chatRoom:'game-roulette-01'},a);
+ state=await service.handle('alice','claim',{v:1,chatRoom:'game-roulette-01',revision:state.revision,epoch:state.epoch,deviceId:ai.deviceId},a);
+ const oldEpoch=state.epoch,key=await newEpochKey();
+ await service.handle('alice','wrap',{chatRoom:'game-roulette-01',...await makeWrap(ai,'alice',{room:'game-roulette-01',revision:state.revision,epoch:state.epoch,toUserId:'alice',toDeviceId:ai.deviceId},ai.dhPublic,key)},a);
+ await service.leave(a);
+ state=await service.handle('carol','state',{v:1,chatRoom:'game-roulette-01'},c);assert.notEqual(state.epoch,oldEpoch);
+ assert.equal((await service.handle('carol','claim',{v:1,chatRoom:'game-roulette-01',revision:state.revision,epoch:state.epoch,deviceId:ci.deviceId},c)).owner.userId,'carol');
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{'members.0.accessRevoked':true},$inc:{version:1}});
+ await assert.rejects(service.subscribe(a,{kind:'roulette',id:'01'}),/forbidden/);
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{'members.0.accessRevoked':false},$inc:{version:1}});
+});
+test('foreign live chat owner fails closed rather than using a divergent process-local roster',async()=>{
+ const leases=db.collection('game_chat_runtime_owner'),saved=await leases.findOne({_id:'single-owner' as never});
+ await leases.updateOne({_id:'single-owner' as never},{$set:{owner:'foreign-live-process',until:Date.now()+30000}},{upsert:true});
+ const tx=gameChatTransactions(db,{enforceOwner:true});
+ try{await assert.rejects(tx.run(()=>tx.db.collection('chat_test_receipts').insertOne({_id:'foreign-owner-must-not-write'})),/chat_owner_conflict/);assert.equal(await db.collection('chat_test_receipts').countDocuments({_id:'foreign-owner-must-not-write' as never}),0);}
+ finally{await leases.replaceOne({_id:'single-owner' as never},saved!);}
+});
