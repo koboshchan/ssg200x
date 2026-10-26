@@ -117,3 +117,13 @@ test("timeout keeps funded caps and no-double remains available without further 
  move(1,{type:"double",doubleMultiplier:4});const funded=g.players.map(p=>p.escrow),wallets=r.members.map(m=>m.wallet);
  tickDoudizhu(r,70000);assert.equal(g.phase,"playing");assert.deepEqual(g.players.map(p=>p.escrow),funded);assert.deepEqual(r.members.map(m=>m.wallet),wallets);assertRoom(r);
 });
+test("every scaled choice combination settles within funded exposure, zero-sum for either winning side",()=>{
+ for(const a of [1,2,4])for(const b of [1,2,4])for(const c of [1,2,4])for(const winner of [0,1]){
+  const {r,g,move}=setup(true);g.maxLoss=1000;
+  g.players.forEach((p,i)=>{r.members[i].wallet+=p.escrow-1000;p.escrow=1000;});
+  [a,b,c].forEach((m,i)=>move(i,{type:"double",doubleMultiplier:m}));
+  const funded=[1000*a*Math.max(b,c),1000*a*b,1000*a*c];assert.deepEqual(g.players.map(p=>p.escrow),funded);
+  g.multiplier=1000000;g.turn=winner;g.players[winner].hand=["3s"];move(winner,{type:"play",cards:["3s"]});
+  assert(g.result!.deltas.every((v,i)=>v>=-funded[i]));assert.equal(g.result!.deltas.reduce((a,b)=>a+b,0),0);assert.equal(totalChips(r),400000);assertRoom(r);
+ }
+});
