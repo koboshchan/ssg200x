@@ -15,7 +15,7 @@ import {useFeatures} from "./use-features";
 import {createPacer} from "@/lib/chat-pacer";
 import {useActiveGameChat} from "./game-chat-context";
 
-const errorText:Record<string,string>={admin_reset:"An admin reset your chat words. Create and save new words. Old words no longer unlock this account. Unsent messages were discarded and will not be retried. Older history needs a new key grant; a trusted member can share the current room key.",setup_words_lost:"Setup was interrupted. Enter the six words you saved.",wrong_words:"Those words don't match. Check the order and spelling.",bad_words:"Enter exactly six words from the list.",disconnected:"Not connected. Try again in a moment.",timeout:"The server didn't answer in time.",rate_limited:"Slow down a little.",busy:"The server is busy. Trying again.",identity_exists:"Chat keys already exist for this account. Retry loading chat to check recovery availability.",identity_inconsistent:"Existing chat key records could not be matched to a current recovery backup. Keep your recovery words and any browser that can still read chat. Ask an admin to check the key records without resetting them.",identity_unavailable:"Chat could not load a current recovery backup. Retry loading chat. Keep your recovery words and any browser that can still read chat.",identity_conflict:"Your keys changed on another device. Reload to continue.",forbidden:"Chat is only open to approved members.",room_closed:"This room has closed, so its chat is gone.",context_required:"Chat for this room needs a fresh connection. Reconnecting.",unavailable:"Game chat is unavailable right now."};
+const errorText:Record<string,string>={admin_reset:"An admin reset your chat words. Create and save new words. Old words no longer unlock this account. Unsent messages were discarded and will not be retried. Older history needs a new key grant; a trusted member can share the current room key.",setup_words_lost:"Setup was interrupted. Enter the six words you saved.",wrong_words:"Those words don't match. Check the order and spelling.",bad_words:"Enter exactly six words from the list.",disconnected:"Not connected. Try again in a moment.",timeout:"The server didn't answer in time.",rate_limited:"Slow down a little.",busy:"The server is busy. Trying again.",identity_exists:"Chat keys already exist for this account. Retry loading chat to check recovery availability.",identity_inconsistent:"Existing chat key records could not be matched to a current recovery backup. Keep your recovery words and any browser that can still read chat. Ask an admin to check the key records without resetting them.",identity_unavailable:"Chat could not load a current recovery backup. Retry loading chat. Keep your recovery words and any browser that can still read chat.",identity_conflict:"Your keys changed on another device. Reload to continue.",forbidden:"Chat is only open to approved members.",room_closed:"This room's chat has closed or you are no longer in it.",context_required:"Chat for this room needs a fresh connection. Reconnecting.",unavailable:"Game chat is unavailable right now."};
 const friendly=(code:string|null)=>code?errorText[code]||"Chat is unavailable right now.":null;
 const group=(f:string)=>(f.match(/.{1,5}/g)||[]).join(" ");
 const time=(ts:number)=>new Date(ts).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
@@ -51,7 +51,7 @@ export default function ChatDock(){
   return()=>{dead=true;c?.close();setGameBinding(null);void bound.paced(()=>live.request("game-chat:leave",{kind,id})).catch(()=>{});};
  },[bound,userId,gameKey,live.connection,live.request,retryTick]);
  const chatRoomOf=useRef(new Map<string,string>());
- useLiveEvent("game-chat:closed",(p:{kind?:string;id?:string})=>{if(game&&p?.kind===game.kind&&p?.id===game.id){setGameBinding(null);setTab("room");}});
+ useLiveEvent("game-chat:closed",(p:{kind?:string;id?:string;chatRoom?:string})=>{const hit=game&&((p?.kind===game.kind&&p?.id===game.id)||(gameKey&&p?.chatRoom&&chatRoomOf.current.get(gameKey)===p.chatRoom));if(hit&&gameKey){setGameBinding(null);setGameError({key:gameKey,code:"room_closed"});}});
  const [open,setOpen]=useState(false),[names,setNames]=useState<Record<string,string>>({}),[seen,setSeen]=useState<number|null>(null);
  const [dmUnread,setDmUnread]=useState(0);
  const unreadScope=useRef(0);
@@ -61,9 +61,8 @@ export default function ChatDock(){
  const {features:ft}=useFeatures();
  type Tab="room"|"game"|"dm"|"qa";
  const [pickedTab,setTab]=useState<Tab>("room");
- const gameFailed=gameError&&gameError.key===gameKey&&gameError.code!=="room_closed"?gameError.code:null;
- const closed=gameError?.key===gameKey&&gameError.code==="room_closed";
- const hasGame=!!game&&!closed&&ft.tableTalk;
+ const gameFailed=gameError&&gameError.key===gameKey&&gameError.code;
+ const hasGame=!!game&&ft.tableTalk;
  // Entering a game context selects Game; leaving it returns to Global.
  useEffect(()=>{setTab(hasGame?"game":"room");},[gameRoom,hasGame]);
  const tab:Tab=pickedTab==="qa"?(qaClient&&ft.tableTalk?"qa":"room"):pickedTab==="game"&&!hasGame?"room":pickedTab==="room"&&!ft.tableTalk&&ft.dms?"dm":pickedTab==="dm"&&!ft.dms&&ft.tableTalk?(hasGame?"game":"room"):pickedTab;

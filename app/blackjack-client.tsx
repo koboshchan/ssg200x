@@ -20,8 +20,9 @@ type Props={room:PublicRoom;busy:boolean;post:(path:string,body:object)=>Promise
 export function total(cards:string[]){let t=0,aces=0;for(const c of cards){if(c==="?")continue;const r=c[0];if(r==="A"){aces++;t+=11;}else t+="TJQK".includes(r)?10:Number(r);}while(t>21&&aces){t-=10;aces--;}return t;}
 function Card({value}:{value:string}){const back=value==="?";const red=!back&&["h","d"].includes(value.slice(-1));return <span aria-label={back?"Hidden card":value} className={"card small"+(back?" back":"")+(red?" red":"")}>{back?null:<><b>{value[0]==="T"?"10":value[0]}</b><i>{suits[value.slice(-1)]}</i></>}</span>;}
 const MAX_CLICKS=BLACKJACK_MAX_CHIPS;
-const BJ_IDS=["lounge","salon","terrace"];
-function bjChatId(id:string):string|null{const i=BJ_IDS.indexOf(id);return i<0?null:"0"+(i+1);}
+// Explicit, stable mapping to backend ids (lib/blackjack.ts BLACKJACK_TABLE_IDS -> game-blackjack-0N). Unknown ids fail closed.
+const BJ_CHAT_IDS:Readonly<Record<string,string>>=Object.freeze({lounge:"01",salon:"02",terrace:"03"});
+function bjChatId(id:string):string|null{return Object.hasOwn(BJ_CHAT_IDS,id)?BJ_CHAT_IDS[id]:null;}
 export default function Blackjack({room,busy,post}:Props){
  const off=useFeatures().features.blackjack===false;
  const clock=useServerClock(room.serverNow);
