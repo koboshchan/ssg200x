@@ -37,6 +37,7 @@ async function fixture(scenario:string){
  }
  assertRoom(r);await(await rooms()).replaceOne({_id:"main"},r,{upsert:true});
 }
+async function main(){
 if(!(await readRoom()).members.length)await fixture("doubling");
 const server=createServer(async(req,res)=>{res.setHeader("Cache-Control","no-store");res.setHeader("X-Demo-Commit",servedSha);res.setHeader("X-Content-Type-Options","nosniff");try{
  if(req.url==="/__fixture"&&req.method==="POST"){
@@ -58,3 +59,6 @@ const server=createServer(async(req,res)=>{res.setHeader("Cache-Control","no-sto
 }).listen(Number(process.env.PORT||43879),"0.0.0.0");
 server.on("error",error=>{console.error(error);process.exit(1);});
 setInterval(async()=>{try{const r=await readRoom();if(doudizhuNeedsTick(r,Date.now()))await mutate(r=>tickDoudizhu(r,Date.now()));}catch{}},1000);
+
+}
+void main().catch(error=>{console.error(error);process.exit(1);});
