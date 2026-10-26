@@ -57,7 +57,7 @@ test("game chat follows the active context over one transport with scoped hints 
  assert.match(ui,/drafts\.get\(draftKey\)/);
  assert.match(ui,/room_closed/);
  assert.match(ui,/IDENTITY=\["register","keys:get","keys:put"\]/);
- assert.doesNotMatch(ui,/identityCache/);
+ assert.doesNotMatch(ui,/identityCache|3600000|60000\)/);
  assert.match(ui,/IDENTITY.includes\(event\)\?"main":room/);
 });
 test("dense poker tables keep the stadium felt and ring seats, centred board, no grid on any width",()=>{
@@ -65,4 +65,11 @@ test("dense poker tables keep the stadium felt and ring seats, centred board, no
  assert.match(css,/@media\(max-width:760px\)\{\.felt-wrapper\.dense\{height:var\(--mh\)\}/);
  assert.doesNotMatch(css,/felt-wrapper\.dense\{[^}]*display:grid/);
  assert.doesNotMatch(css,/flow-grid|Keep complete player units in flow/);
+});
+
+test("composer drafts live in a parent per-context map, cleared on user change, never in localStorage",()=>{
+ assert.match(ui,/drafts=useRef\(new Map<string,string>\(\)\)/);
+ assert.match(ui,/draftUser\.current!==userId\)\{draftUser\.current=userId;drafts\.current\.clear\(\)/);
+ assert.match(ui,/useState\(\(\)=>drafts\.get\(draftKey\)\?\?""\)/);
+ assert.doesNotMatch(ui,/localStorage\.setItem\([^)]*draft/i);
 });
