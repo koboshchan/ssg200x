@@ -43,12 +43,12 @@ export default function ChatDock(){
   let dead=false,c:ChatClient|null=null;
   const {kind,id}=game,key=kind+":"+id;
   setGameError(null);
-  bound.paced(()=>live.request("game-chat:subscribe",{kind,id})).then(r=>{
+  bound.paced(()=>dead?Promise.reject(new Error("cancelled")):live.request("game-chat:subscribe",{kind,id})).then(r=>{
    if(dead)return;
    if(typeof r?.chatRoom!=="string")throw new Error("unavailable");
    c=bound.make(r.chatRoom);chatRoomOf.current.set(key,r.chatRoom);setGameBinding({user:userId,room:key,client:c});
-  }).catch((e:Error)=>{if(!dead){setGameBinding(null);setGameError({key,code:e?.message||"unavailable"});}});
-  return()=>{dead=true;c?.close();setGameBinding(null);void live.request("game-chat:leave",{kind,id}).catch(()=>{});};
+  }).catch((e:Error)=>{if(!dead&&e?.message!=="cancelled"){setGameBinding(null);setGameError({key,code:e?.message||"unavailable"});}});
+  return()=>{dead=true;c?.close();setGameBinding(null);void bound.paced(()=>live.request("game-chat:leave",{kind,id})).catch(()=>{});};
  },[bound,userId,gameKey,live.connection,live.request,retryTick]);
  const chatRoomOf=useRef(new Map<string,string>());
  useLiveEvent("game-chat:closed",(p:{kind?:string;id?:string})=>{if(game&&p?.kind===game.kind&&p?.id===game.id){setGameBinding(null);setTab("room");}});
@@ -61,8 +61,9 @@ export default function ChatDock(){
  const {features:ft}=useFeatures();
  type Tab="room"|"game"|"dm"|"qa";
  const [pickedTab,setTab]=useState<Tab>("room");
- const gameFailed=gameError&&gameError.key===gameKey&&!["room_closed","forbidden"].includes(gameError.code)?gameError.code:null;
- const hasGame=!!game&&(!!gameClient||!!gameFailed)&&ft.tableTalk;
+ const gameFailed=gameError&&gameError.key===gameKey&&gameError.code!=="room_closed"?gameError.code:null;
+ const closed=gameError?.key===gameKey&&gameError.code==="room_closed";
+ const hasGame=!!game&&!closed&&ft.tableTalk;
  // Entering a game context selects Game; leaving it returns to Global.
  useEffect(()=>{setTab(hasGame?"game":"room");},[gameRoom,hasGame]);
  const tab:Tab=pickedTab==="qa"?(qaClient&&ft.tableTalk?"qa":"room"):pickedTab==="game"&&!hasGame?"room":pickedTab==="room"&&!ft.tableTalk&&ft.dms?"dm":pickedTab==="dm"&&!ft.dms&&ft.tableTalk?(hasGame?"game":"room"):pickedTab;
@@ -151,6 +152,7 @@ export default function ChatDock(){
 type DraftProps={drafts:Map<string,string>;draftKey:string};
 function GamePane({client,names,drafts,draftKey,error,retry}:{client:ChatClient|null;names:Record<string,string>;error:string|null;retry:()=>void}&DraftProps){
  const snap=useSyncExternalStore(client?client.subscribe:()=>()=>{},client?client.getSnapshot:()=>idle,()=>idle);
+ if(!client&&!error)return <div className="chat-panel"><p className="chat-note" role="status">Connecting to this room's chat…</p></div>;
  if(!client&&error)return <div className="chat-panel"><p className="chat-note" role="alert">{friendly(error)}</p><button onClick={retry}>Try again</button></div>;
  return <Body snap={snap} client={client} names={names} drafts={drafts} draftKey={draftKey}/>;
 }

@@ -20,6 +20,8 @@ type Props={room:PublicRoom;busy:boolean;post:(path:string,body:object)=>Promise
 export function total(cards:string[]){let t=0,aces=0;for(const c of cards){if(c==="?")continue;const r=c[0];if(r==="A"){aces++;t+=11;}else t+="TJQK".includes(r)?10:Number(r);}while(t>21&&aces){t-=10;aces--;}return t;}
 function Card({value}:{value:string}){const back=value==="?";const red=!back&&["h","d"].includes(value.slice(-1));return <span aria-label={back?"Hidden card":value} className={"card small"+(back?" back":"")+(red?" red":"")}>{back?null:<><b>{value[0]==="T"?"10":value[0]}</b><i>{suits[value.slice(-1)]}</i></>}</span>;}
 const MAX_CLICKS=BLACKJACK_MAX_CHIPS;
+const BJ_IDS=["lounge","salon","terrace"];
+function bjChatId(id:string):string|null{const i=BJ_IDS.indexOf(id);return i<0?null:"0"+(i+1);}
 export default function Blackjack({room,busy,post}:Props){
  const off=useFeatures().features.blackjack===false;
  const clock=useServerClock(room.serverNow);
@@ -27,7 +29,7 @@ export default function Blackjack({room,busy,post}:Props){
  const tables=bj?.tables||[];
  const [sel,setSel]=useState(0),[chips,setChips]=useState<number[]>([]);
  const t=tables[sel];
- useGameChat(t?"blackjack":null,t?String(["lounge","salon","terrace"].indexOf(t.id)+1).padStart(2,"0"):null,t?"Blackjack "+t.id:undefined);const cents=chips.reduce((a,c)=>a+c,0);
+ useGameChat(t?(bjChatId(t.id)?"blackjack":null):null,t?bjChatId(t.id):null,t?"Blackjack "+t.id:undefined);const cents=chips.reduce((a,c)=>a+c,0);
  if(!tables.length)return <section className="bj"><h2>Blackjack</h2><p className="empty">Blackjack tables are not available yet.</p></section>;
  const mine=t.seats.findIndex(s=>s?.isYou);
  const me=mine>=0?t.seats[mine]:null;
