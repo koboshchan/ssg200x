@@ -1,0 +1,4 @@
+dist/
+public/bundle.js
+public/bundle.css
+public/*.map
