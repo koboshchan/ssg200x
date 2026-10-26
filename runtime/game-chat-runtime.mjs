@@ -23,7 +23,15 @@ export function createGameChatRuntime(db,{now=Date.now,poolContext}={}){
    creatorId=pool.creatorId;members=viewers.filter(id=>pool.members.includes(id));if(!members.includes(user))fail('forbidden');
   }else{
    await creators.updateOne({_id:roomId},{$setOnInsert:{creatorId:user}},{upsert:true});
-   creatorId=(await creators.findOne({_id:roomId})).creatorId;
+   const saved=await creators.findOne({_id:roomId});
+   creatorId=saved.creatorId;
+   if(!viewers.includes(creatorId)||!approved(room,creatorId)){
+    // Fixed public tables have no lasting game creator. Elect an eligible bootstrap
+    // owner only when the former owner is no longer present/approved; CAS + the
+    // surrounding transaction keep the choice stable for simultaneous entrants.
+    await creators.updateOne({_id:roomId,creatorId},{$set:{creatorId:user}});
+    creatorId=(await creators.findOne({_id:roomId})).creatorId;
+   }
   }
   members=[...new Set(members)].filter(id=>approved(room,id)).sort();
   // Game/economic revisions are NOT part of the crypto directory fingerprint.
@@ -43,7 +51,11 @@ export function createGameChatRuntime(db,{now=Date.now,poolContext}={}){
   try{await context(roomId,user);}catch(error){if(previous)presence.set(socket.id,previous);else presence.delete(socket.id);throw error;}
   return {chatRoom:roomId};
  }
- function leave(socket){presence.delete(socket.id);}
+ function leave(socket,input){
+  const previous=presence.get(socket.id);
+  if(input&&previous?.roomId!==roomOf(input))return;
+  presence.delete(socket.id);return previous?.roomId;
+ }
  function check(socket,roomId){const active=presence.get(socket.id);if(!active||active.user!==socket.data.identity.id||active.roomId!==roomId)fail('context_required');}
  return {resolveContext:context,fenceContext:fence,subscribe,leave,check};
 }

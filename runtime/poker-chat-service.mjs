@@ -25,8 +25,8 @@ export function createPokerChatService(database,options={}){
   ready:Promise.all([...services.values()].map(s=>s.ready)),
   authorized:user=>serial(()=>services.get('main').authorized(user)),
   adminReset:(user,payload)=>serial(()=>services.get('main').adminReset(user,payload)),
-  subscribe:(socket,input)=>serial(async()=>{try{return await transactions.run(async()=>{const result=await runtime.subscribe(socket,input);const ctx=await runtime.resolveContext(result.chatRoom,socket.data.identity.id);if(!await runtime.fenceContext(result.chatRoom,socket.data.identity.id,ctx.version))fail('stale_revision');return result;});}catch(error){runtime.leave(socket);throw error;}}),
-  leave:socket=>serial(()=>runtime.leave(socket)),
+  subscribe:(socket,input)=>serial(async()=>{try{const committed=await transactions.run(async()=>{const result=await runtime.subscribe(socket,input);const ctx=await runtime.resolveContext(result.chatRoom,socket.data.identity.id);if(!await runtime.fenceContext(result.chatRoom,socket.data.identity.id,ctx.version))fail('stale_revision');return result;});socket.data.gameChatRoom=committed.chatRoom;return committed;}catch(error){runtime.leave(socket);delete socket.data.gameChatRoom;throw error;}}),
+  leave:(socket,input)=>serial(()=>{const left=runtime.leave(socket,input);if(left)delete socket.data.gameChatRoom;return left;}),
   handle:(user,event,payload,socket)=>serial(async()=>{
    if(!payload||typeof payload!=='object'||Array.isArray(payload))fail();
    const {chatRoom='main',...body}=payload;

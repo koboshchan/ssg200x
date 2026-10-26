@@ -85,7 +85,7 @@ const server=createServer(async(request,response)=>{
   }
   if(request.url==="/internal-chat-reset"){
    const {actor,payload}=JSON.parse(body);
-   try{const result=await chatDmGate.adminReset(actor,payload);hintChatChanged();response.writeHead(200,{"Content-Type":"application/json"}).end(JSON.stringify(result));}
+   try{const result=await chatDmGate.adminReset(actor,payload);hintAllChatChanged();response.writeHead(200,{"Content-Type":"application/json"}).end(JSON.stringify(result));}
    catch(e){response.writeHead(e.chatCode==='forbidden'?403:e.chatCode==='rate_limited'?429:409,{"Content-Type":"application/json"}).end(JSON.stringify({error:e.chatCode||'unavailable'}));}
    return;
   }
@@ -174,8 +174,14 @@ const chatDmGate=createChatDmGate(chat,dm);
 const announceAirdrop=createAirdropBroadcaster(io,client.db(process.env.MONGODB_DB||"pokerroom").collection("airdrop_receipts"));
 const checkChatSession=sessionGuard(clerk,{reads:clerkReads(clerk)});
 const attachPokerTaunts=createPokerTaunts({enabled:()=>featureSettings.enabled("poker")&&featureSettings.enabled("tableTalk"),collection,auditCollection:client.db(process.env.MONGODB_DB||"pokerroom").collection("audit"),io,checkSession:checkChatSession,checkTab:tabLeases.check});
-let hintTimer;
-function hintChatChanged(){if(hintTimer)return;hintTimer=setTimeout(()=>{hintTimer=null;io.emit("chat:changed",{v:1});},100);hintTimer.unref();}
+const hintTimers=new Map();
+function hintChatChanged(room){
+ if(!room||hintTimers.has(room))return;
+ const timer=setTimeout(()=>{hintTimers.delete(room);for(const socket of io.sockets.sockets.values()){
+  if(!room.startsWith("game-")||socket.data.gameChatRoom===room)socket.emit("chat:changed",{v:1,room});
+ }},100);timer.unref();hintTimers.set(room,timer);
+}
+function hintAllChatChanged(){for(const room of new Set(["main","poker-02","poker-03",...[...io.sockets.sockets.values()].map(s=>s.data.gameChatRoom).filter(Boolean)]))hintChatChanged(room);}
 async function pushState(socket,force=false,profiles){
  if(!socket.connected||socket.data.busy)return;
  if(socket.data.expires<=Date.now()){socket.disconnect(true);return;}
@@ -232,16 +238,17 @@ io.on("connection",socket=>{
   try{
    await checkChatSession(socket);
    if(!socket.connected||socket.data.expires<=Date.now())throw Error("session");
+   const previousRoom=socket.data.gameChatRoom;
    const result=await chat.subscribe(socket,payload);
    if(!socket.connected||socket.data.expires<=Date.now()){await chat.leave(socket);return;}
-   ack({ok:true,...result});hintChatChanged();
+   ack({ok:true,...result});hintChatChanged(result.chatRoom);hintChatChanged(previousRoom);
   }catch(error){ack({ok:false,error:error.chatCode||"unavailable"});}
  });
- socket.on("game-chat:leave",async ack=>{
-  try{await chat.leave(socket);if(typeof ack==="function")ack({ok:true});hintChatChanged();}
+ socket.on("game-chat:leave",async(payload,ack)=>{
+  try{const left=await chat.leave(socket,payload);if(typeof ack==="function")ack({ok:true});hintChatChanged(left);}
   catch(error){if(typeof ack==="function")ack({ok:false,error:error.chatCode||"unavailable"});}
  });
- socket.on("disconnect",()=>{void chat.leave(socket).then(hintChatChanged).catch(()=>{});});
+ socket.on("disconnect",()=>{void chat.leave(socket).then(room=>hintChatChanged(room)).catch(()=>{});});
  socket.data.marketRoute=socket.handshake.auth?.route;
  for(const event of ["register","state","claim","wrap","send","history","keys:get","keys:put"]){
   socket.on("chat:"+event,async(payload,ack)=>{
@@ -261,9 +268,20 @@ io.on("connection",socket=>{
     ack({ok:true,...result});
     if((["register","keys:put","claim","wrap","send"].includes(event)||result.directoryChanged===true)){
      // Generic coalesced hints contain no membership, ciphertext or wrapped keys.
-     hintChatChanged();
+     if(["register","keys:put"].includes(event)||result.directoryChanged===true)hintAllChatChanged();
+     else hintChatChanged(payload?.chatRoom||"main");
     }
-   }catch(error){ack({ok:false,error:error.chatCode||"unavailable"});if(error.chatCode==="forbidden"||error.message==="session")socket.disconnect(true);}finally{socket.data.chatPending--;}
+   }catch(error){
+    ack({ok:false,error:error.chatCode||"unavailable"});
+    const gameRoom=typeof payload?.chatRoom==="string"&&payload.chatRoom.startsWith("game-");
+    if(gameRoom&&["room_closed","forbidden","context_required"].includes(error.chatCode)){
+     const match=/^game-(poker|blackjack|roulette|ddz|pool)-(.+)$/.exec(payload.chatRoom);
+     if(match)socket.emit("game-chat:closed",{kind:match[1],id:match[2]});
+     // Stale requests must not clear a newer active room.
+     if(socket.data.gameChatRoom===payload.chatRoom)await chat.leave(socket);
+    }
+    if((error.chatCode==="forbidden"&&!gameRoom)||error.message==="session")socket.disconnect(true);
+   }finally{socket.data.chatPending--;}
   });
  }
  // DM hints are emitted only to participant sockets, never to the global namespace.

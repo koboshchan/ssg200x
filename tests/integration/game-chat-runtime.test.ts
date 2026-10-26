@@ -13,7 +13,7 @@ import {gameChatRoom} from '../../runtime/game-chat-context.mjs';
 if(!process.env.MONGODB_DB?.startsWith('fakebucks_test_'))throw Error('Isolated database required');
 const client=new MongoClient(process.env.MONGODB_URI!),db=client.db(process.env.MONGODB_DB+'_game_runtime');
 after(async()=>{await db.dropDatabase();await client.close();});
-const socket=(id:string,user:string)=>({id,connected:true,data:{identity:{id:user}}});
+const socket=(id:string,user:string):any=>({id,connected:true,data:{identity:{id:user}}});
 test('real Mongo runtime authorizes fixed viewers, actual DDZ roster and spectators, no route-only access or closed-room archive',async()=>{
  await db.collection('rooms').insertOne({_id:'main' as never,version:1,members:['alice','bob','carol','revoked'].map(id=>({id,approved:true,accessRevoked:id==='revoked'})),doudizhu:[{code:'a0b1-1234',ownerId:'alice',players:[{userId:'alice'}],spectators:[{userId:'bob',seenAt:Date.now()}]}]});
  const service=createPokerChatService(db);await service.ready;
@@ -86,6 +86,19 @@ test('admin reset blocks all dynamic game handlers until global key revocation c
  assert.equal((await db.collection('chat_identity_versions').findOne({_id:'bob' as never}))?.status,'setup_required');
  assert.equal(await db.collection('chat_devices').countDocuments({userId:'bob'}),0);
  assert.equal(await db.collection('chat_wraps').countDocuments({toUserId:'bob'}),0);
+});
+test('fixed-table eligible owner election avoids dead bootstrap after creator leaves; stale leave cannot clear a newer context',async()=>{
+ const service=createPokerChatService(db);await service.ready;
+ const a=socket('owner-a','alice'),b=socket('owner-b','carol');
+ await service.subscribe(a,{kind:'blackjack',id:'01'});await service.subscribe(b,{kind:'blackjack',id:'01'});
+ assert.equal((await db.collection('game_chat_contexts').findOne({_id:'game-blackjack-01' as never}))?.creatorId,'alice');
+ await service.leave(a);
+ await service.handle('carol','state',{v:1,chatRoom:'game-blackjack-01'},b);
+ assert.equal((await db.collection('game_chat_contexts').findOne({_id:'game-blackjack-01' as never}))?.creatorId,'carol');
+ await service.subscribe(b,{kind:'poker',id:'03'});
+ await service.leave(b,{kind:'blackjack',id:'01'});
+ assert.equal(b.data.gameChatRoom,'game-poker-03');
+ assert.equal((await service.handle('carol','state',{v:1,chatRoom:'game-poker-03'},b)).room,'game-poker-03');
 });
 test('transaction fences independent production-style room CAS writers, aborting stale chat effects',async()=>{
  const tx=gameChatTransactions(db),runtime=createGameChatRuntime(tx.db),a=socket('txn','alice');
