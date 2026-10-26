@@ -81,7 +81,20 @@ export default function ChatDock(){
    requests=next.catch(()=>{});
    return next;
   }};
-  const make=(room:string)=>new ChatClient(userId,(event,payload)=>paced(()=>live.request("chat:"+event,{...(payload as object),chatRoom:room})),indexedDbStore(room),Date.now,undefined,budget,room);
+  // Account identity ops (register/keys:get/keys:put) always go to chatRoom "main", never a game room.
+  // Game clients reuse the account's recent keys:get/register results instead of re-issuing them (no identity churn).
+  const IDENTITY=["register","keys:get","keys:put"],identityCache=new Map<string,{at:number;p:Promise<any>}>();
+  const send=(event:string,payload:unknown,room:string)=>{
+   const isId=IDENTITY.includes(event),target=isId?"main":room;
+   const call=()=>paced(()=>live.request("chat:"+event,{...(payload as object),chatRoom:target}));
+   if(!isId)return call();
+   if(event==="keys:put"){identityCache.clear();return call();}
+   const key=event==="register"?"register:"+(payload as {deviceId?:string})?.deviceId:"keys:get",hit=identityCache.get(key);
+   if(room!=="main"&&hit&&Date.now()-hit.at<(event==="register"?3600000:60000))return hit.p;
+   const p=call();identityCache.set(key,{at:Date.now(),p});p.catch(()=>{if(identityCache.get(key)?.p===p)identityCache.delete(key);});
+   return p;
+  };
+  const make=(room:string)=>new ChatClient(userId,(event,payload)=>send(event,payload,room),indexedDbStore(room),Date.now,undefined,budget,room);
   const main=make("main");
   setBinding({user:userId,main,make,paced});
   return()=>{main.close();};
