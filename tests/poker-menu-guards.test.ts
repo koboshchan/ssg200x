@@ -14,8 +14,11 @@ test("one listener, per-table pending ids, stale response guard",()=>{
 });
 test("vote gating matches backend",()=>{assert.match(mod,/!s\.ready&&!s\.sitOut/);assert.match(mod,/length<3/);assert.doesNotMatch(mod,/own\.ready/);});
 
-test("shared post keeps blackjack table ids and scopes other paths to the poker table",()=>{
+test("shared post keeps blackjack table ids and scopes other paths to the poker table",async()=>{
   const src=readFileSync("app/room-client.tsx","utf8");
-  assert.match(src,/path==="\/api\/blackjack"\?\{\.\.\.body,requestAt/);
-  assert.match(src,/\{\.\.\.body,tableId:tableRef\.current,requestAt/);
+  assert.match(src,/buildPostBody\(path,body,tableRef\.current,Date\.now\(\)\)/);
+  const {buildPostBody}=await import("../lib/post-body");
+  assert.deepEqual(buildPostBody("/api/blackjack",{tableId:"b"},"02",1),{tableId:"b",requestAt:1});
+  assert.deepEqual(buildPostBody("/api/action",{a:1},"02",1),{a:1,tableId:"02",requestAt:1});
+  assert.deepEqual(buildPostBody("/api/admin",{a:1},"02",1),{a:1,requestAt:1});
 });

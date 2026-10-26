@@ -40,6 +40,7 @@ import type {PublicRoom} from "@/lib/public";
 import {visibleSeatIds,isLegacyLayout,isDenseTable,denseSeatSlots,denseTableHeight,denseMobileLayout,POKER_TABLE_IDS,readPokerTableId,writePokerTableId,type PokerTableId} from "@/lib/poker-table-selection";
 import {isGamePath} from "@/lib/games-hub";
 import type {Action} from "@/lib/types";
+import {buildPostBody} from "@/lib/post-body";
 const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:n%100===0?0:2}).format(n/100);
 const signed=(n:number)=>(n>=0?"+":"−")+money(Math.abs(n));
 export const routes=[{href:"/games",label:"Games",tab:"games"},{href:"/markets",label:"Markets",tab:"markets"},{href:"/polymarket",label:"Predictions",tab:"polymarket"},{href:"/wallet",label:"Wallet",tab:"wallet"},{href:"/leaderboard",label:"Leaderboard",tab:"standings"},{href:"/advancements",label:"Advancements",tab:"advancements"},{href:"/players",label:"Admin",tab:"access",admin:true}] as const;
@@ -141,7 +142,7 @@ function Game({tab}:{tab:RoomTab}){
  async function post(path:string,body:object){
   if(path==="/api/finance"){if(!busyRef.current&&room&&finance)await finance.submit(body,room.serverNow+Math.max(0,Date.now()-receivedRoomAt.current));return;}
   if(busyRef.current||!finance?.ready)return;if(connection!=="connected"){setError("Disconnected. Wait for the connection to return.");return;}busyRef.current=true;setBusy(true);setError("");
-  try{const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json",...getTabHeaders()},body:JSON.stringify(path==="/api/blackjack"?{...body,requestAt:Date.now()}:{...body,tableId:tableRef.current,requestAt:Date.now()})});const data=await response.json();if(!response.ok)throw new Error(data.error);setRoom(current=>mergeRoom(current,data));}
+  try{const response=await fetch(path,{method:"POST",headers:{"Content-Type":"application/json",...getTabHeaders()},body:JSON.stringify(buildPostBody(path,body,tableRef.current,Date.now()))});const data=await response.json();if(!response.ok)throw new Error(data.error);setRoom(current=>mergeRoom(current,data));}
   catch(e){setError(e instanceof Error?e.message:"Could not complete action.");}
   finally{busyRef.current=false;setBusy(false);}
  }
