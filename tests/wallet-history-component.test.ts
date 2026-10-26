@@ -90,3 +90,46 @@ test("Wallet requests two words while accepting legacy four-word payments",async
   await page.getByRole("alert").waitFor();assert.match(await page.getByRole("alert").innerText(),/two-word/);assert.equal(resolved.length,2);
  }finally{await browser.close();}
 });
+
+test("history success never clears an unrelated action error, and clears only its own error",async()=>{
+ const bundle=await build({entryPoints:["tests/fixtures/wallet-live.tsx"],bundle:true,define:{"process.env.NEXT_PUBLIC_SSG_RELEASE":'"development"'},write:false,format:"iife",platform:"browser",jsx:"automatic",loader:{".module.css":"empty",".css":"empty"},plugins:[{name:"fixtures",setup(b:any){
+  b.onResolve({filter:/^@clerk\/nextjs$/},()=>({path:"auth",namespace:"mock"}));
+  b.onLoad({filter:/.*/,namespace:"mock"},()=>({contents:"export function useAuth(){return {getToken:async()=> 'test'}}",loader:"js"}));
+  b.onResolve({filter:/^next\/navigation$/},()=>({path:"navigation",namespace:"route-fixture"}));
+  b.onLoad({filter:/.*/,namespace:"route-fixture"},()=>({contents:'export function usePathname(){return "/wallet"}',loader:"js"}));
+  b.onResolve({filter:/^socket.io-client$/},()=>({path:resolve("tests/fixtures/wallet-socket.ts")}));
+ }}]});
+ const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{channel:"chromium"})});
+ try{
+  const page=await browser.newPage();let history="ok";
+  await page.route("https://wallet.test/**",async(route:any)=>{
+   if(route.request().url().includes("/api/transfers")){
+    const active=route.request().url().includes("active=1");
+    if(!active&&history==="fail")return route.fulfill({status:500,contentType:"application/json",body:JSON.stringify({error:"History down"})});
+    return route.fulfill({contentType:"application/json",body:JSON.stringify(active?{codes:[]}:{transfers:[]})});
+   }
+   await route.fulfill({contentType:"text/html",body:'<div id="root"></div>'});
+  });
+  await page.goto("https://wallet.test");await page.addScriptTag({content:bundle.outputFiles[0].text});
+  await page.waitForFunction(()=>Boolean((window as any).walletSocket));
+  let n=0;const room=()=>page.evaluate((k:string)=>(window as any).walletSocket("room:state",{me:{wallet:10000,admin:false},transferHistoryKeys:{mine:k,all:k}}),"k"+(n++));
+  const fresh=async()=>{await page.reload();await page.addScriptTag({content:bundle.outputFiles[0].text});await page.waitForFunction(()=>Boolean((window as any).walletSocket));await room();await settle();};
+  const settle=()=>page.waitForTimeout(500);
+  const field=page.getByPlaceholder("word word"),alert=page.getByRole("alert");
+  const actionFails=async()=>{await field.fill("cat dog fish");await field.press("Escape");await page.getByRole("button",{name:"Check code",exact:true}).click();await alert.filter({hasText:"Enter the two-word code."}).waitFor();};
+  await room();await settle();
+  // 1. No prior history failure: a later history success keeps the action error.
+  await actionFails();await room();await settle();
+  assert.equal(await alert.count(),1);assert.match(await alert.innerText(),/two-word/);
+  await fresh();
+  // 2. History fails, a newer action error replaces it, then history recovers: the action error survives.
+  history="fail";await room();await alert.filter({hasText:"History down"}).waitFor();
+  await actionFails();assert.equal(await alert.count(),1);assert.match(await alert.innerText(),/two-word/);
+  history="ok";await room();await settle();
+  assert.equal(await alert.count(),1);assert.match(await alert.innerText(),/two-word/);
+  // 3. A history error recovered by history alone clears correctly (fresh page).
+  await fresh();
+  history="fail";await room();await alert.filter({hasText:"History down"}).waitFor();
+  history="ok";await room();await alert.waitFor({state:"detached"});assert.equal(await alert.count(),0);
+ }finally{await browser.close();}
+});

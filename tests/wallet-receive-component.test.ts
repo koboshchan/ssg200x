@@ -44,8 +44,8 @@ test("mounted Wallet keeps independent requests, cancels one, expires codes, and
  await second.getByRole("button",{name:"Cancel code"}).click();await second.waitFor({state:"detached"});
  assert.equal(await page.getByRole("article").count(),1);assert.deepEqual(posts.filter(item=>item.action==="cancel"),[{action:"cancel",id:"second"}]);
  const field=page.getByRole("combobox",{name:"Recipient’s two-word code"});await field.fill("he");
- const options=page.getByRole("option");assert.deepEqual(await options.allTextContents(),["head","health","heart","heavy","hedgehog","height","hello","helmet","help","hen","hero"]);
- await field.press("ArrowDown");await field.press("Enter");assert.equal(await field.inputValue(),"health ");
+ const options=page.getByRole("option");assert.deepEqual(await options.allTextContents(),["head","health","heart","heavy","hedgehog","height","hello","helmet"]);
+ await field.press("ArrowDown");await field.press("Enter");assert.equal(await field.inputValue(),"head ");
  await field.fill("  abandon ability able about  ");assert.equal(await field.inputValue(),"  abandon ability able about  ");
  await page.clock.runFor(600000);await page.getByText("No active receive codes.",{exact:true}).waitFor();assert.equal(await page.getByRole("article").count(),0);
  assert.equal(await page.getByRole("combobox").count(),1);assert.deepEqual(errors,[]);

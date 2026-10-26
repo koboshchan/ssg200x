@@ -32,7 +32,7 @@ export default function Wallet(){
  const [amount,setAmount]=useState(""),[note,setNote]=useState(""),[receive,setReceive]=useState<ReceiveCode[]>([]);
  const [generateAfter,setGenerateAfter]=useState(0);
  const nextGenerate=useRef(0);
- const [busy,setBusy]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState(""),[now,setNow]=useState(Date.now());
+ const [busy,setBusy]=useState(false),[actionError,setActionError]=useState(""),[historyError,setHistoryError]=useState(""),[message,setMessage]=useState(""),[now,setNow]=useState(Date.now());
  const sendRetry=useRef<Pending|null>(null),historyRefresh=useRef<ReturnType<typeof createTransferHistoryRefresh>|null>(null),historyKey=useRef<string|undefined>(undefined);
 
  const refresh=()=>historyRefresh.current?.refresh();
@@ -43,15 +43,15 @@ export default function Wallet(){
  useEffect(()=>{
   if(connection!=="connected")return;
   const controller=new AbortController();
-  void refreshCodes(controller.signal).catch(e=>{if(!controller.signal.aborted)setError(e.message);});
+  void refreshCodes(controller.signal).catch(e=>{if(!controller.signal.aborted)setHistoryError(e.message);});
   return()=>controller.abort();
  },[connection]);
  useEffect(()=>{
   let active=true;
   const loader=createTransferHistoryRefresh(async signal=>{
    const data=await call("/api/transfers"+(all?"?all=1":""),undefined,signal);
-   if(active){setEntries(data.transfers);setError("");}
-  },e=>{if(active)setError(e.message);});
+   if(active){setEntries(data.transfers);setHistoryError("");}
+  },e=>{if(active)setHistoryError(e.message);});
   historyRefresh.current=loader;loader.refresh();
   return()=>{active=false;loader.close();historyRefresh.current=null;};
  },[all]);
@@ -59,8 +59,8 @@ export default function Wallet(){
  useLiveEvent("room:state",(r:PublicRoom)=>{setRoom(r);const key=all?r.transferHistoryKeys.all:r.transferHistoryKeys.mine;if(historyKey.current!==undefined&&historyKey.current!==key)refresh();historyKey.current=key;});
 
  async function run(fn:()=>Promise<void>){
-  if(busy)return;setBusy(true);setError("");setMessage("");
-  try{await fn();}catch(e){setError((e as Error).message);}finally{setBusy(false);}
+  if(busy)return;setBusy(true);setActionError("");setMessage("");
+  try{await fn();}catch(e){setActionError((e as Error).message);}finally{setBusy(false);}
  }
  function editSend(){sendRetry.current=null;setRecipient(undefined);setMessage("");}
 
@@ -90,6 +90,8 @@ export default function Wallet(){
  }
 
  const recipientName=recipient?(room?.chatNames?.find(m=>m.publicId===recipient.publicId)?.name??recipient.name):"";
+ // Background history refreshes own only their error; a newer action error always wins and is never cleared by them.
+ const error=actionError||historyError;
  const ready=connection==="connected",expired=Boolean(recipient&&recipient.expiresAt<=now);
  const label=(t:Entry)=>t.kind==="airdrop"?(t.direction==="received"?"Airdrop":"Airdrop to "+t.to):t.direction==="sent"?"To "+t.to:t.direction==="received"?"From "+t.from:t.from+" to "+t.to;
  const {features:ft}=useFeatures();
