@@ -13,8 +13,6 @@ import {serveRelease,attachReleaseHandshake} from "./runtime/release.mjs";
 import {attachMarketFeatureSubscriptions} from "./runtime/market-feature-subscriptions.mjs";
 import {attachSocketAuth} from "./runtime/socket-auth.mjs";
 import {createTabLeases} from "./runtime/tab-leases.mjs";
-const tabLeases=createTabLeases();
-const tabSweep=setInterval(()=>tabLeases.sweepAll(),500);tabSweep.unref();
 import {clerkReads} from "./runtime/clerk-reads.mjs";
 import {loadClerkProfiles,profileName} from "./runtime/clerk-names.mjs";
 import {timingSafeEqual} from "node:crypto";
@@ -48,6 +46,9 @@ const client=new MongoClient(process.env.MONGODB_URI,{serverSelectionTimeoutMS:5
 const collection=client.db(process.env.MONGODB_DB||"pokerroom").collection("rooms");
 const featureSettings=getFeatureSettings(client.db(process.env.MONGODB_DB||"pokerroom").collection("featureFlags"),{onError:()=>console.warn("Feature settings refresh deferred")});
 await featureSettings.ready;
+const tabLeases=createTabLeases({singleTabEnabled:()=>featureSettings.enabled("singleTab")});
+featureSettings.subscribe(()=>tabLeases.publishAll());
+const tabSweep=setInterval(()=>tabLeases.sweepAll(),500);tabSweep.unref();
 const app=next({dev,hostname,port,conf:config,webpack:true});
 await app.prepare();
 const nextHandler=app.getRequestHandler();
