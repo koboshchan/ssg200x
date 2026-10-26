@@ -10,7 +10,7 @@ import {gameChatTransactions} from '../../runtime/game-chat-transaction.mjs';
 // @ts-expect-error runtime
 import {createGameChatRuntime} from '../../runtime/game-chat-runtime.mjs';
 // @ts-expect-error runtime
-import {gameChatRoom} from '../../runtime/game-chat-context.mjs';
+import {gameChatRoom,validChatRoom} from '../../runtime/game-chat-context.mjs';
 if(!process.env.MONGODB_DB?.startsWith('fakebucks_test_'))throw Error('Isolated database required');
 const client=new MongoClient(process.env.MONGODB_URI!),db=client.db(process.env.MONGODB_DB+'_game_runtime');
 after(async()=>{await db.dropDatabase();await client.close();});
@@ -221,4 +221,47 @@ test('actual server closed-context cleanup call preserves queued newer subscript
  assert.equal((await service.handle('alice','state',{v:1,chatRoom:'game-blackjack-03'},a)).room,'game-blackjack-03');
  assert.deepEqual(events,[{event:'game-chat:closed',payload:{chatRoom:'game-poker-02',kind:'poker',id:'02'}}]);
  assert.equal(a.connected,true);
+});
+
+test('canonical DDZ codes preserve raw identity, exact roster lookup, spectator isolation and closure',async()=>{
+ const code='crane bind spike',other='crane bind space',legacy='crane-bind-spike';
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{doudizhu:[
+  {code,ownerId:'alice',players:[{userId:'alice'}],spectators:[{userId:'bob',seenAt:Date.now()}]},
+  {code:other,ownerId:'carol',players:[{userId:'carol'}],spectators:[]},
+  {code:legacy,ownerId:'carol',players:[{userId:'carol'}],spectators:[]}
+ ]},$inc:{version:1}});
+ const service=createPokerChatService(db);await service.ready;
+ const a=socket('words-a','alice'),b=socket('words-b','bob'),c=socket('words-c','carol');
+ const room='game-ddz-'+code;
+ assert.deepEqual(await service.subscribe(a,{kind:'ddz',id:code}),{chatRoom:room});
+ await service.subscribe(b,{kind:'ddz',id:code});
+ assert.deepEqual((await service.handle('bob','state',{v:1,chatRoom:room},b)).members.map((m:any)=>m.userId),['alice','bob']);
+
+ const identity=(await createIdentity('alice',0)).identity;
+ await service.handle('alice','register',{v:1,deviceId:identity.deviceId,dhPublic:identity.dhPublic,signPublic:identity.signPublic,signature:await signText(identity.signPrivate,registerData('alice',identity))});
+ let state=await service.handle('alice','state',{v:1,chatRoom:room},a);
+ state=await service.handle('alice','claim',{v:1,chatRoom:room,revision:state.revision,epoch:state.epoch,deviceId:identity.deviceId},a);
+ const key=await newEpochKey(),header={room,revision:state.revision,epoch:state.epoch};
+ await service.handle('alice','wrap',{chatRoom:room,...await makeWrap(identity,'alice',{...header,toUserId:'alice',toDeviceId:identity.deviceId},identity.dhPublic,key)},a);
+ await service.handle('alice','send',{chatRoom:room,...await sealMessage(identity,'alice',{...header,id:crypto.randomUUID(),ts:Date.now()},'canonical spaced room',key)},a);
+ const history=await service.handle('alice','history',{v:1,chatRoom:room,epoch:state.epoch,deviceId:identity.deviceId},a);
+ const decoded=await openMessage(history.messages[0],key);assert.equal(decoded.ok,true);if(decoded.ok)assert.equal(decoded.text,'canonical spaced room');
+ await assert.rejects(service.subscribe(c,{kind:'ddz',id:code}),/forbidden/);
+ await service.subscribe(c,{kind:'ddz',id:other});
+ await assert.rejects(service.handle('carol','history',{v:1,chatRoom:room},c),/context_required/);
+ await assert.rejects(service.subscribe(a,{kind:'ddz',id:legacy}),/forbidden/);
+ await service.subscribe(a,{kind:'ddz',id:code});
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{'doudizhu.0.spectators':[]},$inc:{version:1}});
+ await assert.rejects(service.handle('bob','state',{v:1,chatRoom:room},b),/forbidden/);
+ await db.collection('rooms').updateOne({_id:'main' as never},{$pull:{doudizhu:{code}} as any,$inc:{version:1}});
+ await assert.rejects(service.handle('alice','state',{v:1,chatRoom:room},a),/room_closed/);
+ assert.equal((await service.handle('carol','state',{v:1,chatRoom:'game-ddz-'+other},c)).room,'game-ddz-'+other);
+});
+test('DDZ canonical validation bounds words and spacing without loosening other namespaces',()=>{
+ for(const id of ['crane bind spike','aaa bbb ccc','abcdefgh abcdefgh abcdefgh','a0b1-1234','x'.repeat(64)])assert.equal(gameChatRoom('ddz',id),'game-ddz-'+id);
+ for(const id of [' crane bind spike','crane bind spike ','crane  bind spike','crane\tbind spike','crane bind spike\n','Crane bind spike','crane bind','crane bind spike extra','aa bind spike','abcdefghi bind spike','crane bind sp1ke','x'.repeat(65)]){
+  assert.equal(validChatRoom('game-ddz-'+id),false,id);assert.throws(()=>gameChatRoom('ddz',id));
+ }
+ assert.equal(validChatRoom('game-pool-crane bind spike'),false);
+ assert.notEqual(gameChatRoom('ddz','crane bind spike'),gameChatRoom('ddz','crane-bind-spike'));
 });
