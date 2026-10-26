@@ -112,6 +112,7 @@ export default function LiveProvider({children}:{children:React.ReactNode}){
    // Payload-free hint that a direct message or block changed for this user.
    socket.on("polymarket:price",(p:unknown)=>dispatch("polymarket:price",p));
    socket.on("polymarket:positions",(p:unknown)=>dispatch("polymarket:positions",p));
+   socket.on("game-chat:closed",(p:unknown)=>dispatch("game-chat:closed",p));
    socket.on("dm:changed",(p:unknown)=>dispatch("dm:changed",p));
    if(!paused)socket.connect();
   }).catch(()=>{if(!closed)setTransport("disconnected");});

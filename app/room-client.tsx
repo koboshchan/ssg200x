@@ -149,7 +149,7 @@ function Game({tab}:{tab:RoomTab}){
  }
  function action(input:Action){if(room)post("/api/action",{...input,requestId:crypto.randomUUID(),handNumber:room.handNumber,turnDeadline:room.deadline});}
  const chatTable=room?.pokerTableId||tableId;
- useGameChat(tab==="table"?"poker-"+chatTable:null,"Poker table "+chatTable);
+ useGameChat(tab==="table"?"poker":null,chatTable,"Poker table "+chatTable);
  if(!room)return <main className="waiting"><p className="eyebrow">WELCOME TO THE ROOM</p><h1>Shuffling things up.</h1><p role="status">{error||"Connecting to your table…"}</p></main>;
  const me=room.me;const mySeat=room.seats[me.seat];
  const viewId=room.pokerTableId||tableId,seatedId=room.me.pokerTableId??null,elsewhere=seatedId&&seatedId!==viewId?seatedId:null;
