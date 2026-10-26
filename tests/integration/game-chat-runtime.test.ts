@@ -128,3 +128,36 @@ test('transactions reject standalone Mongo instead of using a local queue as pro
   assert.equal(await standaloneDb.collection('probe').countDocuments({}),0);
  }finally{await standaloneDb.dropDatabase();await standalone.close();}
 });
+test('transaction aborts DDZ ciphertext effects if independent writer closes the real room',async()=>{
+ const tx=gameChatTransactions(db),runtime=createGameChatRuntime(tx.db),a=socket('close-race','alice');
+ await db.collection('rooms').updateOne({_id:'main' as never},{$set:{doudizhu:[{code:'close-race',ownerId:'alice',players:[{userId:'alice'}]}]},$inc:{version:1}});
+ await tx.run(()=>runtime.subscribe(a,{kind:'ddz',id:'close-race'}));
+ let release!:()=>void,entered!:()=>void;
+ const barrier=new Promise<void>(r=>release=r),started=new Promise<void>(r=>entered=r);
+ const operation=tx.run(async()=>{
+  const ctx=await runtime.resolveContext('game-ddz-close-race','alice');
+  await tx.db.collection('chat_test_receipts').insertOne({_id:'closed-must-abort'});
+  entered();await barrier;await runtime.fenceContext('game-ddz-close-race','alice',ctx.version);
+ });
+ await started;await db.collection('rooms').updateOne({_id:'main' as never},{$set:{doudizhu:[]},$inc:{version:1}});
+ release();await assert.rejects(operation,/stale_revision/);
+ assert.equal(await db.collection('chat_test_receipts').countDocuments({_id:'closed-must-abort' as never}),0);
+ await assert.rejects(tx.run(()=>runtime.resolveContext('game-ddz-close-race','alice')),/room_closed/);
+});
+test('disconnected presence and cross-scope signed envelopes fail closed; authoritative pool adapter can close',async()=>{
+ const service=createPokerChatService(db);await service.ready;
+ const a=socket('scope-a','alice');await service.subscribe(a,{kind:'poker',id:'01'});
+ await assert.rejects(service.handle('alice','state',{v:1,chatRoom:'game-poker-01',room:'game-blackjack-01'},a),/malformed/);
+ a.connected=false;await assert.rejects(service.handle('alice','state',{v:1,chatRoom:'game-poker-01'},a),/context_required/);
+ const tx=gameChatTransactions(db);
+ const runtime=createGameChatRuntime(tx.db,{poolContext:async(id:string,_room:any,sessionDb:any)=>{
+  const pool=await sessionDb.collection('test_authoritative_pool').findOneAndUpdate({_id:id},{$inc:{chatFence:1}},{returnDocument:'after'});
+  return pool?{creatorId:pool.creatorId,members:pool.members,closed:pool.closed}:null;
+ }});
+ const id=crypto.randomUUID(),b=socket('pool-adapter','alice');
+ await db.collection('test_authoritative_pool').insertOne({_id:id as never,creatorId:'alice',members:['alice'],closed:false});
+ await tx.run(()=>runtime.subscribe(b,{kind:'pool',id}));
+ assert.equal((await tx.run(()=>runtime.resolveContext('game-pool-'+id,'alice'))).creatorId,'alice');
+ await db.collection('test_authoritative_pool').updateOne({_id:id as never},{$set:{closed:true}});
+ await assert.rejects(tx.run(()=>runtime.resolveContext('game-pool-'+id,'alice')),/room_closed/);
+});

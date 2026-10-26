@@ -17,7 +17,12 @@ export function createGameChatRuntime(db,{now=Date.now,poolContext}={}){
    const eligible=new Set([...(game.players||[]).map(p=>p.userId),...(game.spectators||[]).filter(s=>now()-s.seenAt<45000).map(s=>s.userId)]);
    members=viewers.filter(id=>eligible.has(id));if(!members.includes(user))fail('forbidden');
   }else if(kind==='pool'){
-   // Pool owner supplies an authoritative, transaction-bound adapter. No fixture fallback.
+   // Pool adapter contract: poolContext(id, authoritativeMainRoom, sessionBoundDb)
+   // returns {creatorId:string,members:string[],closed?:boolean} or null.
+   // If pool state is outside rooms.main, the adapter MUST write-fence its own
+   // authoritative roster/closure document using sessionBoundDb; a read alone
+   // is insufficient to conflict with a concurrent pool-only writer.
+   // No fixture fallback and no external services/Clerk calls in this adapter.
    if(!poolContext)fail('room_closed');
    const pool=await poolContext(id,room,db);if(!pool||pool.closed)fail('room_closed');
    creatorId=pool.creatorId;members=viewers.filter(id=>pool.members.includes(id));if(!members.includes(user))fail('forbidden');
