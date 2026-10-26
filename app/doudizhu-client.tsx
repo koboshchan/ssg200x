@@ -42,7 +42,7 @@ export default function Doudizhu({transport=api,fxPreview=false}: {transport?:Tr
  const {effects:reactionFx,add:addReactionFx}=useReactionEffects(muted);
  useEffect(()=>{let stopped=false,poll:ReturnType<typeof setTimeout>;async function load(){const generation=epoch.current;try{const next=await transport.read();if(!stopped&&generation===epoch.current){setView(next);setFresh(true);}}catch(e){if(!stopped){setFresh(false);setError(e instanceof Error?e.message:"Connection lost.");}}if(!stopped)poll=setTimeout(load,1200);}void load();const clock=setInterval(()=>setNow(Date.now()),500);return()=>{stopped=true;clearTimeout(poll);clearInterval(clock);};},[transport]);
  const g=view?.room,me=g?.players.find(p=>p.self),mySeat=g?.players.findIndex(p=>p.self)??-1;
- useGameChat(g?.code?"doudizhu":null,g?.code,g?.code?"Room "+g.code:undefined);
+ useGameChat(g?.code?"ddz":null,g?.code,g?.code?"Room "+g.code:undefined);
  const spectating=g?.spectating===true,povSeat=spectating?(g?.watchSeat??-1):mySeat,pov=g?.players[povSeat];
  const phase=g?.phase,seatsExt=g?.players??[];
  useEffect(()=>{
