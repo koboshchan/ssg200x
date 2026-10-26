@@ -1,5 +1,6 @@
 "use client";
 import {useFeatures} from "./use-features";
+import {useGameChat} from "./game-chat-context";
 import {RouletteBetChips} from "./roulette-bet-chips";
 import {useEffect,useState} from 'react';
 import {ROULETTE_CHIPS as denominations} from '@/lib/roulette-chips';
@@ -12,6 +13,7 @@ const money=(n:number)=>new Intl.NumberFormat('en-US',{style:'currency',currency
 
 type Props={room:PublicRoom;busy:boolean;post:(path:string,body:object)=>Promise<void>};
 export default function Roulette({room,busy,post}:Props){
+ useGameChat("roulette","Roulette");
  // Subscribe on every render, including null tables and non-betting phases.
  const {features}=useFeatures();
  const table=room.roulette;

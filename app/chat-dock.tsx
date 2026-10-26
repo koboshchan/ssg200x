@@ -12,6 +12,7 @@ import WordEntry from "./word-entry";
 import {MAX_TEXT_BYTES} from "@/lib/chat-crypto";
 import DmPanel from "./dm-panel";
 import {useFeatures} from "./use-features";
+import {useActiveGameChat} from "./game-chat-context";
 
 const errorText:Record<string,string>={admin_reset:"An admin reset your chat words. Create and save new words. Old words no longer unlock this account. Unsent messages were discarded and will not be retried. Older history needs a new key grant; a trusted member can share the current room key.",setup_words_lost:"Setup was interrupted. Enter the six words you saved.",wrong_words:"Those words don't match. Check the order and spelling.",bad_words:"Enter exactly six words from the list.",disconnected:"Not connected. Try again in a moment.",timeout:"The server didn't answer in time.",rate_limited:"Slow down a little.",busy:"The server is busy. Trying again.",identity_exists:"Chat keys already exist for this account. Retry loading chat to check recovery availability.",identity_inconsistent:"Existing chat key records could not be matched to a current recovery backup. Keep your recovery words and any browser that can still read chat. Ask an admin to check the key records without resetting them.",identity_unavailable:"Chat could not load a current recovery backup. Retry loading chat. Keep your recovery words and any browser that can still read chat.",identity_conflict:"Your keys changed on another device. Reload to continue.",forbidden:"Chat is only open to approved members."};
 const friendly=(code:string|null)=>code?errorText[code]||"Chat is unavailable right now.":null;
@@ -22,12 +23,22 @@ const idle:Snapshot={phase:"loading",error:null,words:null,messages:[],members:[
 export default function ChatDock(){
  const {user,isLoaded}=useUser(),live=useLive(),userId=user?.id;
  const pathname=usePathname(),fixture=useQaFixture();
- const [pokerTableId,setPokerTableId]=useState("01");
- const chatRoom=pathname==="/poker"&&pokerTableId!=="01"?"poker-"+pokerTableId:"main";
- const [binding,setBinding]=useState<{user:string;clients:Map<string,ChatClient>}|null>(null);
- const clients=binding&&binding.user===userId?binding.clients:null;
  const [qaRoom,setQaRoom]=useState<string|null>(null),[qaClient,setQaClient]=useState<ChatClient|null>(null);
- const roomClient=clients?.get(chatRoom)??null;
+ const game=useActiveGameChat();
+ type Binding={user:string;main:ChatClient;make:(room:string)=>ChatClient};
+ const [binding,setBinding]=useState<Binding|null>(null);
+ const bound=binding&&binding.user===userId?binding:null;
+ const mainClient=bound?.main??null;
+ // Only Global plus the one active game client exist. Leaving a game closes its client; drafts live in the keyed pane.
+ const [gameBinding,setGameBinding]=useState<{user:string;room:string;client:ChatClient}|null>(null);
+ const gameClient=bound&&game&&gameBinding?.user===userId&&gameBinding?.room===game.chatRoom?gameBinding.client:null;
+ const gameRoom=game?.chatRoom??null;
+ useEffect(()=>{
+  if(!bound||!userId||!gameRoom||gameRoom==="main"){setGameBinding(null);return;}
+  const c=bound.make(gameRoom);
+  setGameBinding({user:userId,room:gameRoom,client:c});
+  return()=>{c.close();setGameBinding(null);};
+ },[bound,userId,gameRoom]);
  const [open,setOpen]=useState(false),[names,setNames]=useState<Record<string,string>>({}),[seen,setSeen]=useState<number|null>(null);
  const [dmUnread,setDmUnread]=useState(0);
  const unreadScope=useRef(0);
@@ -35,9 +46,13 @@ export default function ChatDock(){
  useEffect(()=>{unreadScope.current++;setDmUnread(0);if(userId&&live.connection==="connected")void loadDmUnread();},[userId,live.connection,loadDmUnread]);
  useLiveEvent("dm:changed",()=>{void loadDmUnread();});
  const {features:ft}=useFeatures();
- const [pickedTab,setTab]=useState<"room"|"dm"|"qa">("room");
- const tab:"room"|"dm"|"qa"=pickedTab==="qa"?(qaClient?"qa":"room"):pickedTab==="room"&&!ft.tableTalk&&ft.dms?"dm":pickedTab==="dm"&&!ft.dms&&ft.tableTalk?"room":pickedTab;
- const client=tab==="qa"?qaClient:roomClient;
+ type Tab="room"|"game"|"dm"|"qa";
+ const [pickedTab,setTab]=useState<Tab>("room");
+ const hasGame=!!game&&ft.tableTalk;
+ // Entering a game context selects Game; leaving it returns to Global.
+ useEffect(()=>{setTab(hasGame?"game":"room");},[gameRoom,hasGame]);
+ const tab:Tab=pickedTab==="qa"?(qaClient&&ft.tableTalk?"qa":"room"):pickedTab==="game"&&!hasGame?"room":pickedTab==="room"&&!ft.tableTalk&&ft.dms?"dm":pickedTab==="dm"&&!ft.dms&&ft.tableTalk?(hasGame?"game":"room"):pickedTab;
+  const client=tab==="qa"?qaClient:mainClient;
  const [preferencesUser,setPreferencesUser]=useState<string|null>(null);
  const preferencesReady=preferencesUser===userId;
  useEffect(()=>{
@@ -52,9 +67,10 @@ export default function ChatDock(){
    requests=next.catch(()=>{});
    return next;
   }};
-  const retained=new Map(["main","poker-02","poker-03"].map(room=>[room,new ChatClient(userId,(event,payload)=>live.request("chat:"+event,{...(payload as object),chatRoom:room}),indexedDbStore(room),Date.now,undefined,budget,room)]));
-  setBinding({user:userId,clients:retained});
-  return()=>{for(const c of retained.values())c.close();};
+  const make=(room:string)=>new ChatClient(userId,(event,payload)=>live.request("chat:"+event,{...(payload as object),chatRoom:room}),indexedDbStore(room),Date.now,undefined,budget,room);
+  const main=make("main");
+  setBinding({user:userId,main,make});
+  return()=>{main.close();};
  },[isLoaded,userId,live.request]);
  useEffect(()=>{
   // DEV isolated QA room: only when the server announces it in room:state.
@@ -83,8 +99,10 @@ export default function ChatDock(){
   return()=>{viewport?.removeEventListener("resize",resize);viewport?.removeEventListener("scroll",resize);document.documentElement.style.removeProperty("--chat-viewport-height");document.documentElement.style.removeProperty("--chat-viewport-top");};
  },[open]);
  useEffect(()=>{if(client&&live.connection==="connected")void client.reconnect();},[client,live.connection]);
- useLiveEvent("chat:changed",()=>client?.hint());
- useLiveEvent("room:state",(room:{pokerTableId?:string;qaChatRoom?:string;chatNames?:{publicId:string;name:string}[];leaderboard?:{publicId:string;name:string}[]})=>{setQaRoom(typeof room?.qaChatRoom==="string"&&room.qaChatRoom==="qa-isolated"?room.qaChatRoom:null);if(["01","02","03"].includes(room?.pokerTableId||""))setPokerTableId(room.pokerTableId!);const rows=room?.chatNames??room?.leaderboard;if(rows)setNames(Object.fromEntries(rows.map(r=>[r.publicId,r.name])));});
+ useEffect(()=>{if(qaClient&&live.connection==="connected")void qaClient.reconnect();},[qaClient,live.connection]);
+  useEffect(()=>{if(gameClient&&live.connection==="connected")void gameClient.reconnect();},[gameClient,live.connection]);
+ useLiveEvent("chat:changed",()=>{mainClient?.hint();gameClient?.hint();qaClient?.hint();});
+ useLiveEvent("room:state",(room:{pokerTableId?:string;qaChatRoom?:string;chatNames?:{publicId:string;name:string}[];leaderboard?:{publicId:string;name:string}[]})=>{setQaRoom(typeof room?.qaChatRoom==="string"&&room.qaChatRoom==="qa-isolated"?room.qaChatRoom:null);const rows=room?.chatNames??room?.leaderboard;if(rows)setNames(Object.fromEntries(rows.map(r=>[r.publicId,r.name])));});
  const snap=useSyncExternalStore(client?client.subscribe:()=>()=>{},client?client.getSnapshot:()=>idle,()=>idle);
  const unread=snap.messages.filter(m=>!m.mine&&m.status==="ok"&&seen!==null&&m.serverTs>seen).length;
  useEffect(()=>{
@@ -97,10 +115,14 @@ export default function ChatDock(){
   {!open&&<button className="chat-toggle" onClick={()=>setOpen(true)} aria-label={unread?"Open chat, "+unread+" unread":"Open chat"}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg>{unread>0&&<span className="chat-badge" aria-hidden="true">{unread>99?"99+":unread}</span>}</button>}
   {open&&<aside className="chat-dock" aria-label="TableTalk chat">
    <header><div><strong>TableTalk</strong><span className="chat-lock">End-to-end encrypted</span></div><button onClick={()=>setOpen(false)} aria-label="Hide chat">Hide</button></header>
-   <div className="chat-tabs" role="tablist">{ft.tableTalk?<button role="tab" aria-selected={tab==="room"} onClick={()=>setTab("room")}>Room</button>:null}{ft.dms?<button role="tab" aria-selected={tab==="dm"} onClick={()=>setTab("dm")}>Messages{dmUnread>0&&<span className="dm-unread" aria-label={`${dmUnread} unread messages`}>{dmUnread}</span>}</button>:null}{qaClient&&ft.tableTalk?<button role="tab" aria-selected={tab==="qa"} onClick={()=>setTab("qa")}>Room (DEV QA)</button>:null}</div>
-   {tab==="room"||tab==="qa"?<Body snap={snap} client={client} names={names}/>:<DmPanel phase={snap.phase} goSetup={()=>setTab("room")}/>}
+   <div className="chat-tabs" role="tablist">{ft.tableTalk?<button role="tab" aria-selected={tab==="room"} onClick={()=>setTab("room")}>Global</button>:null}{hasGame?<button role="tab" aria-selected={tab==="game"} onClick={()=>setTab("game")}>{game!.label}</button>:null}{ft.dms?<button role="tab" aria-selected={tab==="dm"} onClick={()=>setTab("dm")}>Messages{dmUnread>0&&<span className="dm-unread" aria-label={`${dmUnread} unread messages`}>{dmUnread}</span>}</button>:null}</div>
+   {tab==="room"?<Body snap={snap} client={client} names={names}/>:tab==="game"?<GamePane key={gameRoom} client={gameClient} names={names}/>:<DmPanel phase={snap.phase} goSetup={()=>setTab("room")}/>}
   </aside>}
  </>;
+}
+function GamePane({client,names}:{client:ChatClient|null;names:Record<string,string>}){
+ const snap=useSyncExternalStore(client?client.subscribe:()=>()=>{},client?client.getSnapshot:()=>idle,()=>idle);
+ return <Body snap={snap} client={client} names={names}/>;
 }
 function Body({snap,client,names}:{snap:Snapshot;client:ChatClient|null;names:Record<string,string>}){
  const err=friendly(snap.error);

@@ -28,6 +28,7 @@ import {SignInButton,UserButton,useUser} from "@clerk/nextjs";
 import LiveProvider,{useLive,useLiveEvent,ConnectionBadge} from "./live-provider";
 import MaintenanceGate from "./maintenance-gate";
 import ChatDock from "./chat-dock";
+import {GameChatProvider,useGameChat} from "./game-chat-context";
 import {useFeatures} from "./use-features";
 import FeatureSettings from "./feature-settings";
 import {useState,useEffect,useRef,useCallback} from "react";
@@ -55,7 +56,7 @@ function Authenticated({children}:{children?:React.ReactNode}){
  useEffect(()=>{if(isLoaded&&isSignedIn&&path==="/")router.replace(safeGameDestination(new URLSearchParams(window.location.search).get("next"))??"/games");},[isLoaded,isSignedIn,path,router]);
  useEffect(()=>{if(signedOut&&path!=="/"&&!isPublicPage(path))router.replace("/");},[signedOut,path,router]);
  const opening=!isLoaded||(isSignedIn&&path==="/");
- return isSignedIn?<LiveProvider key={user.id}><SignedInShell>{opening?<p className="loading" role="status">Opening the room…</p>:isPublicPage(path)?children:<MaintenanceGate>{children}</MaintenanceGate>}</SignedInShell></LiveProvider>:<Shell>{opening?<p className="loading" role="status">Opening the room…</p>:isPublicPage(path)?children:<Landing/>}</Shell>;
+ return isSignedIn?<LiveProvider key={user.id}><GameChatProvider><SignedInShell>{opening?<p className="loading" role="status">Opening the room…</p>:isPublicPage(path)?children:<MaintenanceGate>{children}</MaintenanceGate>}</SignedInShell></GameChatProvider></LiveProvider>:<Shell>{opening?<p className="loading" role="status">Opening the room…</p>:isPublicPage(path)?children:<Landing/>}</Shell>;
 }
 function SignedInShell({children}:{children:React.ReactNode}){
  const {maintenance}=useLive();
@@ -147,6 +148,8 @@ function Game({tab}:{tab:RoomTab}){
   finally{busyRef.current=false;setBusy(false);}
  }
  function action(input:Action){if(room)post("/api/action",{...input,requestId:crypto.randomUUID(),handNumber:room.handNumber,turnDeadline:room.deadline});}
+ const chatTable=room?.pokerTableId||tableId;
+ useGameChat(tab==="table"?"poker-"+chatTable:null,"Poker table "+chatTable);
  if(!room)return <main className="waiting"><p className="eyebrow">WELCOME TO THE ROOM</p><h1>Shuffling things up.</h1><p role="status">{error||"Connecting to your table…"}</p></main>;
  const me=room.me;const mySeat=room.seats[me.seat];
  const viewId=room.pokerTableId||tableId,seatedId=room.me.pokerTableId??null,elsewhere=seatedId&&seatedId!==viewId?seatedId:null;

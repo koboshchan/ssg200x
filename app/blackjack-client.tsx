@@ -1,5 +1,6 @@
 "use client";
 import {useFeatures} from "./use-features";
+import {useGameChat} from "./game-chat-context";
 import SeatAvatar from "./seat-avatar";
 import {BLACKJACK_MAX_CHIPS} from "@/lib/blackjack-chips";
 import {BlackjackBetChips} from "./blackjack-bet-chips";
@@ -25,7 +26,8 @@ export default function Blackjack({room,busy,post}:Props){
  const bj=(room as unknown as {blackjack?:{tables:BjTable[]}}).blackjack;
  const tables=bj?.tables||[];
  const [sel,setSel]=useState(0),[chips,setChips]=useState<number[]>([]);
- const t=tables[sel];const cents=chips.reduce((a,c)=>a+c,0);
+ const t=tables[sel];
+ useGameChat(t?"blackjack-"+t.id:null,t?"Blackjack "+t.id:undefined);const cents=chips.reduce((a,c)=>a+c,0);
  if(!tables.length)return <section className="bj"><h2>Blackjack</h2><p className="empty">Blackjack tables are not available yet.</p></section>;
  const mine=t.seats.findIndex(s=>s?.isYou);
  const me=mine>=0?t.seats[mine]:null;
