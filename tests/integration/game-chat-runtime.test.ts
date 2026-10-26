@@ -186,3 +186,15 @@ test('foreign live chat owner fails closed rather than using a divergent process
  try{await assert.rejects(tx.run(()=>tx.db.collection('chat_test_receipts').insertOne({_id:'foreign-owner-must-not-write'})),/chat_owner_conflict/);assert.equal(await db.collection('chat_test_receipts').countDocuments({_id:'foreign-owner-must-not-write' as never}),0);}
  finally{await leases.replaceOne({_id:'single-owner' as never},saved!);}
 });
+
+test('queued subscribe B followed by old A error cleanup preserves B inside dispatcher queue',async()=>{
+ const service=createPokerChatService(db);await service.ready;
+ const a=socket('cleanup-race','alice');await service.subscribe(a,{kind:'poker',id:'01'});
+ const next=service.subscribe(a,{kind:'blackjack',id:'02'});
+ // Simulates old A catch scheduling cleanup before queued subscribe B finishes.
+ const cleanup=service.leave(a,{kind:'poker',id:'01'});
+ await next;assert.equal(await cleanup,undefined);
+ assert.equal(a.data.gameChatRoom,'game-blackjack-02');
+ assert.equal((await service.handle('alice','state',{v:1,chatRoom:'game-blackjack-02'},a)).room,'game-blackjack-02');
+ assert.equal(a.connected,true);
+});

@@ -276,9 +276,13 @@ io.on("connection",socket=>{
     const gameRoom=typeof payload?.chatRoom==="string"&&payload.chatRoom.startsWith("game-");
     if(gameRoom&&["room_closed","forbidden","context_required"].includes(error.chatCode)){
      const match=/^game-(poker|blackjack|roulette|ddz|pool)-(.+)$/.exec(payload.chatRoom);
-     if(match)socket.emit("game-chat:closed",{kind:match[1],id:match[2]});
-     // Stale requests must not clear a newer active room.
-     if(socket.data.gameChatRoom===payload.chatRoom)await chat.leave(socket);
+     if(match){
+      socket.emit("game-chat:closed",{chatRoom:payload.chatRoom,kind:match[1],id:match[2]});
+      // Compare the old context INSIDE the dispatch queue. An outer metadata
+      // check can race a queued subscribe and accidentally clear its new room.
+      const left=await chat.leave(socket,{kind:match[1],id:match[2]});
+      hintChatChanged(left);
+     }
     }
     if((error.chatCode==="forbidden"&&!gameRoom)||error.message==="session")socket.disconnect(true);
    }finally{socket.data.chatPending--;}
