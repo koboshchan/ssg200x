@@ -1,5 +1,8 @@
 "use client";
 import {createContext,useCallback,useContext,useEffect,useRef,useState,type ReactNode,type RefObject,CSSProperties} from "react";
+import {createPortal} from "react-dom";
+import "./poker-taunts.css";
+import {isReceiverThrow} from "./poker-receiver";
 import {useLive,useLiveEvent} from "./live-provider";
 import type {PublicRoom} from "../lib/public";
 const EMOTES={laugh:["😂","Laugh"],cry:["😭","Cry"],wow:["😮","Wow"],think:["🤔","Thinking"],nice:["👏","Nice hand"],oops:["🙈","Oops"]} as const;
@@ -36,8 +39,17 @@ export function useReactionEffects(muted:boolean){
  },[]);
  return {effects,add};
 }
+function ReceiverThrow({effect}:{effect:Effect}){
+ const [done,setDone]=useState(false),[still,setStill]=useState(false);
+ useEffect(()=>{setStill(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches===true);const t=setTimeout(()=>setDone(true),3100);return()=>clearTimeout(t);},[effect.id]);
+ if(done||typeof document==="undefined")return null;
+ const style={"--rx":(effect.source%2?"-":"")+(6+effect.source%5*3)+"vw"} as CSSProperties;
+ return createPortal(<div className="poker-receive" style={style} role="img" aria-label={effect.value+" thrown at you"}>{still?null:<div className="poker-receive-shot"><Food kind={effect.value}/></div>}<div className={"poker-receive-splat "+effect.value+(still?" static":"")}><Splat kind={effect.value}/></div></div>,document.body);
+}
 export function ReactionEffectLayer({effects,seats,wrapper,anchor=".seat-top"}:{effects:readonly ReactionEffect[];seats:readonly ReactionSeat[];wrapper:RefObject<HTMLDivElement|null>;anchor?:string}){
- return <div className="poker-effects" aria-live="off">{effects.map(effect=><AnimatedEffect key={effect.id} effect={effect} seats={seats} wrapper={wrapper} anchor={anchor}/>)}</div>;
+ const seen=new Set<string>(),unique=effects.filter(e=>!seen.has(e.id)&&seen.add(e.id));
+ const mine=unique.filter(e=>isReceiverThrow(e,seats)),others=unique.filter(e=>!mine.includes(e));
+ return <><div className="poker-effects" aria-live="off">{others.map(effect=><AnimatedEffect key={effect.id} effect={effect} seats={seats} wrapper={wrapper} anchor={anchor}/>)}</div>{mine.map(effect=><ReceiverThrow key={effect.id} effect={effect}/>)}</>;
 }
 export function isValidReaction(e:Effect|null|undefined,maxSeats=12):e is Effect{
  if(!e||typeof e.id!=="string"||!Number.isInteger(e.source)||e.source<0||e.source>=maxSeats||!["emote","throw"].includes(e.kind))return false;
