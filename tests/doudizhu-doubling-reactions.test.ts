@@ -4,13 +4,13 @@ import {randomUUID} from "node:crypto";
 import {freshRoom,register,assertRoom,totalChips} from "../lib/poker";
 import {applyDoudizhu,publicDoudizhu,tickDoudizhu,doudizhuNeedsTick,type DoudizhuInput} from "../lib/doudizhu";
 const users=Array.from({length:4},(_,i)=>({id:"double-"+i,name:"Player "+i,email:"test@invalid",admin:false}));
-function setup(){
+function setup(scaled=false){
  const r=freshRoom();users.forEach(u=>register(r,u,0));let now=10_000;
  const move=(seat:number,parts:Partial<DoudizhuInput>)=>{
   const input={type:"ready",requestId:randomUUID(),requestAt:now,version:r.doudizhu?.[0]?.version,...parts} as DoudizhuInput;
   applyDoudizhu(r,users[seat],input,now);if(r.doudizhu?.[0]?.phase==="revealing")tickDoudizhu(r,now+5000);assertRoom(r);return input;
  };
- move(0,{type:"create",beansPerDollar:1000,maxLoss:12800});const g=r.doudizhu![0];
+ move(0,{type:"create",beansPerDollar:1000,maxLoss:12800});const g=r.doudizhu![0];g.scaledDoubleCaps=scaled;
  move(1,{type:"join",code:g.code});move(2,{type:"join",code:g.code});
  for(let i=0;i<3;i++)move(i,{type:"ready"});move(0,{type:"bid",bid:3});
  return {r,g,move,time:(v:number)=>now=v};
@@ -84,4 +84,36 @@ test("all combinations of multipliers conserve chips with either side winning an
   assert.equal(g.result!.deltas.reduce((a,b)=>a+b,0),0);assert(g.result!.deltas.every(v=>v>=-12800));
   assert.equal(totalChips(r),400000);assertRoom(r);
  }
+});
+
+test("new rooms fund pairwise scaled caps, reject unaffordable choices without partial debits, replay once",()=>{
+ const {r,g,move}=setup(true);g.maxLoss=1000;
+ const original=totalChips(r),wallets=r.members.map(m=>m.wallet),reserves=g.players.map(p=>p.escrow);
+ // Restore initial reserve to the new fixture cap without minting chips.
+ g.players.forEach((p,i)=>{r.members[i].wallet+=p.escrow-1000;p.escrow=1000;});
+ assert.equal(publicDoudizhu(r,users[0]).room!.doubleOptions.find(o=>o.multiplier===4)!.reserve,4000);
+ const req=move(0,{type:"double",doubleMultiplier:4});assert.deepEqual(g.players.map(p=>p.escrow),[4000,4000,4000]);
+ const after=structuredClone(r);applyDoudizhu(r,users[0],req,10000);assert.deepEqual(r,after);
+ const old=r.members[0].wallet;r.members[0].wallet=0;
+ assert.equal(publicDoudizhu(r,users[1]).room!.doubleOptions.find(o=>o.multiplier===4)!.available,false);
+ const snapshot=structuredClone(r);assert.throws(()=>move(1,{type:"double",doubleMultiplier:4}),/increased maximum-loss/);assert.deepEqual(r,snapshot);
+ r.members[0].wallet=old;move(1,{type:"double",doubleMultiplier:4});move(2,{type:"double",doubleMultiplier:2});
+ assert.deepEqual(g.players.map(p=>p.escrow),[16000,16000,8000]);assert.equal(totalChips(r),original);
+ g.multiplier=1000000;g.players[0].hand=["3s"];move(0,{type:"play",cards:["3s"]});
+ assert.deepEqual(g.result!.deltas,[24000,-16000,-8000]);assert(g.players.every(p=>p.escrow===0));assert.equal(totalChips(r),original);
+ const settled=structuredClone(r);tickDoudizhu(r,15000);assert.deepEqual(r,settled);assertRoom(r);
+});
+test("scaled landlord loss uses highest opposing choice and refunds unused reserves exactly once",()=>{
+ const {r,g,move}=setup(true);const total=totalChips(r);g.maxLoss=1000;
+ g.players.forEach((p,i)=>{r.members[i].wallet+=p.escrow-1000;p.escrow=1000;});
+ [2,4,1].forEach((m,i)=>move(i,{type:"double",doubleMultiplier:m}));
+ assert.deepEqual(g.players.map(p=>p.escrow),[8000,8000,2000]);
+ g.multiplier=1000000;g.turn=1;g.players[1].hand=["3s"];move(1,{type:"play",cards:["3s"]});
+ assert.deepEqual(g.result!.deltas,[-8000,6400,1600]);assert.equal(totalChips(r),total);
+ for(let i=0;i<3;i++)move(i,{type:"ready"});assert.deepEqual(g.players.map(p=>p.escrow),[1000,1000,1000]);assertRoom(r);
+});
+test("timeout keeps funded caps and no-double remains available without further balance",()=>{
+ const {r,g,move}=setup(true);g.maxLoss=1000;g.players.forEach((p,i)=>{r.members[i].wallet+=p.escrow-1000;p.escrow=1000;});
+ move(1,{type:"double",doubleMultiplier:4});const funded=g.players.map(p=>p.escrow),wallets=r.members.map(m=>m.wallet);
+ tickDoudizhu(r,70000);assert.equal(g.phase,"playing");assert.deepEqual(g.players.map(p=>p.escrow),funded);assert.deepEqual(r.members.map(m=>m.wallet),wallets);assertRoom(r);
 });

@@ -17,7 +17,7 @@ test("Mongo double choices persist and simultaneous duplicate paid throws have o
  for(const u of users){v=await doudizhuRead(u);await doudizhuMove(u,input({type:"ready",version:v.room!.version}));}
  v=await doudizhuRead(users[0]);await doudizhuMove(users[0],input({type:"bid",bid:3,version:v.room!.version}));
  for(const [i,u] of users.entries()){v=await doudizhuRead(u);await doudizhuMove(u,input({type:"double",doubleMultiplier:[4,2,1][i],version:v.room!.version}));}
- await closeDatabase();let r=await readRoom();assert.equal(r.doudizhu![0].phase,"playing");assert.deepEqual(r.doudizhu![0].players.map(p=>p.doubleMultiplier),[4,2,1]);
+ await closeDatabase();let r=await readRoom();assert.equal(r.doudizhu![0].phase,"playing");assert.deepEqual(r.doudizhu![0].players.map(p=>p.escrow),[80000,80000,40000]);assert.deepEqual(r.doudizhu![0].players.map(p=>p.doubleMultiplier),[4,2,1]);
  const targetId=r.members.find(m=>m.id===users[1].id)!.publicId;
  const req=input({type:"reaction",code,kind:"throw",value:"egg",target:1,targetId,expectedPrice:5000});
  const wallet=r.members.find(m=>m.id===users[0].id)!.wallet;
