@@ -2,8 +2,8 @@
 import {createContext,useCallback,useContext,useEffect,useMemo,useRef,useState} from "react";
 /* Active game chat context. Pages declare what the player is actually looking at;
    ChatDock follows it automatically. No manual table chat switcher exists.
-   Contexts are {kind,id}: poker/01-03, blackjack/<tableId>, roulette/roulette, doudizhu/<code>, pool/<roomId>.
-   ChatDock sends game-chat:subscribe {kind,id}; the ACK returns the chatRoom used for chat:*. */
+   Contexts are {kind,id} sent via game-chat:subscribe. The ACK's chatRoom (backend namespace game-poker-01, game-ddz-*, etc)
+   is authoritative for chat:* routing; the client never builds chatRoom names itself. Legacy poker-02/03 stay Global-side only. */
 export type GameChatContext={kind:string;id:string;label:string};
 type Value={active:GameChatContext|null;register:(owner:symbol,ctx:GameChatContext|null)=>void};
 const Ctx=createContext<Value|null>(null);

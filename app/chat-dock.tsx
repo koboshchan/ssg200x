@@ -31,6 +31,8 @@ export default function ChatDock(){
  const mainClient=bound?.main??null;
  // Only Global plus the one active game client exist. Leaving a game closes its client; drafts live in the keyed pane.
  const [gameBinding,setGameBinding]=useState<{user:string;room:string;client:ChatClient}|null>(null);
+ const drafts=useRef(new Map<string,string>()),draftUser=useRef(userId);
+ if(draftUser.current!==userId){draftUser.current=userId;drafts.current.clear();}
  const gameKey=game?game.kind+":"+game.id:null;
  const gameClient=bound&&gameKey&&gameBinding?.user===userId&&gameBinding?.room===gameKey?gameBinding.client:null;
  const gameRoom=gameKey;
@@ -107,7 +109,8 @@ export default function ChatDock(){
  useEffect(()=>{if(mainClient&&live.connection==="connected")void mainClient.reconnect();},[mainClient,live.connection]);
  useEffect(()=>{if(qaClient&&live.connection==="connected")void qaClient.reconnect();},[qaClient,live.connection]);
  useEffect(()=>{if(gameClient&&live.connection==="connected")void gameClient.reconnect();},[gameClient,live.connection]);
- useLiveEvent("chat:changed",(p:{v?:number;room?:string}|undefined)=>{const room=p?.v===1&&typeof p.room==="string"?p.room:null;if(!room||room==="main")mainClient?.hint();if(!room||(gameKey&&chatRoomOf.current.get(gameKey)===room))gameClient?.hint();if(!room||room===qaRoom)qaClient?.hint();});
+ useLiveEvent("chat:changed",(p:{v?:number;room?:string}|undefined)=>{const room=p?.v===1&&typeof p.room==="string"?p.room:null;// Room-scoped only. A legacy empty hint is main-only; never fan out (prevents the proven rate storm).
+  if(!room||room==="main")mainClient?.hint();else if(gameKey&&chatRoomOf.current.get(gameKey)===room)gameClient?.hint();if(room&&room===qaRoom)qaClient?.hint();});
  useLiveEvent("room:state",(room:{pokerTableId?:string;qaChatRoom?:string;chatNames?:{publicId:string;name:string}[];leaderboard?:{publicId:string;name:string}[]})=>{setQaRoom(typeof room?.qaChatRoom==="string"&&room.qaChatRoom==="qa-isolated"?room.qaChatRoom:null);const rows=room?.chatNames??room?.leaderboard;if(rows)setNames(Object.fromEntries(rows.map(r=>[r.publicId,r.name])));});
  const snap=useSyncExternalStore(mainClient?mainClient.subscribe:()=>()=>{},mainClient?mainClient.getSnapshot:()=>idle,()=>idle);
  const unread=snap.messages.filter(m=>!m.mine&&m.status==="ok"&&seen!==null&&m.serverTs>seen).length;
@@ -122,22 +125,23 @@ export default function ChatDock(){
   {open&&<aside className="chat-dock" aria-label="TableTalk chat">
    <header><div><strong>TableTalk</strong><span className="chat-lock">End-to-end encrypted</span></div><button onClick={()=>setOpen(false)} aria-label="Hide chat">Hide</button></header>
    <div className="chat-tabs" role="tablist">{ft.tableTalk?<button role="tab" aria-selected={tab==="room"} onClick={()=>setTab("room")}>Global</button>:null}{hasGame?<button role="tab" aria-selected={tab==="game"} onClick={()=>setTab("game")}>{game!.label}</button>:null}{ft.dms?<button role="tab" aria-selected={tab==="dm"} onClick={()=>setTab("dm")}>Messages{dmUnread>0&&<span className="dm-unread" aria-label={`${dmUnread} unread messages`}>{dmUnread}</span>}</button>:null}{qaClient&&ft.tableTalk?<button role="tab" aria-selected={tab==="qa"} onClick={()=>setTab("qa")}>Room (DEV QA)</button>:null}</div>
-   {tab==="room"?<Body snap={snap} client={mainClient} names={names}/>:tab==="game"?<GamePane key={gameRoom} client={gameClient} names={names}/>:tab==="qa"?<GamePane key="qa" client={qaClient} names={names}/>:<DmPanel phase={snap.phase} goSetup={()=>setTab("room")}/>}
+   {tab==="room"?<Body snap={snap} client={mainClient} names={names} drafts={drafts.current} draftKey="main"/>:tab==="game"?<GamePane key={gameRoom} client={gameClient} names={names} drafts={drafts.current} draftKey={gameRoom??""}/>:tab==="qa"?<GamePane key="qa" client={qaClient} names={names} drafts={drafts.current} draftKey="qa"/>:<DmPanel phase={snap.phase} goSetup={()=>setTab("room")}/>}
   </aside>}
  </>;
 }
-function GamePane({client,names}:{client:ChatClient|null;names:Record<string,string>}){
+type DraftProps={drafts:Map<string,string>;draftKey:string};
+function GamePane({client,names,drafts,draftKey}:{client:ChatClient|null;names:Record<string,string>}&DraftProps){
  const snap=useSyncExternalStore(client?client.subscribe:()=>()=>{},client?client.getSnapshot:()=>idle,()=>idle);
- return <Body snap={snap} client={client} names={names}/>;
+ return <Body snap={snap} client={client} names={names} drafts={drafts} draftKey={draftKey}/>;
 }
-function Body({snap,client,names}:{snap:Snapshot;client:ChatClient|null;names:Record<string,string>}){
+function Body({snap,client,names,drafts,draftKey}:{snap:Snapshot;client:ChatClient|null;names:Record<string,string>}&DraftProps){
  const err=friendly(snap.error);
  if(!client||snap.phase==="loading")return <p className="chat-note" role="status">Connecting…</p>;
  if(snap.phase==="setup")return <div className="chat-panel"><h2>Set up secure chat</h2><p>Messages are encrypted on your device. You'll get six recovery words, shown once. They're the only way to read chat history on a new browser.</p>{err&&<p className="chat-error" role="alert">{err}</p>}<button className="primary" disabled={snap.busy} onClick={()=>client.createIdentity()}>{snap.busy?"Creating keys…":"Create my keys"}</button></div>;
  if(snap.phase==="words")return <Words words={snap.words||[]} busy={snap.busy} err={err} onDone={()=>client.confirmWords()}/>;
  if(snap.phase==="recover")return <Recover snap={snap} client={client} err={err}/>;
  if(snap.phase==="error")return <div className="chat-panel"><p className="chat-note" role="alert">{err}</p><button disabled={snap.busy} onClick={()=>client.retrySync()}>Retry loading chat</button></div>;
- return <Room snap={snap} client={client} names={names}/>;
+ return <Room snap={snap} client={client} names={names} drafts={drafts} draftKey={draftKey}/>;
 }
 function Words({words,onDone,busy,err}:{words:string[];onDone:()=>void;busy:boolean;err:string|null}){
  const [ok,setOk]=useState(false);
@@ -147,8 +151,8 @@ function Recover({snap,client,err}:{snap:Snapshot;client:ChatClient;err:string|n
  const [words,setWords]=useState("");
  return <form className="chat-panel" onSubmit={e=>{e.preventDefault();void client.recover(words);}}><h2>Unlock on this browser</h2><p>Enter your six recovery words to read chat here.</p><WordEntry value={words} onChange={setWords} count={6} disabled={snap.busy} label="Six recovery words"/>{err&&<p className="chat-error" role="alert">{err}</p>}<button className="primary" disabled={snap.busy||!words.trim()}>{snap.busy?"Unlocking…":"Unlock"}</button></form>;
 }
-function Room({snap,client,names}:{snap:Snapshot;client:ChatClient;names:Record<string,string>}){
- const [text,setText]=useState(""),list=useRef<HTMLDivElement>(null),stick=useRef(true);
+function Room({snap,client,names,drafts,draftKey}:{snap:Snapshot;client:ChatClient;names:Record<string,string>}&DraftProps){
+ const [text,setTextRaw]=useState(()=>drafts.get(draftKey)??""),setText=(v:string|((c:string)=>string))=>setTextRaw(c=>{const n=typeof v==="function"?v(c):v;if(n)drafts.set(draftKey,n);else drafts.delete(draftKey);return n;}),list=useRef<HTMLDivElement>(null),stick=useRef(true);
  const bytes=new TextEncoder().encode(text).length,changed=snap.members.filter(m=>m.changed);
  const nameOf=(publicId:string,mine:boolean)=>names[publicId]||"Player";
  useEffect(()=>{const el=list.current;if(el&&stick.current)el.scrollTop=el.scrollHeight;},[snap.messages]);
