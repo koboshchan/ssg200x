@@ -1,9 +1,10 @@
+import {chatRoomIds} from './chat-room-policy.mjs';
 import {createIdentityStore} from './chat-identity.mjs';
 import {randomUUID} from 'node:crypto';
 import {shape,uuid,binary,text,fail,digest,registerData,bundleFingerprint,signedWrap,signedMessage,verify,validateDevice} from './chat-protocol.mjs';
 // All persistence is constructed field by field. Never spread caller input into Mongo.
-export function createChatService(db,{now=Date.now,clerk,roomId='main',canSend=()=>true}={}){
- if(!['main','poker-02','poker-03'].includes(roomId))throw new Error('Invalid chat room');
+export function createChatService(db,{now=Date.now,clerk,roomId='main',canSend=()=>true,env=process.env}={}){
+ if(!chatRoomIds(env).includes(roomId))throw new Error('Invalid chat room');
  const scope=roomId==='main'?{$or:[{room:'main'},{room:{$exists:false}}]}:{room:roomId};
  const scoped=collection=>new Proxy(collection,{get(target,key){if(['find','findOne','countDocuments'].includes(key))return (query={},...args)=>target[key]({$and:[query,scope]},...args);const value=target[key];return typeof value==='function'?value.bind(target):value;}});
  const identity=clerk?createIdentityStore(db,clerk):null;

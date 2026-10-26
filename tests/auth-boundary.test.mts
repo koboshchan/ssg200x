@@ -19,6 +19,7 @@ mock.module("../lib/clerk-reads.ts",{namedExports:{
  currentClerkUser:async(id:string)=>{adminLookups.push(id);return account();}
 }});
 mock.module("../lib/store.ts",{namedExports:{rateLimit:async()=>{},mutate:async()=>{throw Error("must not reach writes");}}});
+mock.module("../lib/feature-flags.ts",{namedExports:{enforceFeatureRequest:async()=>{},featureSnapshot:async()=>({features:{},revision:0}),requireFeature:async()=>{},changeFeatures:async()=>{throw Error("must not reach writes");}}});
 mock.module("../lib/site-maintenance.ts",{namedExports:{siteMaintenance:async()=>({blocked:false})}});
 const {endpoint,parse}=await import("../lib/api.ts");
 const {POST:adminAction}=await import("../app/api/admin/route.ts");
@@ -52,7 +53,7 @@ test("server middleware protects all room pages, including RSC requests",async()
  for(const path of ["/poker","/blackjack","/roulette","/markets","/wallet","/settings","/standings","/players"]){
   const req=new NextRequest("https://example.test"+path+"?_rsc=fixture");
   const r=await middleware(async()=>({userId,sessionId:"session_fixture"}),req);
-  assert.equal(r.status,307,path);assert.equal(r.headers.get("location"),"https://example.test/");
+  assert.equal(r.status,307,path);const game=["/poker","/blackjack","/roulette"].includes(path);assert.equal(r.headers.get("location"),"https://example.test/"+(game?"?next="+encodeURIComponent(path):""),path);
  }
 });
 test("players admin page is denied server-side to ordinary authenticated users",async()=>{
@@ -64,11 +65,20 @@ test("intentional public pages remain public",async()=>{
  userId=null;
  for(const path of ["/","/leaderboard","/privacy","/terms"])assert.equal(await middleware(async()=>({userId,sessionId:"session_fixture"}),new NextRequest("https://example.test"+path)),undefined);
 });
-test("every external API uses authenticated endpoint; internal live uses process secret",()=>{
- for(const dir of readdirSync("app/api")){
-  const code=readFileSync("app/api/"+dir+"/route.ts","utf8");
+test("every external API uses authenticated endpoint; internal live uses process secret",async()=>{
+ const routes=(base:string):string[]=>readdirSync(base,{withFileTypes:true}).flatMap(e=>e.isDirectory()?routes(base+"/"+e.name):e.name==="route.ts"?[base]:[]);
+ for(const full of routes("app/api")){
+  const dir=full.slice("app/api/".length),code=readFileSync(full+"/route.ts","utf8");
   if(dir==="internal-live"){assert.match(code,/if\(!internalLiveAuthorized\(request\)\)/);continue;}
-  assert.match(code,/endpoint\(request,/,dir);
+  if(dir==="features"){assert.match(code,/export async function GET/);assert.doesNotMatch(code,/export async function (POST|PUT|PATCH|DELETE)/);assert.match(code,/featureSnapshot\(\)/);continue;}
+  if(/\bendpoint\(/.test(code)){assert.match(code,/endpoint\(request,/,dir);continue;}
+  // Read-only route that authenticates directly: must verify the active Clerk session and 401 before any data access.
+  if(!/await auth\(\)/.test(code)){
+   // No handler-level auth: only acceptable as a GET-only route that the middleware 401s for anonymous callers.
+   assert.doesNotMatch(code,/export async function (POST|PUT|PATCH|DELETE)/,dir);userId=null;
+   const r=await middleware(async()=>({userId,sessionId:null}),new NextRequest("https://example.test/api/"+dir));assert.equal(r.status,401,dir);continue;
+  }
+  assert.match(code,/await auth\(\)[\s\S]*?!userId\|\|!sessionId[\s\S]*?status:401[\s\S]*?await currentClerkSession\(sessionId,userId\)/,dir);assert.doesNotMatch(code,/export async function (POST|PUT|PATCH|DELETE)/,dir);
  }
 });
 

@@ -26,7 +26,8 @@ export default function ChatDock(){
  const chatRoom=pathname==="/poker"&&pokerTableId!=="01"?"poker-"+pokerTableId:"main";
  const [binding,setBinding]=useState<{user:string;clients:Map<string,ChatClient>}|null>(null);
  const clients=binding&&binding.user===userId?binding.clients:null;
- const client=clients?.get(chatRoom)??null;
+ const [qaRoom,setQaRoom]=useState<string|null>(null),[qaClient,setQaClient]=useState<ChatClient|null>(null);
+ const roomClient=clients?.get(chatRoom)??null;
  const [open,setOpen]=useState(false),[names,setNames]=useState<Record<string,string>>({}),[seen,setSeen]=useState<number|null>(null);
  const [dmUnread,setDmUnread]=useState(0);
  const unreadScope=useRef(0);
@@ -34,8 +35,9 @@ export default function ChatDock(){
  useEffect(()=>{unreadScope.current++;setDmUnread(0);if(userId&&live.connection==="connected")void loadDmUnread();},[userId,live.connection,loadDmUnread]);
  useLiveEvent("dm:changed",()=>{void loadDmUnread();});
  const {features:ft}=useFeatures();
- const [pickedTab,setTab]=useState<"room"|"dm">("room");
- const tab:"room"|"dm"=pickedTab==="room"&&!ft.tableTalk&&ft.dms?"dm":pickedTab==="dm"&&!ft.dms&&ft.tableTalk?"room":pickedTab;
+ const [pickedTab,setTab]=useState<"room"|"dm"|"qa">("room");
+ const tab:"room"|"dm"|"qa"=pickedTab==="qa"?(qaClient?"qa":"room"):pickedTab==="room"&&!ft.tableTalk&&ft.dms?"dm":pickedTab==="dm"&&!ft.dms&&ft.tableTalk?"room":pickedTab;
+ const client=tab==="qa"?qaClient:roomClient;
  const [preferencesUser,setPreferencesUser]=useState<string|null>(null);
  const preferencesReady=preferencesUser===userId;
  useEffect(()=>{
@@ -54,6 +56,13 @@ export default function ChatDock(){
   setBinding({user:userId,clients:retained});
   return()=>{for(const c of retained.values())c.close();};
  },[isLoaded,userId,live.request]);
+ useEffect(()=>{
+  // DEV isolated QA room: only when the server announces it in room:state.
+  if(!userId||!qaRoom){setQaClient(null);return;}
+  const c=new ChatClient(userId,(event,payload)=>live.request("chat:"+event,{...(payload as object),chatRoom:qaRoom}),indexedDbStore(qaRoom),Date.now,undefined,undefined,qaRoom,{isolatedQaChatRoom:true});
+  setQaClient(c);
+  return()=>{c.close();setQaClient(null);};
+ },[userId,qaRoom,live.request]);
  useEffect(()=>{
   if(!userId)return;
   const key="tabletalk:"+userId;
@@ -75,7 +84,7 @@ export default function ChatDock(){
  },[open]);
  useEffect(()=>{if(client&&live.connection==="connected")void client.reconnect();},[client,live.connection]);
  useLiveEvent("chat:changed",()=>client?.hint());
- useLiveEvent("room:state",(room:{pokerTableId?:string;chatNames?:{publicId:string;name:string}[];leaderboard?:{publicId:string;name:string}[]})=>{if(["01","02","03"].includes(room?.pokerTableId||""))setPokerTableId(room.pokerTableId!);const rows=room?.chatNames??room?.leaderboard;if(rows)setNames(Object.fromEntries(rows.map(r=>[r.publicId,r.name])));});
+ useLiveEvent("room:state",(room:{pokerTableId?:string;qaChatRoom?:string;chatNames?:{publicId:string;name:string}[];leaderboard?:{publicId:string;name:string}[]})=>{setQaRoom(typeof room?.qaChatRoom==="string"&&room.qaChatRoom==="qa-isolated"?room.qaChatRoom:null);if(["01","02","03"].includes(room?.pokerTableId||""))setPokerTableId(room.pokerTableId!);const rows=room?.chatNames??room?.leaderboard;if(rows)setNames(Object.fromEntries(rows.map(r=>[r.publicId,r.name])));});
  const snap=useSyncExternalStore(client?client.subscribe:()=>()=>{},client?client.getSnapshot:()=>idle,()=>idle);
  const unread=snap.messages.filter(m=>!m.mine&&m.status==="ok"&&seen!==null&&m.serverTs>seen).length;
  useEffect(()=>{
@@ -88,8 +97,8 @@ export default function ChatDock(){
   {!open&&<button className="chat-toggle" onClick={()=>setOpen(true)} aria-label={unread?"Open chat, "+unread+" unread":"Open chat"}><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></svg>{unread>0&&<span className="chat-badge" aria-hidden="true">{unread>99?"99+":unread}</span>}</button>}
   {open&&<aside className="chat-dock" aria-label="TableTalk chat">
    <header><div><strong>TableTalk</strong><span className="chat-lock">End-to-end encrypted</span></div><button onClick={()=>setOpen(false)} aria-label="Hide chat">Hide</button></header>
-   <div className="chat-tabs" role="tablist">{ft.tableTalk?<button role="tab" aria-selected={tab==="room"} onClick={()=>setTab("room")}>Room</button>:null}{ft.dms?<button role="tab" aria-selected={tab==="dm"} onClick={()=>setTab("dm")}>Messages{dmUnread>0&&<span className="dm-unread" aria-label={`${dmUnread} unread messages`}>{dmUnread}</span>}</button>:null}</div>
-   {tab==="room"?<Body snap={snap} client={client} names={names}/>:<DmPanel phase={snap.phase} goSetup={()=>setTab("room")}/>}
+   <div className="chat-tabs" role="tablist">{ft.tableTalk?<button role="tab" aria-selected={tab==="room"} onClick={()=>setTab("room")}>Room</button>:null}{ft.dms?<button role="tab" aria-selected={tab==="dm"} onClick={()=>setTab("dm")}>Messages{dmUnread>0&&<span className="dm-unread" aria-label={`${dmUnread} unread messages`}>{dmUnread}</span>}</button>:null}{qaClient&&ft.tableTalk?<button role="tab" aria-selected={tab==="qa"} onClick={()=>setTab("qa")}>Room (DEV QA)</button>:null}</div>
+   {tab==="room"||tab==="qa"?<Body snap={snap} client={client} names={names}/>:<DmPanel phase={snap.phase} goSetup={()=>setTab("room")}/>}
   </aside>}
  </>;
 }
