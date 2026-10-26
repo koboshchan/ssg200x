@@ -44,6 +44,7 @@ io.on('connection',s=>{
  const handle=(event,fn)=>s.on(event,(p,ack)=>{if(typeof ack!=='function')return;serial(async()=>{try{ack({ok:true,...await fn(p)});}catch(e){ack({ok:false,error:e.chatCode||e.message});}});});
  const leave=()=>{const previous=s.data.currentRoom;s.data.currentRoom=null;if(!previous)return;const c=contexts.get(previous);if(!c||c.closed)return;const elsewhere=[...io.sockets.sockets.values()].some(peer=>peer!==s&&peer.handshake.query.user===user&&peer.data.currentRoom===previous);if(!elsewhere&&c.members.delete(user)){c.version++;io.emit('chat:changed',{room:previous});}};
  s.on('disconnect',()=>{void serial(leave);});
+ handle('contexts:closed',async()=>({rooms:(await db.collection('fixture_contexts').find({closed:true},{projection:{_id:1}}).toArray()).map(c=>c._id.replace(/^game-/, '').replace('-', '|'))}));
  handle('context:leave',async()=>{leave();return {left:true};});
  handle('context:enter',async p=>{
   const room=gameChatRoom(p?.kind,p?.id);

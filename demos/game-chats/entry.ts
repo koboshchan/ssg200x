@@ -52,6 +52,7 @@ const esc=(s:string)=>s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"
 const activeRoom=()=>tab==="global"?"main":tab==="game"&&current?current.room:null;
 let unsub=()=>{};
 const drafts=new Map<string,string>();
+const closedRooms=new Set<string>();
 
 async function enter(kind:string,id:string,spectating=false){
  const prevRoom=current?.room;
@@ -82,7 +83,7 @@ function drop(kind:string,id:string){
 }
 async function close(kind:string,id:string){
  const r=await request("game:close",{kind,id});
- drop(kind,id);
+ closedRooms.add(kind+"|"+id);drop(kind,id);
  return r;
 }
 function bind(){
@@ -106,8 +107,9 @@ function tabs(){
  return t("global","Global")+t("game","Game"+(current?" · "+esc(current.label):""))+t("dm","DM");
 }
 function picker(){
- const groups=[...new Set(CONTEXTS.map(c=>c.group))];
- return '<div class="picker">'+groups.map(g=>'<div class="grp"><span>'+g+'</span>'+CONTEXTS.filter(c=>c.group===g).map(c=>'<button data-enter="'+c.kind+'|'+c.id+'" aria-pressed="'+(current?.room===c.room)+'">'+esc(c.label.replace(g+" ","")||c.label)+'</button>'+(["ddz","pool"].includes(c.kind)?'<button class="ghost" data-enter="'+c.kind+'|'+c.id+'|spectator" title="Watch only">watch '+esc(c.id)+'</button>':"")).join("")+(["ddz","pool"].includes(CONTEXTS.find(c=>c.group===g)!.kind)?CONTEXTS.filter(c=>c.group===g).map(c=>'<button class="ghost" data-close="'+c.kind+'|'+c.id+'" title="Close room">close '+esc(c.id)+'</button>').join(""):"")+'</div>').join("")+'</div>';
+ const available=CONTEXTS.filter(c=>!closedRooms.has(c.kind+"|"+c.id));
+ const groups=[...new Set(available.map(c=>c.group))];
+ return '<div class="picker">'+groups.map(g=>'<div class="grp"><span>'+g+'</span>'+available.filter(c=>c.group===g).map(c=>'<button data-enter="'+c.kind+'|'+c.id+'" aria-pressed="'+(current?.room===c.room)+'">'+esc(c.label.replace(g+" ","")||c.label)+'</button>'+(["ddz","pool"].includes(c.kind)?'<button class="ghost" data-enter="'+c.kind+'|'+c.id+'|spectator" title="Watch only">watch '+esc(c.id)+'</button>':"")).join("")+(["ddz","pool"].includes(CONTEXTS.find(c=>c.group===g)!.kind)?available.filter(c=>c.group===g).map(c=>'<button class="ghost" data-close="'+c.kind+'|'+c.id+'" title="Close room">close '+esc(c.id)+'</button>').join(""):"")+'</div>').join("")+'</div>';
 }
 function body(c:ChatClient,s:Snapshot,room:string){
  if(s.phase==="loading")return '<p class="note">Loading…</p>';
@@ -126,7 +128,8 @@ function render(){
  const root=$("#app");
  const room=activeRoom(),c=room?clients.get(room):undefined;
  const prevList=document.getElementById("list"),stick=!prevList||prevList.scrollHeight-prevList.scrollTop-prevList.clientHeight<40;
- const had=document.activeElement?.id==="in";
+ const oldInput=document.activeElement instanceof HTMLTextAreaElement&&document.activeElement.id==="in"?document.activeElement:null;
+ const selection=oldInput?{start:oldInput.selectionStart,end:oldInput.selectionEnd,direction:oldInput.selectionDirection,scrollTop:oldInput.scrollTop}:null;
  let main="";
  if(tab==="dm")main='<p class="note">Direct messages stay in the main app. Not part of this demo.</p>';
  else if(tab==="game"&&!c)main='<p class="note">No active game. Enter a table below, or stay in Global.</p>';
@@ -135,7 +138,7 @@ function render(){
  '<div class="tabs" role="tablist">'+tabs()+'</div>'+(tab==="game"||!current?"":"")+
  '<section class="chat">'+main+'</section><details class="ctx" '+(tab==="game"?"open":"")+'><summary>Tables</summary>'+(current?'<div class="picker"><button id="leave">Leave '+esc(current.label)+'</button></div>':"")+picker()+'</details>';
  const list=document.getElementById("list");if(list&&stick)list.scrollTop=list.scrollHeight;
- if(had)document.getElementById("in")?.focus();
+ if(selection){const input=document.getElementById("in") as HTMLTextAreaElement|null;if(input){input.focus({preventScroll:true});input.setSelectionRange(selection.start,selection.end,selection.direction);input.scrollTop=selection.scrollTop;}}
  wire(c,room);
 }
 function wire(c?:ChatClient,room?:string|null){
@@ -169,13 +172,13 @@ socket.on("chat:changed",(p?:{room?:string;chatRoom?:string})=>{
  if(!room||!visited.has(room))return;
  clients.get(room)?.hint();
 });
-socket.on("connect",()=>{connected=true;void clients.get("main")?.reconnect();
+socket.on("connect",()=>{connected=true;void request("contexts:closed").then(r=>{for(const key of r.rooms)closedRooms.add(key);render();}).catch(()=>{});void clients.get("main")?.reconnect();
  // Membership follows the socket: re-establish the game context first. enter() reconnects the room client itself.
  if(current){const c=current;void enter(c.kind,c.id,c.label.includes("(watching)")).catch(e=>{if(current&&current.room===c.room&&["not_found","closed","room_closed","forbidden"].includes((e as Error).message))drop(c.kind,c.id);});}
  render();});
 socket.on("disconnect",()=>{connected=false;render();});
 socket.on("context:changed",(p:{kind:string;id:string;role?:string})=>{if(p&&p.kind&&p.id)void enter(p.kind,p.id,p.role==="spectator").catch(()=>{});});
-socket.on("game:closed",(p:{kind:string;id:string})=>{if(p&&p.kind&&p.id)drop(p.kind,p.id);});
-socket.on("room_closed",(p:{kind:string;id:string})=>{if(p&&p.kind&&p.id)drop(p.kind,p.id);});
+socket.on("game:closed",(p:{kind:string;id:string})=>{if(p&&p.kind&&p.id){closedRooms.add(p.kind+"|"+p.id);drop(p.kind,p.id);}});
+socket.on("room_closed",(p:{kind:string;id:string})=>{if(p&&p.kind&&p.id){closedRooms.add(p.kind+"|"+p.id);drop(p.kind,p.id);}});
 (window as any).qa={clients,visited,socket,enter,close,leave,user,state:()=>({tab,current,room:activeRoom()})};
 bind();
