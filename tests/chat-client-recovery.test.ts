@@ -1,5 +1,5 @@
 import {createRequestBudget} from "../lib/chat-request-budget";
-import {openMessage} from "../lib/chat-crypto";
+import {openMessage,openWrap} from "../lib/chat-crypto";
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {ChatClient,type BootstrapPayload,type ChatStore,type Pin,type Setup} from "../lib/chat-client";
@@ -286,24 +286,26 @@ test("unavailable former bootstrap history does not lock an authorized current r
  }finally{c.close();}
 });
 
-for(const room of ["game-ddz-amber fox lake","game-blackjack-02"]){
- test("first send after peer joins refreshes and re-signs a definitively stale envelope in "+room,async()=>{
+for(const room of ["game-ddz-amber fox lake","game-blackjack-02"])for(const rotate of [false,true]){
+ test("first send after peer joins refreshes and re-signs a definitively stale envelope in "+room+" rotated="+rotate,async()=>{
   const {a,store}=await seeded(),b=await createIdentity("b",0),epoch=crypto.randomUUID(),key=await newEpochKey();
   // IndexedDB returns a fresh structured clone on every read, not the same object.
   const getIdentity=store.getIdentity.bind(store);
   store.getIdentity=async user=>{const identity=await getIdentity(user);return identity?structuredClone(identity):undefined;};
-  await store.putEpoch("a",epoch,key);
+  const nextEpoch=rotate?crypto.randomUUID():epoch,nextKey=rotate?await newEpochKey():key;
+  await store.putEpoch("a",epoch,key);await store.putEpoch("a",nextEpoch,nextKey);
   let joined=false;const sends:any[]=[],wraps:any[]=[],committed:WireMessage[]=[];
   const c=new ChatClient("a",async(e:string,p:any)=>{
    if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
-   if(e==="state")return {...view(a.identity,epoch),revision:joined?2:1,members:[{userId:"a",devices:[device(a.identity)]},...(joined?[{userId:"b",devices:[device(b.identity)]}]:[])]};
+   if(e==="state")return {...view(a.identity,joined?nextEpoch:epoch),revision:joined?2:1,members:[{userId:"a",devices:[device(a.identity)]},...(joined?[{userId:"b",devices:[device(b.identity)]}]:[])]};
    if(e==="wrap"){wraps.push(structuredClone(p));assert.equal(p.revision,2);return {};}
-   if(e==="history")return {messages:committed,nextCursor:null};
+   if(e==="history")return {messages:committed.filter(m=>m.epoch===p.epoch),nextCursor:null};
    if(e==="send"){
     assert.deepEqual((await store.getPending("a"))[0],p);
     sends.push(structuredClone(p));
     if(p.revision!==2)throw Error("stale_revision");
-    const opened=await openMessage({...p,senderUserId:"a",senderSignPublic:a.identity.signPublic},key);
+    assert.equal(p.epoch,nextEpoch);
+    const opened=await openMessage({...p,senderUserId:"a",senderSignPublic:a.identity.signPublic},nextKey);
     assert.deepEqual(opened,{ok:true,text:"first after join"});
     const message={...p,senderUserId:"a",senderSignPublic:a.identity.signPublic,serverTs:1,cursor:1};
     committed.push(message);return {message};
@@ -313,9 +315,12 @@ for(const room of ["game-ddz-amber fox lake","game-blackjack-02"]){
    await c.start();assert.equal(c.getSnapshot().phase,"ready");joined=true;
    assert.equal(await c.send("first after join"),true);
    assert.equal(sends.length,2);assert.equal(sends[0].revision,1);assert.equal(sends[1].revision,2);
-   assert.equal(sends[0].id,sends[1].id);assert.equal(sends[0].epoch,sends[1].epoch);
+   assert.equal(sends[0].id,sends[1].id);assert.equal(sends[0].epoch,epoch);assert.equal(sends[1].epoch,nextEpoch);
    assert.equal(sends[1].room,room);assert.notEqual(sends[0].signature,sends[1].signature);
    assert.equal(wraps.length,1);assert.equal(committed.length,1);
+   // The joiner opens the authenticated current-epoch grant and the sole durable message.
+   const peerKey=await openWrap(b.identity,"b",{...wraps[0],senderUserId:"a",senderDhPublic:a.identity.dhPublic,senderSignPublic:a.identity.signPublic},a.identity,room);
+   assert.deepEqual(await openMessage(committed[0],peerKey),{ok:true,text:"first after join"});
    assert.equal((await store.getPending("a")).length,0);
    assert.equal(c.getSnapshot().messages.length,1);assert.equal(c.getSnapshot().messages[0].status,"ok");
    // An old Retry action cannot send the ACKed id again.
@@ -350,12 +355,14 @@ for(const failure of ["stale_revision","forbidden","refresh_failed","local_stora
  });
 }
 
-test("an ambiguous send followed by stale retry never creates a different ciphertext for that id",async()=>{
+for(const rotate of [false,true])test("an ambiguous send followed by stale retry never creates a different ciphertext for that id rotated="+rotate,async()=>{
  const {a,store}=await seeded(),epoch=crypto.randomUUID(),key=await newEpochKey();await store.putEpoch("a",epoch,key);
+ const nextEpoch=rotate?crypto.randomUUID():epoch;
+ if(rotate)await store.putEpoch("a",nextEpoch,await newEpochKey());
  const sends:any[]=[];let revision=1;
  const c=new ChatClient("a",async(e:string,p:any)=>{
   if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
-  if(e==="state")return {...view(a.identity,epoch),revision};
+  if(e==="state")return {...view(a.identity,revision===1?epoch:nextEpoch),revision};
   if(e==="history")return {messages:[],nextCursor:null};
   if(e==="send"){sends.push(structuredClone(p));if(sends.length===1){revision++;throw new Error("timeout");}throw new Error("stale_revision");}
   throw new Error(e);
@@ -363,6 +370,9 @@ test("an ambiguous send followed by stale retry never creates a different cipher
  try{
   await c.start();await c.send("ambiguous");assert.equal(await c.retry(c.getSnapshot().messages[0]),false);
   assert.equal(sends.length,2);assert.deepEqual(sends[0],sends[1]);
+  assert.equal(sends[1].epoch,epoch);
+  assert.deepEqual(await store.getPending("a"),[sends[0]]);
+  assert.equal(c.getSnapshot().messages[0].status,"failed");
  }finally{c.close();}
 });
 
