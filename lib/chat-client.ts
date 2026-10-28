@@ -446,7 +446,12 @@ export class ChatClient{
       await this.sync();
       if([...this.raw.values()].some(m=>m.senderUserId===this.user&&m.id===id)){this.local.delete(lk);this.sealed.delete(id);this.ambiguous.delete(id);await this.render();return true;}
       // A stale response to a later retry does NOT establish that the first attempt failed.
-      if(this.ambiguous.has(id)||this.closed||this.snap.phase!=="ready"||this.identity!==me)break;
+      const identity=this.identity;
+      // IndexedDB reads clone identity objects. Compare the authenticated binding,
+      // not object identity, while still refusing a changed generation or device.
+      if(this.ambiguous.has(id)||this.closed||this.snap.phase!=="ready"||!identity||
+       identity.deviceId!==me.deviceId||identity.keyVersion!==me.keyVersion||
+       identity.signPublic!==me.signPublic||identity.dhPublic!==me.dhPublic)break;
       const cur=this.lastView!,key=this.keys.get(cur.epoch);
       if(!key)break;
       try{

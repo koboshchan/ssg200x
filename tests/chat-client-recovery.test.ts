@@ -289,6 +289,9 @@ test("unavailable former bootstrap history does not lock an authorized current r
 for(const room of ["game-ddz-amber fox lake","game-blackjack-02"]){
  test("first send after peer joins refreshes and re-signs a definitively stale envelope in "+room,async()=>{
   const {a,store}=await seeded(),b=await createIdentity("b",0),epoch=crypto.randomUUID(),key=await newEpochKey();
+  // IndexedDB returns a fresh structured clone on every read, not the same object.
+  const getIdentity=store.getIdentity.bind(store);
+  store.getIdentity=async user=>{const identity=await getIdentity(user);return identity?structuredClone(identity):undefined;};
   await store.putEpoch("a",epoch,key);
   let joined=false;const sends:any[]=[],wraps:any[]=[],committed:WireMessage[]=[];
   const c=new ChatClient("a",async(e:string,p:any)=>{
