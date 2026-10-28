@@ -231,6 +231,122 @@ test("fingerprint-scoped current key approval works without conflating a histori
  }finally{c.close();}
 });
 
+for(const mode of ["current","retained","rate_limited"]){
+ test("history readiness exception never bypasses "+mode+" access or cooldown",async()=>{
+  const {a,store}=await seeded(),old=crypto.randomUUID(),current=crypto.randomUUID(),key=await newEpochKey(),room="game-roulette-01";
+  await store.putEpoch("a",old,key);await store.putEpoch("a",current,key);
+  let switched=false;
+  const w=await makeWrap(a.identity,"a",{room,revision:5,epoch:old,toUserId:"a",toDeviceId:a.identity.deviceId},a.identity.dhPublic,key);
+  const c=new ChatClient("a",async(e:string,p:any)=>{
+   if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
+   if(e==="state")return {...view(a.identity,switched?current:old),revision:5,wraps:mode==="retained"?[{...w,senderUserId:"a",senderDhPublic:a.identity.dhPublic,senderSignPublic:a.identity.signPublic}]:[]};
+   if(e==="history"){
+    if(switched&&(mode==="current"?p.epoch===current:p.epoch===old))throw Error(mode==="rate_limited"?"rate_limited":"waiting");
+    return {messages:[],nextCursor:null};
+   }throw Error(e);
+  },store,Date.now,openMessage,store.budget,room);
+  try{
+   await c.start();assert.equal(c.getSnapshot().phase,"ready");
+   switched=true;(c as any).cursors.delete(old);await c.start();
+   assert.equal(c.getSnapshot().phase,"waiting");
+   assert.equal(await c.send("must not send"),false);
+   if(mode==="rate_limited")assert.ok(store.budget.status("a").until>Date.now());
+  }finally{c.close();}
+ });
+}
+
+test("unavailable former bootstrap history does not lock an authorized current roulette epoch",async()=>{
+ const {a,store}=await seeded(),old=crypto.randomUUID(),current=crypto.randomUUID(),key=await newEpochKey(),room="game-roulette-01";
+ await store.putEpoch("a",old,key);await store.putEpoch("a",current,key);
+ const wrap=await makeWrap(a.identity,"a",{room,revision:5,epoch:current,toUserId:"a",toDeviceId:a.identity.deviceId},a.identity.dhPublic,key);
+ const grant={...wrap,senderUserId:"a",senderDhPublic:a.identity.dhPublic,senderSignPublic:a.identity.signPublic};
+ let epoch=old,available=false;const sends:any[]=[];
+ const incoming={...await sealMessage(a.identity,"a",{room,revision:5,epoch:current,id:crypto.randomUUID(),ts:Date.now()},"current incoming",key),senderUserId:"a",senderSignPublic:a.identity.signPublic,serverTs:1,cursor:1};
+ const c=new ChatClient("a",async(e:string,p:any)=>{
+  if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
+  if(e==="state")return {...view(a.identity,epoch),revision:5,wraps:epoch===current?[grant]:[]};
+  if(e==="history"){
+   if(p.epoch===old&&epoch===current&&!available)throw Error("waiting");
+   return {messages:p.epoch===current?[incoming]:[],nextCursor:null};
+  }
+  if(e==="send"){sends.push(p);return {message:{...p,senderUserId:"a",senderSignPublic:a.identity.signPublic,serverTs:2,cursor:2}};}
+  throw Error(e);
+ },store,Date.now,openMessage,store.budget,room);
+ try{
+  // The former bootstrap was known locally, but its old history fetch never completed.
+  await c.start();assert.equal(c.getSnapshot().phase,"ready");
+  (c as any).cursors.delete(old);epoch=current;
+  await c.start();
+  assert.equal(c.getSnapshot().phase,"ready");assert.equal(c.getSnapshot().historyIncomplete,true);
+  assert.equal(c.getSnapshot().error,"history_incomplete");assert.equal(c.getSnapshot().messages[0].text,"current incoming");
+  assert.equal(await c.send("current outgoing"),true);assert.equal(sends[0].epoch,current);
+  assert.equal((c as any).cursors.has(old),false,"do not mark inaccessible history fetched");
+  assert.ok(await store.getEpoch("a",old),"do not discard retained local keys");
+  available=true;await c.start();assert.equal(c.getSnapshot().historyIncomplete,false);assert.equal(c.getSnapshot().error,null);
+ }finally{c.close();}
+});
+
+for(const room of ["game-ddz-amber fox lake","game-blackjack-02"]){
+ test("first send after peer joins refreshes and re-signs a definitively stale envelope in "+room,async()=>{
+  const {a,store}=await seeded(),b=await createIdentity("b",0),epoch=crypto.randomUUID(),key=await newEpochKey();
+  await store.putEpoch("a",epoch,key);
+  let joined=false;const sends:any[]=[],wraps:any[]=[],committed:WireMessage[]=[];
+  const c=new ChatClient("a",async(e:string,p:any)=>{
+   if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
+   if(e==="state")return {...view(a.identity,epoch),revision:joined?2:1,members:[{userId:"a",devices:[device(a.identity)]},...(joined?[{userId:"b",devices:[device(b.identity)]}]:[])]};
+   if(e==="wrap"){wraps.push(structuredClone(p));assert.equal(p.revision,2);return {};}
+   if(e==="history")return {messages:committed,nextCursor:null};
+   if(e==="send"){
+    assert.deepEqual((await store.getPending("a"))[0],p);
+    sends.push(structuredClone(p));
+    if(p.revision!==2)throw Error("stale_revision");
+    const opened=await openMessage({...p,senderUserId:"a",senderSignPublic:a.identity.signPublic},key);
+    assert.deepEqual(opened,{ok:true,text:"first after join"});
+    const message={...p,senderUserId:"a",senderSignPublic:a.identity.signPublic,serverTs:1,cursor:1};
+    committed.push(message);return {message};
+   }throw Error(e);
+  },store,Date.now,openMessage,store.budget,room);
+  try{
+   await c.start();assert.equal(c.getSnapshot().phase,"ready");joined=true;
+   assert.equal(await c.send("first after join"),true);
+   assert.equal(sends.length,2);assert.equal(sends[0].revision,1);assert.equal(sends[1].revision,2);
+   assert.equal(sends[0].id,sends[1].id);assert.equal(sends[0].epoch,sends[1].epoch);
+   assert.equal(sends[1].room,room);assert.notEqual(sends[0].signature,sends[1].signature);
+   assert.equal(wraps.length,1);assert.equal(committed.length,1);
+   assert.equal((await store.getPending("a")).length,0);
+   assert.equal(c.getSnapshot().messages.length,1);assert.equal(c.getSnapshot().messages[0].status,"ok");
+   // An old Retry action cannot send the ACKed id again.
+   assert.equal(await c.send("first after join",sends[0].id),false);assert.equal(sends.length,2);
+  }finally{c.close();}
+ });
+}
+
+for(const failure of ["stale_revision","forbidden","refresh_failed","local_storage"]){
+ test("stale first-send recovery is bounded and retains unsent ciphertext on "+failure,async()=>{
+  const {a,store}=await seeded(),epoch=crypto.randomUUID(),key=await newEpochKey();await store.putEpoch("a",epoch,key);
+  let revision=1;const sends:any[]=[];
+  const put=store.putPending;
+  store.putPending=async(u,p)=>{if(failure==="local_storage"&&p.revision===2)throw Error("quota");await put(u,p);};
+  const c=new ChatClient("a",async(e:string,p:any)=>{
+   if(e==="keys:get")return {identity:server(a)};if(e==="register")return {};
+   if(e==="state"){if(revision===2&&failure==="refresh_failed")throw Error("forbidden");return {...view(a.identity,epoch),revision};}
+   if(e==="history")return {messages:[],nextCursor:null};
+   if(e==="send"){
+    sends.push(structuredClone(p));revision=2;
+    throw Error(sends.length===1?"stale_revision":failure);
+   }throw Error(e);
+  },store,Date.now,openMessage,store.budget,"game-ddz-amber fox lake");
+  try{
+   await c.start();assert.equal(await c.send("keep unsent"),false);
+   assert.equal(sends.length,["refresh_failed","local_storage"].includes(failure)?1:2);
+   const messages=c.getSnapshot().messages;assert.equal(messages.length,1);
+   assert.equal(messages[0].status,"failed");assert.equal(messages[0].text,"keep unsent");
+   const pending=await store.getPending("a");assert.equal(pending.length,1);
+   assert.equal(pending[0].id,sends[0].id);assert.equal(JSON.stringify(pending).includes("keep unsent"),false);
+  }finally{c.close();}
+ });
+}
+
 test("an ambiguous send followed by stale retry never creates a different ciphertext for that id",async()=>{
  const {a,store}=await seeded(),epoch=crypto.randomUUID(),key=await newEpochKey();await store.putEpoch("a",epoch,key);
  const sends:any[]=[];let revision=1;

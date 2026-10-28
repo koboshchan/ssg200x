@@ -169,7 +169,8 @@ export class ChatClient{
   clearTimeout(this.timer);this.staleFailures=0;
   await this.restorePending(me);
   this.budget.success(this.user);
-  this.set({phase:"ready",error:null});
+  this.set({phase:"ready",error:this.snap.historyIncomplete?"history_incomplete":null});
+  if(this.snap.historyIncomplete)this.later(5000);
  }
  /** Only authenticated ciphertext is restored; plaintext stays in session memory. */
  private async restorePending(me:Identity){
@@ -183,7 +184,10 @@ export class ChatClient{
    let opened:Awaited<ReturnType<typeof openMessage>>;
    try{opened=await this.open(m,key);}catch{continue;}
    if(!opened.ok||this.removed.has(p.id))continue;
-   this.sealed.set(p.id,p);this.ambiguous.add(p.id);
+   // Only storage-only recovery has unknown ACK provenance. An in-session sync
+   // must preserve a known rejection (or an already ambiguous send) as-is.
+   if(!this.sealed.has(p.id))this.ambiguous.add(p.id);
+   this.sealed.set(p.id,p);
    const k=p.epoch+":"+this.user+":"+p.id;
    if(!this.local.has(k))this.local.set(k,{key:k,id:p.id,senderUserId:this.user,publicId:this.publicIds.get(this.user)||"",mine:true,ts:p.ts,serverTs:p.ts,cursor:Number.MAX_SAFE_INTEGER,epoch:p.epoch,text:opened.text,status:"failed"});
   }
@@ -317,6 +321,7 @@ export class ChatClient{
  private retryHint=RESYNC_MS;
  private async refresh(me:Identity,view:View){
   let exhausted:unknown;
+  const unavailable=new Set<string>();
   for(const epoch of this.keys.keys()){
    if(this.cursors.has(epoch)&&epoch!==view.epoch)continue;
    try{
@@ -324,12 +329,18 @@ export class ChatClient{
     if(!this.cursors.has(epoch))this.cursors.set(epoch,next);
    }catch(e){
     if(epoch===view.epoch)throw e;
+    // A former bootstrap can remain local after rotation without a retained server
+    // grant. Its unavailable history must not lock a separately authorized current
+    // epoch. Keep the key and missing cursor, expose the gap and retry it later.
+    if(codeOf(e)==="waiting"&&!view.wraps?.some(w=>w.epoch===epoch)){
+     unavailable.add(epoch);continue;
+    }
     // Never skip silently. No cursor is stored for this epoch so a later sync refetches it. Stop the pass
     // on throttling instead of hammering the limiter.
     exhausted=e;if(codeOf(e)==="rate_limited")break;
    }
   }
-  const missing=[...this.keys.keys()].some(k=>!this.cursors.has(k));
+  const missing=[...this.keys.keys()].some(k=>!this.cursors.has(k)&&!unavailable.has(k));
   await this.render();
   if((exhausted as {exhausted?:boolean})?.exhausted){this.fail(exhausted);return false;}
   if(missing||exhausted){
@@ -337,7 +348,8 @@ export class ChatClient{
    this.later(codeOf(exhausted)==="rate_limited"?this.retryHint:5000);
    return false;
   }
-  this.set({historyIncomplete:false});return true;
+  this.set({historyIncomplete:unavailable.size>0});
+  return true;
  }
  async loadMore(){
   return this.run(async()=>{
@@ -434,11 +446,14 @@ export class ChatClient{
       await this.sync();
       if([...this.raw.values()].some(m=>m.senderUserId===this.user&&m.id===id)){this.local.delete(lk);this.sealed.delete(id);this.ambiguous.delete(id);await this.render();return true;}
       // A stale response to a later retry does NOT establish that the first attempt failed.
-      if(this.ambiguous.has(id))break;
+      if(this.ambiguous.has(id)||this.closed||this.snap.phase!=="ready"||this.identity!==me)break;
       const cur=this.lastView!,key=this.keys.get(cur.epoch);
       if(!key)break;
-      const updated=await sealMessage(me,this.user,{room:this.room,revision:cur.revision,epoch:cur.epoch,id,ts:this.now()},body,key);
-      await this.store.putPending(this.user,updated);this.sealed.set(id,updated);continue;
+      try{
+       const updated=await sealMessage(me,this.user,{room:this.room,revision:cur.revision,epoch:cur.epoch,id,ts:this.now()},body,key);
+       await this.store.putPending(this.user,updated);this.sealed.set(id,updated);
+      }catch{this.set({error:"local_storage"});break;}
+      continue;
      }
      if([...this.raw.values()].some(m=>m.senderUserId===this.user&&m.id===id)){this.local.delete(lk);this.sealed.delete(id);this.ambiguous.delete(id);await this.render();return true;}
      if(code==="rate_limited")this.fail(e);
