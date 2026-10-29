@@ -18,7 +18,7 @@ test("internal navigation uses the Next router while external chart attribution 
 });
 test("authenticated account boundary resets socket and chat but is never keyed by pathname",()=>{
  const client=read("app/room-client.tsx");
- assert.match(client,/<LiveProvider key=\{user.id\}><SignedInShell>/);
+ assert.match(client,/<LiveProvider key=\{user.id\}><GameChatProvider><SignedInShell>[\s\S]*?<\/SignedInShell><\/GameChatProvider><\/LiveProvider>/);
  assert.match(client,/\{children\}<ChatGate\/>/);
  assert.match(client,/features.chat&&\(features.tableTalk\|\|features.dms\)\?<ChatDock\/>/);
  assert.doesNotMatch(client,/key=\{(?:path|pathname)\}/);
