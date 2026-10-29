@@ -6,7 +6,7 @@ import {adminCasinoSnapshot,changeCasinoLimits} from "../lib/admin-casino-limits
 import {publicRoom} from "../lib/public";
 import {actionSchema} from "../lib/schemas";
 import {pokerStakes} from "../lib/poker-stakes";
-import {applyPokerTableAction,pokerTableRoom,POKER_FIELDS} from "../lib/poker-tables";
+import {applyPokerTableAction,pokerTableRoom,POKER_FIELDS,tickPokerTables} from "../lib/poker-tables";
 const admin={id:"admin",name:"Admin",email:"a@test",admin:true},user={id:"player",name:"Player",email:"p@test",admin:false};
 function setup(wallet=1000000){const room=freshRoom();register(room,admin,0);const m=register(room,user,0);room.issuance=wallet-m.wallet;m.adjustments=wallet-m.wallet;m.wallet=wallet;return room;}
 const join=(room:ReturnType<typeof setup>,id:'01'|'02'|'03',buyIn:number)=>{const t=pokerTableRoom(room,id);applyPokerTableAction(room,id,user,{type:'join',seat:0,buyIn},t.handNumber,t.deadline,0);};
@@ -93,6 +93,8 @@ test('legacy short stacks remain playable through an active high-table hand and 
   let turns=0;
   while(pokerTableRoom(room,id).street!=='showdown'&&turns++<30){const t=pokerTableRoom(room,id),i=t.turn!;action(i,{type:legal(t,i)!.check?'check':'call'});}
   assert.equal(pokerTableRoom(room,id).street,'showdown');
+  // Normal post-hand tick removes busted seats before survivors cash out.
+  tickPokerTables(room,0);
   for(let i=0;i<3;i++)if(pokerTableRoom(room,id).seats[i])action(i,{type:'leave'});
   assert.equal(totalChips(room),3000000);assert.equal(room.members.reduce((n,m)=>n+m.wallet,0),3000000);assertRoom(room);
  }
