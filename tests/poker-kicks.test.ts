@@ -1,3 +1,4 @@
+import {pokerStakes} from '../lib/poker-stakes';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
@@ -7,8 +8,8 @@ import {applyPokerKick,reconcilePokerKickVotes,pokerKickNeedsTick,pokerKickSchem
 import type {Room} from '../lib/types';
 const now=Date.now(),who=(i:number)=>({id:'kick-user-'+i,name:'Player '+i,email:'test@invalid',admin:false});
 function setup(n=4,id:'01'|'02'|'03'='01'){
- const r=freshRoom();for(let i=0;i<6;i++)register(r,who(i),now);
- for(let i=0;i<n;i++)applyPokerTableAction(r,id,who(i),{type:'join',seat:i,buyIn:20000},0,null,now);
+ const r=freshRoom();for(let i=0;i<6;i++){const m=register(r,who(i),now);m.wallet+=900000;r.issuance=(r.issuance??0)+900000;}
+ for(let i=0;i<n;i++)applyPokerTableAction(r,id,who(i),{type:'join',seat:i,buyIn:pokerStakes(id).minBuyIn},0,null,now);
  return r;
 }
 const pid=(r:Room,i:number)=>r.members.find(m=>m.id===who(i).id)!.publicId;
@@ -22,7 +23,7 @@ test('strict 51 percent of all seated players, initiator auto yes, atomic exact 
   assert.throws(()=>cast(r,4,true,now+1,id),/Only seated/);
   cast(r,1,true,now+1,id);assert.equal(v.status,'active');
   cast(r,2,true,now+2,id);assert.equal(v.status,'passed');
-  assert.equal(pokerTableRoom(r,id).seats[3],null);assert.equal(r.members[3].wallet,100000);assert.equal(totalChips(r),before);
+  assert.equal(pokerTableRoom(r,id).seats[3],null);assert.equal(r.members[3].wallet,1000000);assert.equal(totalChips(r),before);
   assert.ok(!JSON.stringify(publicPokerKickVote(r,id)).includes('kick-user-'));
   assert.ok(r.auditPending!.some(e=>e.what==='poker.kick'));assertRoom(r);
  }
@@ -47,7 +48,7 @@ test('persistent global sixty-second throttle across tables, replay identity and
  assert.throws(()=>applyPokerKick(r,who(0),{...request,targetPublicId:pid(r,2)},now+1),/replay/);
  cast(r,1,false);
  applyPokerTableAction(r,'01',who(0),{type:'leave'},0,null,now+2);
- for(const [seat,i] of [0,4,5].entries())applyPokerTableAction(r,'02',who(i),{type:'join',seat,buyIn:20000},0,null,now+3);
+ for(const [seat,i] of [0,4,5].entries())applyPokerTableAction(r,'02',who(i),{type:'join',seat,buyIn:40000},0,null,now+3);
  assert.throws(()=>applyPokerKick(r,who(0),{...req(r,5,'02'),requestAt:now+59999},now+59999),/sixty/);
  applyPokerKick(r,who(0),{...req(r,5,'02'),requestAt:now+60000},now+60000);
  assertRoom(r);
@@ -70,20 +71,20 @@ test('admin active-hand cashout keeps other turn deadline and committed side-pot
  const target=r.seats.findIndex((s,i)=>s&&i!==r.turn&&s.committed>0);
  const old=structuredClone(r.seats[target]!),deadline=r.deadline,turn=r.turn;
  applyPokerKick(r,{...who(5),admin:true},{...req(r,target),action:'admin-kick'},now+1);
- assert.equal(r.seats[target],null);assert.equal(r.members[target].wallet,80000+old.stack);
+ assert.equal(r.seats[target],null);assert.equal(r.members[target].wallet,1000000-pokerStakes().minBuyIn+old.stack);
  assert.ok(r.pokerDead!.includes(old.committed));assert.equal(r.turn,turn);assert.equal(r.deadline,deadline);assertRoom(r);
  // Resolve normal engine action flow after detached committed contributions.
  let steps=0;while(r.street!=='showdown'&&steps++<100){
   const s=r.seats[r.turn!]!;act(r,s.userId,{type:s.bet<r.currentBet?'call':'check'},now+2+steps);assertRoom(r);
  }
- assert.equal(r.street,'showdown');assert.equal(totalChips(r),600000);
+ assert.equal(r.street,'showdown');assert.equal(totalChips(r),6000000);
 });
 test('admin removing current turn advances safely and heads-up settles without forfeiting stack',()=>{
  for(const n of [2,3,4]){
   const r=setup(n);for(const s of r.seats)if(s)s.ready=true;startHand(r,now);
   const target=r.turn!,stack=r.seats[target]!.stack;
   applyPokerKick(r,{...who(5),admin:true},{...req(r,target),action:'admin-kick'},now+1);
-  assert.equal(r.members[target].wallet,80000+stack);assert.equal(r.seats[target],null);
+  assert.equal(r.members[target].wallet,1000000-pokerStakes().minBuyIn+stack);assert.equal(r.seats[target],null);
   if(n===2)assert.equal(r.street,'showdown');else{assert.notEqual(r.turn,target);assert.equal(r.deadline,now+1+60000);}
   assertRoom(r);
  }
@@ -94,20 +95,20 @@ test('strict schema denies injected admin flags, malformed vote, expired request
  assert.throws(()=>applyPokerKick(r,who(0),req(r),now+120001),/expired/);
  for(const s of r.seats)if(s)s.ready=true;startHand(r,now);
  while(r.street!=='showdown')act(r,r.seats[r.turn!]!.userId,{type:'fold'},now+1);
- const target=r.seats.findIndex(s=>s&&s.stack>20000),stack=r.seats[target]!.stack;
+ const target=r.seats.findIndex(s=>s&&s.stack>pokerStakes().minBuyIn),stack=r.seats[target]!.stack;
  applyPokerKick(r,{...who(5),admin:true},{...req(r,target),action:'admin-kick'},now+2);
- assert.equal(r.members[target].wallet,80000+stack);assertRoom(r);
+ assert.equal(r.members[target].wallet,1000000-pokerStakes().minBuyIn+stack);assertRoom(r);
 });
 test('unequal all-in side pots survive admin removal and every chip remains accounted',()=>{
  const r=setup(4);
- // Keep each member's $200 buy-in ledger balanced while varying effective stacks.
+ // Preserve each wallet-plus-stack total while varying legacy effective stacks.
  for(const [i,stack] of [2000,5000,10000,20000].entries()){r.members[i].wallet+=r.seats[i]!.stack-stack;r.seats[i]!.stack=stack;r.seats[i]!.ready=true;}
  startHand(r,now);
  const target=r.turn!,s=r.seats[target]!;
  // Remove a deeper committed contributor while other players continue to all-in.
  const refund=s.stack,contribution=s.committed;
  applyPokerKick(r,{...who(5),admin:true},{...req(r,target),action:'admin-kick'},now+1);
- assert.equal(r.members[target].wallet,100000-([2000,5000,10000,20000][target])+refund);
+ assert.equal(r.members[target].wallet,1000000-([2000,5000,10000,20000][target])+refund);
  if(contribution)assert.ok(r.pokerDead!.includes(contribution));
  let actions=0;
  while(r.street!=='showdown'&&actions++<50){
@@ -116,7 +117,7 @@ test('unequal all-in side pots survive admin removal and every chip remains acco
   act(r,actor.userId,choices.raiseOpen?{type:'raise',to}:{type:choices.check?'check':'call'},now+2+actions);
   assertRoom(r);
  }
- assert.equal(r.street,'showdown');assert.equal(totalChips(r),600000);
+ assert.equal(r.street,'showdown');assert.equal(totalChips(r),6000000);
 });
 
 test('nonadmin starts require waiting with an unready player, never showdown or all-ready state',()=>{

@@ -26,8 +26,8 @@ test("admin route rejects ordinary identity before reads, parses or mutation",as
 });
 test("admin route returns defaults and updates persisted snapshot with stale-edit protection",async()=>{
  assert.equal((await GET(request())).status,200);
- const response=await POST(request({rouletteMaxTotal:50000,blackjackMaxHand:20000,pokerMaxBuyIn:250000,expectedVersion:0}));
- assert.equal(response.status,200);assert.deepEqual((await response.json()).casinoLimits,{rouletteMaxTotal:50000,blackjackMaxHand:20000,pokerMaxBuyIn:250000,revision:1});
+ const response=await POST(request({rouletteMaxTotal:50000,blackjackMaxHand:20000,pokerMaxBuyIn:100000,expectedVersion:0}));
+ assert.equal(response.status,200);const data=await response.json();assert.equal(data.casinoLimits.rouletteMaxTotal,50000);assert.equal(data.casinoLimits.blackjackMaxHand,20000);assert.equal(data.casinoLimits.pokerMaxBuyIn,100000);assert.equal(data.casinoLimits.revision,1);assert.equal(data.pokerBuyInPolicy,"table-stakes");assert.deepEqual(data.pokerTableLimits["03"],{minBuyIn:200000,maxBuyIn:1000000});
  const before=structuredClone(room);
  assert.equal((await POST(request({rouletteMaxTotal:100,blackjackMaxHand:100,expectedVersion:0}))).status,409);
  assert.deepEqual(room,before);
@@ -38,6 +38,6 @@ test("admin route rejects malformed bounds, decimals, strings and unknown proper
   const response=await POST(request({rouletteMaxTotal:value,blackjackMaxHand:100,expectedVersion:1}));assert.equal(response.status,400);
  }
  assert.equal((await POST(request({rouletteMaxTotal:100,blackjackMaxHand:100,expectedVersion:1,admin:true}))).status,400);
- for(const pokerMaxBuyIn of [0,100,9900,10001,10000.5,100000100,"10000",null])assert.equal((await POST(request({rouletteMaxTotal:100,blackjackMaxHand:100,pokerMaxBuyIn,expectedVersion:1}))).status,400);
+ for(const pokerMaxBuyIn of [0,100,9900,10001,10000.5,100000100,250000,"10000",null])assert.equal((await POST(request({rouletteMaxTotal:100,blackjackMaxHand:100,pokerMaxBuyIn,expectedVersion:1}))).status,400);
  assert.equal(writes,count);assert.deepEqual(room,before);
 });

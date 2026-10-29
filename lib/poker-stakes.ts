@@ -1,8 +1,8 @@
 // Play-money cents. The third forced bet is a live UTG straddle, not an ante.
 export const POKER_STAKES = {
- '01': {label:'Low',small:100,big:200,straddle:500},
- '02': {label:'Medium',small:1000,big:2000,straddle:5000},
- '03': {label:'High',small:5000,big:10000,straddle:20000},
+ '01': {label:'Low',small:100,big:200,straddle:500,minBuyIn:4000,maxBuyIn:20000},
+ '02': {label:'Medium',small:1000,big:2000,straddle:5000,minBuyIn:40000,maxBuyIn:200000},
+ '03': {label:'High',small:5000,big:10000,straddle:20000,minBuyIn:200000,maxBuyIn:1000000},
 } as const;
 export function pokerStakes(id:keyof typeof POKER_STAKES='01'){return POKER_STAKES[id];}
 export function pokerStakesLabel(id:keyof typeof POKER_STAKES){const s=pokerStakes(id);return '$'+s.small/100+' / $'+s.big/100+' / $'+s.straddle/100;}

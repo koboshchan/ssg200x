@@ -166,7 +166,7 @@ test("last unready player cashing out starts the remaining two ready players",()
 
 test("persisted all-unready window cashes everyone out once without creating pot money",()=>{
  const r=freshRoom();
- for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:10000*(i+1)},1000);}
+ for(let i=0;i<3;i++){register(r,user(i),1000);applyAction(r,user(i),{type:"join",seat:i,buyIn:5000*(i+1)},1000);}
  r.readyDeadline=2000+READY_MS;
  const restarted=JSON.parse(JSON.stringify(r)) as Room;
  tick(restarted,restarted.readyDeadline!-1);assert.equal(restarted.seats.filter(Boolean).length,3);

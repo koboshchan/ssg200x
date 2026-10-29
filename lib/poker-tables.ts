@@ -1,3 +1,4 @@
+import {pokerStakes} from "./poker-stakes";
 import {freshRoom,active,seatOf,tick,applyAction} from './poker';
 import {ensure} from './errors';
 import type {Room,Action,Identity} from './types';
@@ -21,7 +22,7 @@ export function savePokerTable(room:Room,id:PokerTableId,scoped:Room){
 export function pokerStates(room:Room){return [room,...(['02','03'] as const).flatMap(id=>room.pokerTables?.[id]?[room.pokerTables[id]!]:[])];}
 export function seatedPokerTable(room:Room,user:string):PokerTableId|null{return POKER_TABLE_IDS.find(id=>pokerTableRoom(room,id).seats.some(s=>s?.userId===user))??null;}
 export function pokerMemberAssets(room:Room,user:string){return pokerStates(room).reduce((n,t)=>n+t.seats.reduce((sum,s)=>sum+(s?.userId===user?s.stack+s.committed:0),0),0);}
-export function pokerTablesView(room:Room){return POKER_TABLE_IDS.map(id=>{const t=pokerTableRoom(room,id);return {id,name:`Table ${id}`,seatsFilled:t.seats.filter(Boolean).length,seatCount:12 as const,street:t.street,handNumber:t.handNumber};});}
+export function pokerTablesView(room:Room){return POKER_TABLE_IDS.map(id=>{const t=pokerTableRoom(room,id);const {minBuyIn,maxBuyIn}=pokerStakes(id);return {id,minBuyIn,maxBuyIn,name:`Table ${id}`,seatsFilled:t.seats.filter(Boolean).length,seatCount:12 as const,street:t.street,handNumber:t.handNumber};});}
 export function pokerTableNeedsTick(r:Room,now:number){return (!active(r)&&((r.readyDeadline!=null&&now>=r.readyDeadline)||(r.readyDeadline==null&&r.seats.some(s=>s?.ready))))||(r.deadline!==null&&now>=r.deadline)||(r.nextDeal!==null&&now>=r.nextDeal)||(!active(r)&&r.seats.some(s=>s&&!s.ready&&(s.leaveAfter||s.stack===0)));}
 export function tickPokerTables(room:Room,now:number){for(const id of POKER_TABLE_IDS){const scoped=pokerTableRoom(room,id);if(pokerTableNeedsTick(scoped,now)){tick(scoped,now);savePokerTable(room,id,scoped);}}}
 export function applyPokerTableAction(room:Room,id:PokerTableId,who:Identity,action:Action,handNumber:number,deadline:number|null,now:number){

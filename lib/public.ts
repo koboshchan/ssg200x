@@ -1,3 +1,4 @@
+import {pokerStakes} from "./poker-stakes";
 import {stockMarketHours} from "./market-hours";
 import {forexMonotonic,forexClockDomain} from "./forex-config";
 import {forexDecision,forexMarketOpen} from "./forex-policy";
@@ -40,7 +41,7 @@ export function publicRoom(r:Room,who:Identity,tableId:PokerTableId="01") {
  return {
   cryptoStatus:r.cryptoStatus??null,
   forexLastQuotes:r.forexLastQuotes??{},forexQuotes:r.forexQuotes??{},forexStatus:{...(r.forexStatus??{mode:"unconfigured" as const,stream:"down" as const,message:"OANDA practice credentials required."}),marketOpen:forexMarketOpen(Date.now())},forexExecution:Object.fromEntries(marketSymbols(r).forex.map(s=>[s,forexDecision(s,r.forexQuotes?.[s],r.forexStatus,Date.now(),forexMonotonic(),forexClockDomain)])),
-  pokerKickVote:publicPokerKickVote(ledger,tableId),pokerTableId:tableId,pokerTables:pokerTablesView(ledger),pokerInPlay:(()=>{const id=seatedPokerTable(ledger,who.id);if(!id)return 0;const t=pokerTableRoom(ledger,id),s=t.seats.find(s=>s?.userId===who.id)!;return s.stack+(active(t)?s.committed:0)})(),
+  pokerBuyIn:{minBuyIn:pokerStakes(tableId).minBuyIn,maxBuyIn:pokerStakes(tableId).maxBuyIn},pokerKickVote:publicPokerKickVote(ledger,tableId),pokerTableId:tableId,pokerTables:pokerTablesView(ledger),pokerInPlay:(()=>{const id=seatedPokerTable(ledger,who.id);if(!id)return 0;const t=pokerTableRoom(ledger,id),s=t.seats.find(s=>s?.userId===who.id)!;return s.stack+(active(t)?s.committed:0)})(),
   perpsCloseAll:r.financeReceipts?.find(x=>x.userId===who.id&&x.closeAll)?.closeAll??null,
   gamesInPlay:miniAssets(r,who.id),receivedPayments:(r.members.find(m=>m.id===who.id)?.receivedPayments??[]).map(p=>({id:p.id,amount:p.amount,at:p.at,sender:r.members.find(m=>m.id===p.senderId)?.name??"Player"})),checkIn:checkInView(r.members.find(m=>m.id===who.id)!,Date.now()),advancements:advancementView(r.members.find(m=>m.id===who.id)),casinoLimits:casinoLimits(r),marketSymbols:marketSymbols(r),marketSummary:summary,marketChanges:Object.fromEntries(Object.entries(summary).map(([symbol,row])=>[symbol,row.change])),chatNames:r.members.map(m=>({publicId:m.publicId,name:m.name})),transferHistoryKeys:{mine:transferHistoryKey([me]),all:who.admin?transferHistoryKey(r.members):""},stockExecution:Object.fromEntries(Object.entries(publicStockState(r)).map(([symbol,{checkedAt:_,...state}])=>{
    const marketHours=stockMarketHours(r.stockExecution?.[symbol],Date.now());

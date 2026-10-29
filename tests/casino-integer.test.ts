@@ -33,8 +33,8 @@ test("roulette and poker request schemas reject fractional dollars and preserve 
  for(const amount of [99,100001,0,-100])assert.equal(rouletteBetSchema.safeParse({kind:"red",amount}).success,false);
  for(const amount of [100,100000])assert.equal(rouletteBetSchema.safeParse({kind:"red",amount}).success,true);
  for(const to of invalid)assert.equal(actionSchema.safeParse({...base,type:"raise",to}).success,false);
- for(const buyIn of [10001,10050,"10000",9999,100000100])assert.equal(actionSchema.safeParse({...base,type:"join",seat:0,buyIn}).success,false);
- for(const buyIn of [10000,100000])assert.equal(actionSchema.safeParse({...base,type:"join",seat:0,buyIn}).success,true);
+ for(const buyIn of [10001,10050,"10000",3999,100000100])assert.equal(actionSchema.safeParse({...base,type:"join",seat:0,buyIn}).success,false);
+ for(const buyIn of [4000,10000,20000])assert.equal(actionSchema.safeParse({...base,type:"join",seat:0,buyIn}).success,true);
  const request={type:"bet",tableId:"01",requestId:base.requestId,requestAt:base.requestAt,round:1};
  for(const amount of [...invalid,99,100001,0,-100])assert.equal(rouletteRequestSchema.safeParse({...request,bet:{kind:"red",amount}}).success,false);
  for(const amount of [100,100000])assert.equal(rouletteRequestSchema.safeParse({...request,bet:{kind:"red",amount}}).success,true);
