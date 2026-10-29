@@ -19,23 +19,21 @@ test("real admin casino controls load/save cents, reject decimal dollars, reload
    await page.route("https://casino.test/**",async(route:any)=>{
     if(route.request().url().includes("/api/admin/casino-limits")){
      if(!admin)return route.fulfill({status:403,json:{error:"Administrator access required."}});
-     if(route.request().method()==="POST"){const body=route.request().postDataJSON();posts++;assert.equal(body.expectedVersion,state.revision);state={rouletteMaxTotal:body.rouletteMaxTotal,blackjackMaxHand:body.blackjackMaxHand,pokerMaxBuyIn:body.pokerMaxBuyIn,gamesMaxBet:body.gamesMaxBet,revision:state.revision+1};}
+     if(route.request().method()==="POST"){const body=route.request().postDataJSON();posts++;assert.equal(body.expectedVersion,state.revision);state={rouletteMaxTotal:body.rouletteMaxTotal,blackjackMaxHand:body.blackjackMaxHand,pokerMaxBuyIn:100000,gamesMaxBet:body.gamesMaxBet,revision:state.revision+1};}
      return route.fulfill({json:{casinoLimits:state}});
     }
     return route.fulfill({contentType:"text/html",body:'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><div id="root"></div>'});
    });
    const mount=async()=>{await page.goto("https://casino.test");await page.addStyleTag({content:require("node:fs").readFileSync("app/globals.css","utf8")});await page.addScriptTag({content:out.outputFiles[0].text});};
    await mount();
-   const poker=page.getByLabel("Poker max buy-in per seat ($)");
+   assert.equal(await page.getByLabel("Poker max buy-in per seat ($)").count(),0);
    const roulette=page.getByLabel("Roulette max total bet per player per round ($)"),blackjack=page.getByLabel("Blackjack max hand bet ($)");
    await roulette.waitFor({timeout:5000}).catch(async(e:Error)=>{console.error(errors,await page.locator("body").innerText());throw e;});assert.equal(await roulette.inputValue(),"1000");assert.equal(await blackjack.inputValue(),"1000");
-   assert.equal(await poker.inputValue(),"1000");await page.getByLabel("Games max bet per game ($)").fill("75");await poker.fill("2500");await roulette.fill("250");await blackjack.fill("50");await page.getByRole("button",{name:"Save limits"}).click();
+   assert.equal(await page.getByRole("group",{name:"Poker buy-in limits"}).getByRole("listitem").count(),3);assert.match(await page.getByRole("group",{name:"Poker buy-in limits"}).innerText(),/\$2,000 – \$10,000/);await page.getByLabel("Games max bet per game ($)").fill("75");await roulette.fill("250");await blackjack.fill("50");await page.getByRole("button",{name:"Save limits"}).click();
    await page.waitForFunction(()=>{const button=[...document.querySelectorAll("button")].find(b=>b.textContent==="Save limits");return button&&!button.disabled;});
-   assert.deepEqual(state,{rouletteMaxTotal:25000,blackjackMaxHand:5000,pokerMaxBuyIn:250000,gamesMaxBet:7500,revision:1});assert.equal(posts,1);
+   assert.deepEqual(state,{rouletteMaxTotal:25000,blackjackMaxHand:5000,pokerMaxBuyIn:100000,gamesMaxBet:7500,revision:1});assert.equal(posts,1);
    await roulette.fill("1.5");await page.getByRole("button",{name:"Save limits"}).click();assert.equal(posts,1);
-   await mount();await roulette.waitFor({timeout:5000}).catch(async(e:Error)=>{console.error(errors,await page.locator("body").innerText());throw e;});assert.equal(await roulette.inputValue(),"250");assert.equal(await blackjack.inputValue(),"50");assert.equal(await poker.inputValue(),"2500");
-   await poker.fill("99");await page.getByRole("button",{name:"Save limits"}).click();assert.equal(posts,1);
-   await poker.fill("100.5");await page.getByRole("button",{name:"Save limits"}).click();assert.equal(posts,1);
+   await mount();await roulette.waitFor({timeout:5000}).catch(async(e:Error)=>{console.error(errors,await page.locator("body").innerText());throw e;});assert.equal(await roulette.inputValue(),"250");assert.equal(await blackjack.inputValue(),"50");
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
    admin=false;await mount();await page.waitForFunction(()=>!document.querySelector("form"));assert.equal(await page.getByRole("button").count(),0);
    assert.deepEqual(errors,[]);await page.close();
