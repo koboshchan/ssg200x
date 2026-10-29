@@ -3,7 +3,7 @@ import {ensure} from './errors';
 import type {Room,Action,Identity} from './types';
 export const POKER_TABLE_IDS=['01','02','03'] as const;
 export type PokerTableId=typeof POKER_TABLE_IDS[number];
-export const POKER_FIELDS=['seats','button','street','handNumber','board','deck','currentBet','minRaise','pending','turn','deadline','nextDeal','readyDeadline','payouts','log','pokerBonus','pokerCarry','pokerDead','idleCountedHand'] as const;
+export const POKER_FIELDS=['seats','button','street','handNumber','board','deck','currentBet','minRaise','pending','turn','deadline','nextDeal','readyDeadline','payouts','log','pokerBonus','pokerCarry','pokerDead','idleCountedHand','pokerHandBigBlind'] as const;
 export type PokerTableState=Pick<Room,typeof POKER_FIELDS[number]>;
 export function pokerTableId(value:unknown):PokerTableId{ensure(POKER_TABLE_IDS.includes(value as PokerTableId),'Invalid poker table.',400);return value as PokerTableId;}
 export function freshPokerTable():PokerTableState{const room=freshRoom();return Object.fromEntries(POKER_FIELDS.map(key=>[key,room[key]])) as PokerTableState;}
@@ -11,7 +11,7 @@ export function freshPokerTable():PokerTableState{const room=freshRoom();return 
 // migration write can reset its live hand, stacks, deck, receipts or timers.
 export function pokerTableRoom(room:Room,id:PokerTableId):Room{
  if(id==='01')return room;
- return {...room,...(room.pokerTables?.[id]??freshPokerTable())};
+ return {...room,...(room.pokerTables?.[id]??freshPokerTable()),pokerStakeTableId:id};
 }
 export function savePokerTable(room:Room,id:PokerTableId,scoped:Room){
  if(id==='01')return;

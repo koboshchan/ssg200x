@@ -1,3 +1,4 @@
+import {pokerStakes} from "./poker-stakes";
 import {doudizhuAssets} from "./doudizhu";
 import {miniAssets} from "./minigames";
 import {pokerStates} from "./poker-tables";
@@ -158,7 +159,7 @@ function advance(r: Room, after: number, now: number) {
  if (r.street === "river" || alive.filter(s => s!.stack > 0).length <= 1) { showdown(r, now); return; }
  revealStreet(r);
  for (const s of r.seats) if (s) { s.bet = 0; s.actedAt = null; }
- r.currentBet = 0; r.minRaise = BIG;
+ r.currentBet = 0; r.minRaise = r.pokerHandBigBlind ?? BIG;
  r.pending = ordered(r, r.button, canAct);
  setTurn(r, r.pending[0] ?? null, now);
 }
@@ -167,6 +168,8 @@ export function startHand(r: Room, now: number, rng?: (max: number) => number) {
  const eligible = (s: Seat) => s.ready === true && !s.sitOut && !s.leaveAfter && s.stack > 0;
  if (r.seats.some(s => s && !eligible(s) && !s.sitOut)) return;
  if (r.seats.filter(s => s && eligible(s)).length < 2) { r.street = "waiting"; r.nextDeal = null; return; }
+ const stakes=pokerStakes(r.pokerStakeTableId);
+ r.pokerHandBigBlind=stakes.big;
  r.button = next(r, r.button, eligible);
  r.readyDeadline = null;
  r.pokerBonus=(r.pokerBonus??0)+(r.pokerCarry??0);r.pokerCarry=0;r.pokerDead=[];
@@ -176,12 +179,12 @@ export function startHand(r: Room, now: number, rng?: (max: number) => number) {
  const n = r.seats.filter(s => s?.inHand).length;
  const sb = n === 2 ? r.button : next(r,r.button,s=>s.inHand);
  const bb = next(r,sb,s=>s.inHand);
- put(r.seats[sb]!,SMALL); put(r.seats[bb]!,BIG);
+ put(r.seats[sb]!,stakes.small); put(r.seats[bb]!,stakes.big);
  let last = bb;
- if (n >= 3) { last = next(r,bb,s=>s.inHand); put(r.seats[last]!,STRADDLE); }
- r.currentBet = n >= 3 ? STRADDLE : BIG; r.minRaise = r.currentBet;
+ if (n >= 3) { last = next(r,bb,s=>s.inHand); put(r.seats[last]!,stakes.straddle); }
+ r.currentBet = n >= 3 ? stakes.straddle : stakes.big; r.minRaise = r.currentBet;
  r.pending = ordered(r,last,canAct);
- addLog(r, "Hand #" + r.handNumber + " · " + (n >= 3 ? "$1 / $2 / $5 live UTG straddle" : "$1 / $2 heads-up"));
+ addLog(r, "Hand #" + r.handNumber + " · " + (n >= 3 ? "$"+stakes.small/100+" / $"+stakes.big/100+" / $"+stakes.straddle/100+" live UTG straddle" : "$"+stakes.small/100+" / $"+stakes.big/100+" heads-up"));
  advance(r,last,now);
 }
 export function legal(r: Room, i: number) {
