@@ -24,9 +24,19 @@ test("mounted blackjack shows shoe count on all tables, rerenders, no invented c
    const el=page.getByTestId("bj-cards-remaining");
    const show=async(c:any[])=>{await page.evaluate((c:any[])=>(window as any).show(c),c);await page.waitForTimeout(100);};
    const noOverflow=async()=>assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth));
+   const topRight=async()=>{
+    const box=await el.boundingBox(),felt=await page.locator(".bj-felt").boundingBox(),dealer=await page.locator(".bj-dealer").boundingBox();
+    assert.ok(box&&felt&&dealer);
+    assert.ok(Math.abs(felt.x+felt.width-box.x-box.width-16)<1,"right inset is 16px");
+    assert.ok(Math.abs(box.y-felt.y-14)<1,"top inset is 14px");
+    assert.ok(box.y+box.height<=dealer.y,"counter does not overlap dealer");
+    assert.equal(await el.evaluate((e:any)=>getComputedStyle(e).color),"rgb(255, 255, 255)");
+    assert.ok(await el.evaluate((e:any)=>e.scrollWidth<=e.clientWidth),"count not clipped");
+    assert.equal(await el.evaluate((e:any)=>getComputedStyle(e).fontSize),"13px");
+   };
    await show([312,250,17]);
    for(const [name,txt] of [["Lounge","312 / 312 cards left"],["Salon","250 / 312 cards left"],["Terrace","17 / 312 cards left"]]){
-    await page.getByRole("button",{name,exact:true}).click();assert.equal(await el.textContent(),txt);await noOverflow();}
+    await page.getByRole("button",{name,exact:true}).click();assert.equal(await el.textContent(),txt);await noOverflow();await topRight();}
    await show([312,250,300]); // reshuffle on terrace
    assert.equal(await el.textContent(),"300 / 312 cards left");
    await page.getByRole("button",{name:"Salon",exact:true}).click();assert.equal(await el.textContent(),"250 / 312 cards left");
@@ -34,7 +44,7 @@ test("mounted blackjack shows shoe count on all tables, rerenders, no invented c
    assert.equal(await el.count(),0);assert.doesNotMatch(await page.locator(".bj-dealer").textContent()||"",/cards left/);
    await page.getByRole("button",{name:"Lounge",exact:true}).click();assert.equal(await el.textContent(),"312 / 312 cards left");
    await show([312,250,17]);await noOverflow();
-   await page.screenshot({path:"/home/kit/out/blackjack-shoe-"+vp.f+".png",fullPage:true});
+   await page.screenshot({path:"/home/kit/out/blackjack-shoe-top-right-"+vp.f+".png",fullPage:true});
    assert.deepEqual(errors,[]);await page.close();
   }
  }finally{await browser.close();}
