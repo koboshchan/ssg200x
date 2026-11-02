@@ -1,4 +1,5 @@
 "use client";
+import {saveSettings} from "@/lib/settings-request";
 import CommitVersions from "./commit-versions";
 import {getTabHeaders} from "@/lib/tab-identity";
 import {useEffect,useState} from "react";
@@ -12,8 +13,7 @@ export default function SettingsClient(){
  useEffect(()=>{let live=true;fetch("/api/settings").then(async r=>{const j=await r.json();if(!r.ok)throw new Error(j.error||"Could not load settings.");if(live)setSettings(j);}).catch(e=>live&&setError(e.message));return()=>{live=false;};},[]);
  async function choose(patch:Partial<Settings>){
   if(!settings||saving)return;const prev=settings;setSettings({...settings,...patch});setSaving(true);setError("");
-  try{const r=await fetch("/api/settings",{method:"POST",headers:{"content-type":"application/json",...getTabHeaders()},body:JSON.stringify({...patch,requestId:crypto.randomUUID(),requestAt:Date.now()})});
-   if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||"Could not save.");}
+  try{await saveSettings(patch,getTabHeaders());}
   catch(e){setSettings(prev);setError(e instanceof Error?e.message:"Could not save.");}
   finally{setSaving(false);}
  }
