@@ -50,10 +50,10 @@ export async function authorizeLink(d:Db,who:Identity,input:unknown){
  await applications(d).updateOne({_id:app._id},{$inc:{fence:1}},{session});
  const old=await grants(d).findOne({appId:app._id,userId:who.id},{session});
  if(link.externalSubject){const bound=await grants(d).findOne({appId:app._id,externalSubject:link.externalSubject,revokedAt:null,expiresAt:{$gt:now}},{session});requireApp(!bound||bound.userId===who.id,"unavailable","External account already connected.",409);}
- const grant:Grant={_id:old?._id??randomUUID(),appId:app._id,userId:who.id,appUserId:old?.appUserId??randomUUID(),externalSubject:link.externalSubject,scopes:v.scopes,limits:v.limits,policyVersion:app.policyVersion,authorizationVersion:randomUUID(),fence:(old?.fence??0)+1,createdAt:now,expiresAt:new Date(now.getTime()+GRANT_TTL),revokedAt:null};
+ const grant:Grant={_id:old?._id??randomUUID(),appId:app._id,userId:who.id,appUserId:old?.appUserId??randomUUID(),externalSubject:link.externalSubject,scopes:v.scopes,limits:v.limits,consentTextVersion:"ssg-app-consent-v1",policyVersion:app.policyVersion,authorizationVersion:randomUUID(),fence:(old?.fence??0)+1,createdAt:now,expiresAt:new Date(now.getTime()+GRANT_TTL),revokedAt:null};
  await grants(d).replaceOne({_id:grant._id},grant,{upsert:true,session});
  requireApp((await links(d).updateOne({_id:link._id,state:"pending",expiresAt:{$gt:new Date()}},{$set:{state:"approved",grantId:grant._id,authorizationVersion:grant.authorizationVersion},$inc:{fence:1}},{session})).matchedCount,"unavailable","Code already consumed.",409);
- await previews(d).deleteOne({_id:preview._id},{session});await audit(d,who.id,"grant_consented",grant._id,{scopes:grant.scopes,limits:grant.limits,authorizationVersion:grant.authorizationVersion,policyVersion:app.policyVersion,refundAfterRevoke:true},session);return grant;
+ await previews(d).deleteOne({_id:preview._id},{session});await audit(d,who.id,"grant_consented",grant._id,{scopes:grant.scopes,limits:grant.limits,authorizationVersion:grant.authorizationVersion,policyVersion:app.policyVersion,refundAfterRevoke:true,refundWindowDays:90,consentTextVersion:"ssg-app-consent-v1",currencyDisclosure:"SSG simulation currency; not bank USD or withdrawable money",recurringDebitDisclosure:"Approved applications can spend repeatedly within consent limits without another prompt."},session);return grant;
  });return {grant:await connectedGrantView(d,result)};
 }
 export async function pollLink(d:Db,client:AppClient,id:string,input:unknown){
