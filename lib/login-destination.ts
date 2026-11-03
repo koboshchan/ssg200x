@@ -1,6 +1,6 @@
 import {HUB_GAMES} from "./games-hub";
 // Only known local game pages are valid login destinations. Never accept URLs.
-const paths=new Set<string>(["/games",...HUB_GAMES.map(g=>g.href)]);
+const paths=new Set<string>(["/games","/link",...HUB_GAMES.map(g=>g.href)]);
 export function safeGameDestination(value:string|null|undefined):string|null{
  if(!value||value.startsWith("//")||/[\\\x00-\x20]/.test(value))return null;
  try{
