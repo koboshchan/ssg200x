@@ -35,13 +35,13 @@ export default function DeveloperApps(){
  async function create(e:React.FormEvent){e.preventDefault();if(busy)return;setBusy(true);setError("");
   try{await api("/api/developer/apps",{method:"POST",body:f});setF({name:"",description:"",website:"https://"});setOpen(false);await load();}catch(err){setError(errMsg(err));}finally{setBusy(false);}}
  return <fieldset className="settings-group"><legend>Your apps (developer)</legend>
-  <p className="app-note">Build something that charges or pays ssg200x wallets. An admin reviews every app before anyone can link it.</p>
+  <p className="app-note">Build something that charges or credits ssg200x play-money wallets. An admin reviews every app before anyone can link it.</p>
   {ids===null?<p role="status">Loading…</p>:<ul className="app-list">{ids.map(id=><AppCard key={id} id={id} onError={setError} onGone={()=>void load()}/>)}</ul>}
   {open?<form className="app-form" onSubmit={create}>
-   <label><span>Name</span><input required minLength={2} maxLength={64} value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></label>
-   <label><span>What it does</span><input maxLength={160} value={f.description} onChange={e=>setF({...f,description:e.target.value})}/></label>
-   <label><span>Website (https)</span><input required type="url" maxLength={300} inputMode="url" value={f.website} onChange={e=>setF({...f,website:e.target.value})}/></label>
-   <div className="app-actions"><button className="primary" type="submit" disabled={busy}>Create draft</button><button type="button" onClick={()=>setOpen(false)}>Cancel</button></div></form>
+   <label><span>Name</span><input disabled={busy} required minLength={2} maxLength={64} value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></label>
+   <label><span>What it does</span><input disabled={busy} maxLength={160} value={f.description} onChange={e=>setF({...f,description:e.target.value})}/></label>
+   <label><span>Website (https)</span><input disabled={busy} required type="url" maxLength={300} inputMode="url" value={f.website} onChange={e=>setF({...f,website:e.target.value})}/></label>
+   <div className="app-actions"><button className="primary" type="submit" disabled={busy}>Create draft</button><button type="button" disabled={busy} onClick={()=>setOpen(false)}>Cancel</button></div></form>
   :<button onClick={()=>setOpen(true)}>Register an app</button>}
   <ErrorNote message={error} onDismiss={()=>setError("")}/>
  </fieldset>;
