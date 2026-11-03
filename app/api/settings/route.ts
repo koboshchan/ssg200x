@@ -9,7 +9,7 @@ const schema=z.object({triggerInputMode:z.enum(["price","pnl"]).optional(),hideF
 export const GET=(request:Request)=>endpoint(request,async who=>{
  const room=await visit(who);
  const member=room.members.find(m=>m.id===who.id)!;
- return {triggerInputMode:triggerInputMode(member),hideFromLeaderboard:hideFromLeaderboard(member),skipCloseConfirmation:skipCloseConfirmation(member)};
+ return {serverNow:Date.now(),triggerInputMode:triggerInputMode(member),hideFromLeaderboard:hideFromLeaderboard(member),skipCloseConfirmation:skipCloseConfirmation(member)};
 });
 export const POST=(request:Request)=>endpoint(request,async who=>{
  await rateLimit("settings:"+who.id,30);

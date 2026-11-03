@@ -8,5 +8,7 @@ test("open form and editor send the active mode fields with assertion",()=>{
  assert.ok(fin.includes("room.me.triggerInputMode"));
 });
 test("settings page posts mode with request id and time",()=>{
- assert.ok(set.includes('"/api/settings"')&&set.includes("requestId:crypto.randomUUID()")&&set.includes("requestAt:Date.now()"));
+ const sender=readFileSync("lib/settings-request.ts","utf8");
+ assert.ok(set.includes("saveSettings(patch,getTabHeaders())"));
+ assert.ok(sender.includes('"/api/settings"')&&sender.includes("requestId:crypto.randomUUID()")&&sender.includes("requestAt:snapshot.serverNow"));
 });
