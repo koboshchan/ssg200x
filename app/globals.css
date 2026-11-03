@@ -137,6 +137,10 @@ button:hover{background:var(--surface-2);border-color:var(--line)}
  /* Markets keeps its symbol picker reachable: chat becomes a bottom sheet instead of covering the page. */
  html.chat-open:has([data-market-picker]),html.chat-open:has([data-market-picker]) body{overflow:auto}
  html.chat-open:has([data-market-picker]) .chat-dock{top:auto;bottom:0;height:min(55dvh,var(--chat-viewport-height,100dvh));border-top:1px solid var(--line);border-left:0}
+ /* Dou Dizhu keeps its room controls (visibility toggle) reachable: same bottom-sheet treatment, page scrolls clear of the sheet. */
+ html.chat-open:has(.dd-main),html.chat-open:has(.dd-main) body{overflow:auto}
+ html.chat-open:has(.dd-main) body{padding-bottom:55dvh}
+ html.chat-open:has(.dd-main) .chat-dock{top:auto;bottom:0;height:min(55dvh,var(--chat-viewport-height,100dvh));border-top:1px solid var(--line);border-left:0}
 }
 
 .chat-warn code{display:block;overflow-wrap:anywhere;white-space:normal;margin:6px 0}
