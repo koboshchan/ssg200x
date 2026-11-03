@@ -8,6 +8,7 @@ export const scopesSchema=z.array(scopeSchema).min(1).max(4).refine(s=>new Set(s
 export const MAX_CENTS=100_000_000;
 export const limitsSchema=z.object({per_operation_cents:z.number().int().min(0).max(MAX_CENTS),daily_cents:z.number().int().min(0).max(MAX_CENTS),lifetime_cents:z.number().int().min(0).max(MAX_CENTS)}).strict();
 export type Limits=z.infer<typeof limitsSchema>;
+// Platform hard ceiling as well as the initial consent default. Raising app caps alone never bypasses it.
 export const DEFAULT_LIMITS:Limits={per_operation_cents:100_000,daily_cents:500_000,lifetime_cents:5_000_000};
 export const ZERO_LIMITS:Limits={per_operation_cents:0,daily_cents:0,lifetime_cents:0};
 export const LINK_TTL=600_000;

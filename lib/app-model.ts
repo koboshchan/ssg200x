@@ -2,7 +2,7 @@ import type {Db,ClientSession,Document} from "mongodb";
 import {randomUUID} from "node:crypto";
 import type {Scope,Limits} from "./app-policy";
 export type Application={_id:string;clientId:string;ownerUserId:string;name:string;description:string;website:string;status:"draft"|"pending"|"approved"|"suspended"|"deleted";approvedScopes:Scope[];creditMode:"refunds"|"mint";limits:Limits;mintLimits:Limits;appDailyCents:number;policyVersion:number;fence:number;createdAt:Date;updatedAt:Date};
-export type Credential={_id:string;appId:string;secretHash:string;prefix:string;scopes:Scope[];createdAt:Date;expiresAt:Date;revokedAt:Date|null;fence:number};
+export type Credential={_id:string;appId:string;secretHash:string;prefix:string;scopes:Scope[];createdAt:Date;expiresAt:Date;revokedAt:Date|null;lastUsedAt?:Date;fence:number};
 export type Grant={_id:string;appId:string;userId:string;appUserId:string;externalSubject:string;scopes:Scope[];limits:Limits;policyVersion:number;authorizationVersion:string;fence:number;createdAt:Date;expiresAt:Date;revokedAt:Date|null};
 export type Link={_id:string;appId:string;credentialId:string;codeHash:string;deviceTokenHash:string;requestedScopes:Scope[];externalSubject:string;policyVersion:number;state:"pending"|"approved"|"denied";grantId?:string;authorizationVersion?:string;createdAt:Date;expiresAt:Date;nextPollAt:Date;fence:number};
 export type Preview={_id:string;requestId:string;userId:string;appId:string;policyVersion:number;expiresAt:Date};

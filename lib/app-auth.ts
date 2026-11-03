@@ -26,7 +26,7 @@ export async function currentClient(d:Db,client:AppClient,session?:ClientSession
 export async function fenceClient(d:Db,client:AppClient,session:ClientSession,allowSuspended=false){
  const live=await currentClient(d,client,session,allowSuspended);
  requireApp((await applications(d).updateOne({_id:live.app._id,policyVersion:live.app.policyVersion,status:live.app.status},{$inc:{fence:1}},{session})).matchedCount,"app_suspended","Application policy changed.",403);
- requireApp((await credentials(d).updateOne({_id:live.credential._id,revokedAt:null,expiresAt:{$gt:new Date()}},{$inc:{fence:1}},{session})).matchedCount,"invalid_client","Credential changed.",401);
+ requireApp((await credentials(d).updateOne({_id:live.credential._id,revokedAt:null,expiresAt:{$gt:new Date()}},{$inc:{fence:1},$set:{lastUsedAt:new Date()}},{session})).matchedCount,"invalid_client","Credential changed.",401);
  return live;
 }
 export function effectiveScopes(client:AppClient,grant:Grant):Scope[]{
