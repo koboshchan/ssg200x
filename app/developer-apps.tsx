@@ -1,6 +1,7 @@
 "use client";
 import {useCallback,useEffect,useState} from "react";
 import {api,errMsg,when,type AppView,type Cred} from "./app-api-client";
+import AppDeleteConfirmation from "./app-delete-confirmation";
 import ErrorNote from "./error-note";
 type Detail={app:AppView;credentials:Cred[];linked_user_count:number};
 const STATUS:Record<string,string>={draft:"Draft",pending:"Waiting for review",approved:"Approved",suspended:"Suspended",deleted:"Deleted"};
@@ -9,12 +10,12 @@ function Secret({secret,onClose}:{secret:string;onClose:()=>void}){
  return <div className="app-secret" role="alert"><strong>Copy this secret now. It will never be shown again.</strong><code>{secret}</code><div className="app-actions"><button onClick={async()=>{try{await navigator.clipboard.writeText(secret);setCopied(true);}catch{}}}>{copied?"Copied":"Copy"}</button><button className="primary" onClick={onClose}>I saved it</button></div></div>;
 }
 function AppCard({id,onError,onGone}:{id:string;onError:(m:string)=>void;onGone:()=>void}){
- const [d,setD]=useState<Detail|null>(null),[secret,setSecret]=useState<string|null>(null),[busy,setBusy]=useState(false);
+ const [d,setD]=useState<Detail|null>(null),[secret,setSecret]=useState<string|null>(null),[busy,setBusy]=useState(false),[askDelete,setAskDelete]=useState(false);
  const load=useCallback(async()=>{try{setD(await api<Detail>("/api/developer/apps/"+encodeURIComponent(id)));}catch(e){onError(errMsg(e));}},[id,onError]);
  useEffect(()=>{void load();},[load]);
  if(!d)return <li className="app-card"><p role="status">Loading…</p></li>;
  const a=d.app,live=d.credentials.filter(c=>!c.revoked_at&&new Date(c.expires_at).getTime()>Date.now());
- async function run(fn:()=>Promise<void>){setBusy(true);try{await fn();await load();}catch(e){onError(errMsg(e));}finally{setBusy(false);}}
+ async function run(fn:()=>Promise<void>){if(busy)return;setBusy(true);try{await fn();await load();}catch(e){onError(errMsg(e));}finally{setBusy(false);}}
  const base="/api/developer/apps/"+encodeURIComponent(id);
  return <li className="app-card"><div className="app-card-head"><div><strong>{a.name}</strong><small className="app-url">{a.website}</small></div><span className={"app-status app-"+a.status}>{STATUS[a.status]??a.status}</span></div>
   <p>{a.description}</p>
@@ -25,7 +26,8 @@ function AppCard({id,onError,onGone}:{id:string;onError:(m:string)=>void;onGone:
   <ul className="app-creds" aria-label="Credentials">{d.credentials.map(c=><li key={c.credential_id}><code>{c.prefix}…</code><small>{c.revoked_at?"Revoked":"Expires "+when(c.expires_at)}</small>{!c.revoked_at?<><button disabled={busy||live.length>=5} onClick={()=>run(async()=>{const j=await api<{secret:string}>(base+"/credentials",{method:"POST",body:{overlap_credential_id:c.credential_id,overlap_seconds:3600}});setSecret(j.secret);})}>Rotate</button><button className="admin-remove" disabled={busy} onClick={()=>run(async()=>{await api(base+"/credentials/"+encodeURIComponent(c.credential_id),{method:"DELETE",body:{}});})}>Revoke</button></>:null}</li>)}</ul>
   {live.length>=5?<small>Five live credentials is the maximum. Revoke one first.</small>:null}
   <small>Rotate keeps the old credential working for one hour so you can switch over.</small>
-  {a.status!=="deleted"?<div className="app-actions"><button className="admin-remove" disabled={busy} onClick={()=>{if(confirm("Delete "+a.name+"? Linked users are disconnected."))void run(async()=>{await api(base,{method:"PATCH",body:{status:"deleted"}});onGone();});}}>Delete app</button></div>:null}
+  {a.status!=="deleted"?<div className="app-actions"><button className="admin-remove" disabled={busy||askDelete} onClick={()=>setAskDelete(true)}>Delete app</button></div>:null}
+  {askDelete?<AppDeleteConfirmation name={a.name} busy={busy} onCancel={()=>setAskDelete(false)} onDelete={()=>void run(async()=>{await api(base,{method:"PATCH",body:{status:"deleted"}});onGone();})}/>:null}
  </li>;
 }
 export default function DeveloperApps(){

@@ -3,11 +3,13 @@ import {useCallback,useEffect,useState} from "react";
 import {api,errMsg,SCOPE_INFO,SCOPE_ORDER,toCents,toDollars,when,type AppView,type Limits,type Scope} from "./app-api-client";
 import LimitFields,{limitText,parseLimits,type LimitText} from "./limit-fields";
 import "./app-api.css";
+import AppDeleteConfirmation from "./app-delete-confirmation";
 import ErrorNote from "./error-note";
 const MAX:Limits={per_operation_cents:100_000_000,daily_cents:100_000_000,lifetime_cents:100_000_000};
 function Review({a,onDone,onError}:{a:AppView;onDone:(a:AppView)=>void;onError:(m:string)=>void}){
- const [scopes,setScopes]=useState<Scope[]>(a.approved_scopes.length?a.approved_scopes:["profile","balance:read","balance:debit"]),[mode,setMode]=useState(a.credit_mode),[lim,setLim]=useState<LimitText>(limitText(a.limits)),[mint,setMint]=useState<LimitText>(limitText(a.mint_limits)),[daily,setDaily]=useState(toDollars(a.app_daily_cents)),[busy,setBusy]=useState(false);
+ const [scopes,setScopes]=useState<Scope[]>(a.approved_scopes.length?a.approved_scopes:["profile","balance:read","balance:debit"]),[mode,setMode]=useState(a.credit_mode),[lim,setLim]=useState<LimitText>(limitText(a.limits)),[mint,setMint]=useState<LimitText>(limitText(a.mint_limits)),[daily,setDaily]=useState(toDollars(a.app_daily_cents)),[busy,setBusy]=useState(false),[askDelete,setAskDelete]=useState(false);
  async function send(status:"approved"|"suspended"|"deleted"){
+  if(busy)return;
   const body:Record<string,unknown>={status};
   if(status==="approved"){
    const l=parseLimits(lim,MAX);if(!l.limits){onError(l.error!);return;}
@@ -28,7 +30,8 @@ function Review({a,onDone,onError}:{a:AppView;onDone:(a:AppView)=>void;onError:(
    <label className="settings-row"><input type="radio" name={"m"+a.app_id} checked={mode==="mint"} onChange={()=>setMode("mint")}/><span><strong>Can mint money</strong><small>Creates new money. Set positive caps below.</small></span></label>
   </fieldset>
   {mode==="mint"?<LimitFields value={mint} max={MAX} onChange={setMint} disabled={busy} legend="Mint caps"/>:null}
-  <div className="app-actions"><button className="primary" disabled={busy||scopes.length===0} onClick={()=>send("approved")}>{a.status==="approved"?"Update approval":"Approve"}</button>{a.status!=="suspended"?<button disabled={busy} onClick={()=>send("suspended")}>Suspend</button>:null}<button className="admin-remove" disabled={busy} onClick={()=>{if(confirm("Reject and delete "+a.name+"?"))void send("deleted");}}>Reject / delete</button></div>
+  <div className="app-actions"><button className="primary" disabled={busy||scopes.length===0} onClick={()=>send("approved")}>{a.status==="approved"?"Update approval":"Approve"}</button>{a.status!=="suspended"?<button disabled={busy} onClick={()=>send("suspended")}>Suspend</button>:null}<button className="admin-remove" disabled={busy||askDelete} onClick={()=>setAskDelete(true)}>Reject / delete</button></div>
+  {askDelete?<AppDeleteConfirmation name={a.name} busy={busy} onCancel={()=>setAskDelete(false)} onDelete={()=>void send("deleted")}/>:null}
  </details>;
 }
 export default function AdminApps(){
