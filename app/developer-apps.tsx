@@ -31,20 +31,21 @@ function AppCard({id,onError,onGone}:{id:string;onError:(m:string)=>void;onGone:
  </li>;
 }
 export default function DeveloperApps(){
+ const [canCreate,setCanCreate]=useState(false);
  const [ids,setIds]=useState<string[]|null>(null),[error,setError]=useState(""),[open,setOpen]=useState(false),[busy,setBusy]=useState(false),[f,setF]=useState({name:"",description:"",website:"https://"});
- const load=useCallback(async()=>{try{setIds((await api<{items:AppView[]}>("/api/developer/apps")).items.filter(a=>a.status!=="deleted").map(a=>a.app_id));}catch(e){setError(errMsg(e,"Could not load your apps."));setIds([]);}},[]);
+ const load=useCallback(async()=>{try{const data=await api<{items:AppView[];can_create?:boolean}>("/api/developer/apps");setCanCreate(data.can_create===true);setIds(data.items.filter(a=>a.status!=="deleted").map(a=>a.app_id));}catch(e){setCanCreate(false);setError(errMsg(e,"Could not load your apps."));setIds([]);}},[]);
  useEffect(()=>{void load();},[load]);
- async function create(e:React.FormEvent){e.preventDefault();if(busy)return;setBusy(true);setError("");
+ async function create(e:React.FormEvent){e.preventDefault();if(busy||!canCreate)return;setBusy(true);setError("");
   try{await api("/api/developer/apps",{method:"POST",body:f});setF({name:"",description:"",website:"https://"});setOpen(false);await load();}catch(err){setError(errMsg(err));}finally{setBusy(false);}}
  return <fieldset className="settings-group"><legend>Your apps (developer)</legend>
-  <p className="app-note">Build something that charges or credits ssg200x play-money wallets. An admin reviews every app before anyone can link it.</p>
+  <p className="app-note">Only admins can register apps. Existing app owners can still manage their apps here. An admin reviews every app before anyone can link it.</p>
   {ids===null?<p role="status">Loading…</p>:<ul className="app-list">{ids.map(id=><AppCard key={id} id={id} onError={setError} onGone={()=>void load()}/>)}</ul>}
-  {open?<form className="app-form" onSubmit={create}>
+  {canCreate?(open?<form className="app-form" onSubmit={create}>
    <label><span>Name</span><input disabled={busy} required minLength={2} maxLength={64} value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></label>
    <label><span>What it does</span><input disabled={busy} maxLength={160} value={f.description} onChange={e=>setF({...f,description:e.target.value})}/></label>
    <label><span>Website (https)</span><input disabled={busy} required type="url" maxLength={300} inputMode="url" value={f.website} onChange={e=>setF({...f,website:e.target.value})}/></label>
    <div className="app-actions"><button className="primary" type="submit" disabled={busy}>Create draft</button><button type="button" disabled={busy} onClick={()=>setOpen(false)}>Cancel</button></div></form>
-  :<button onClick={()=>setOpen(true)}>Register an app</button>}
+  :<button onClick={()=>setOpen(true)}>Register an app</button>):null}
   <ErrorNote message={error} onDismiss={()=>setError("")}/>
  </fieldset>;
 }

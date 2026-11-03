@@ -24,12 +24,30 @@ before(async()=>{assert.ok((await(await db()).admin().command({hello:1})).setNam
 beforeEach(async()=>{const d=await db();for(const name of ["rooms","app_applications","app_credentials","app_grants","app_link_codes","app_previews","app_transactions","app_usage","app_throttles","app_audit","app_owners"])await d.collection(name).deleteMany({});await visit(alice);await visit(bob);});
 after(async()=>{await(await db()).dropDatabase();await closeDatabase();});
 async function setup(scopes:typeof SCOPES[number][]=["profile","balance:read","balance:debit"],who=alice,mint=false){
- const d=await db(),reg=await registerApp(d,alice,{name:"Test app",description:"Trusted game server",website:"https://example.test"});
+ const d=await db(),reg=await registerApp(d,{...alice,admin:true},{name:"Test app",description:"Trusted game server",website:"https://example.test"});
  await reviewApp(d,admin,reg.app.app_id,{status:"approved",approved_scopes:scopes,limits:L,app_daily_cents:5_000_000,...(mint?{credit_mode:"mint",mint_limits:L}:{})});
  const c=await createCredential(d,alice,reg.app.app_id,{}),request=new Request("https://ssg.example.test/api/v1/users",{headers:{authorization:"Bearer "+c.secret,"x-client-id":reg.app.client_id}}),client=await authenticateApp(request,d);
  const link=await createLink(d,client,{scopes,external_subject:"steam:"+who.id}),preview=await previewLink(d,who,{user_code:link.user_code}),grant=await authorizeLink(d,who,{confirmation_token:preview.confirmation_token,scopes,limits:L});
  return {d,client,request,reg,c,link,g:grant.grant};
 }
+test("non-admin app registration is forbidden with no writes, even for malformed input",async()=>{
+ const d=await db();
+ for(const body of [{name:"Forbidden app",website:"https://example.test"},{}])await assert.rejects(()=>registerApp(d,alice,body),{code:"forbidden",status:403});
+ assert.equal(await applications(d).countDocuments({}),0);
+ assert.equal(await d.collection("app_owners").countDocuments({}),0);
+ assert.equal(await d.collection("app_audit").countDocuments({event:"app_registered"}),0);
+});
+test("admin registration succeeds and existing owner management survives losing admin access",async()=>{
+ const d=await db(),reg=await registerApp(d,{...alice,admin:true},{name:"Admin app",description:"Owned app",website:"https://example.test"});
+ assert.equal((await applications(d).findOne({_id:reg.app.app_id}))!.ownerUserId,alice.id);
+ assert.equal(await d.collection("app_audit").countDocuments({event:"app_registered",actor:alice.id}),1);
+ const c=await createCredential(d,alice,reg.app.app_id,{});assert.ok(c.secret);
+ assert.equal((await editApp(d,alice,reg.app.app_id,{description:"Still mine"})).app.description,"Still mine");
+ await assert.rejects(()=>createCredential(d,bob,reg.app.app_id,{}),{status:404});
+ await assert.rejects(()=>editApp(d,bob,reg.app.app_id,{description:"Not mine"}),{status:404});
+ await revokeCredential(d,alice,reg.app.app_id,c.credential.credential_id);
+ await assert.rejects(()=>registerApp(d,alice,{name:"Another app",website:"https://example.test"}),{status:403});
+});
 async function conserved(){const r=await readRoom();assertRoom(r);const sum=await transactions(await db()).aggregate([{$group:{_id:null,total:{$sum:"$signedDelta"}}}]).next();assert.equal(r.issuance??0,sum?.total??0);return r;}
 test("durable debit burns issuance, adjusts member, never exposes secret/internal identity",async()=>{const x=await setup(),result=await moveAppMoney(x.d,x.client,x.g.app_user_id,"debit",key(),input(70000));assert.equal(result.body.amount_cents,70000);assert.equal(result.body.available_cents,30000);const room=await conserved();assert.equal(room.members[0].adjustments,-70000);assert.equal(await x.d.collection("app_audit").countDocuments({event:"money_committed"}),1);const raw=JSON.stringify(result);for(const field of ["userId","email","secretHash","issuanceBefore","before","authorizationVersion"])assert.equal(raw.includes('"'+field+'"'),false);assert.equal((await transactions(x.d).findOne({}))!.roomVersion,room.version);});
 test("100 simultaneous identical keys commit exactly one immutable ledger/counter increment",async()=>{const x=await setup(),k=key(),out=await Promise.all(Array.from({length:100},()=>moveAppMoney(x.d,x.client,x.g.app_user_id,"debit",k,input())));assert.equal(new Set(out.map(r=>r.body.transaction_id)).size,1);assert.equal(out.filter(r=>!r.replayed).length,1);assert.equal(await transactions(x.d).countDocuments({}),1);assert.equal((await conserved()).members[0].wallet,90000);const counters=await usage(x.d).find({}).toArray();assert.ok(counters.length>=5);assert.ok(counters.every(c=>c.count===1&&c.amount===10000));await assert.rejects(()=>moveAppMoney(x.d,x.client,x.g.app_user_id,"debit",k,input(9999)),{code:"idempotency_conflict"});});

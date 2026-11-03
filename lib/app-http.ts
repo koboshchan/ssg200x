@@ -73,7 +73,7 @@ export function browserAppRoute(request:Request,kind:"developer"|"links"|"admin"
  }else{
  requireApp(kind!=="admin"||who.admin,"unavailable","Unavailable.",404);
  if(!parts.length){
- if(method==="GET"){const rows=await applications(d).find(kind==="admin"?{}:{ownerUserId:who.id}).sort({createdAt:-1}).limit(100).toArray();return {items:rows.map(appView)};}
+ if(method==="GET"){const rows=await applications(d).find(kind==="admin"?{}:{ownerUserId:who.id}).sort({createdAt:-1}).limit(100).toArray();return {items:rows.map(appView),...(kind==="developer"?{can_create:who.admin===true}:{})};}
  if(method==="POST"&&kind==="developer")return registerApp(d,who,await body(request));
  }
  if(parts.length===1&&method==="PATCH")return kind==="admin"?reviewApp(d,who,parts[0],await body(request)):editApp(d,who,parts[0],await body(request));

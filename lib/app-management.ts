@@ -9,6 +9,7 @@ export function credentialView(c:Credential){return {credential_id:c._id,prefix:
 export function transactionView(t:Transaction){return {transaction_id:t._id,app_user_id:t.appUserId,grant_id:t.grantId,status:"committed",amount_cents:t.amountCents,direction:t.operation,...(t.creditReason?{credit_reason:t.creditReason}:{}),external_reference:t.externalReference,description:t.description,created_at:t.createdAt,...(t.originalTransactionId?{original_transaction_id:t.originalTransactionId}:{})};}
 export async function ownedApp(d:Db,who:Identity,id:string){const a=await applications(d).findOne({_id:id,ownerUserId:who.id});requireApp(a,"unavailable","Application unavailable.",404);return a;}
 export async function registerApp(d:Db,who:Identity,input:unknown){
+ requireApp(who.admin,"forbidden","Only admins can create applications.",403);
  const v=registrationSchema.parse(input);await appIndexes(d);
  return appTransaction(d,async session=>{
  const count=await applications(d).countDocuments({ownerUserId:who.id,status:{$ne:"deleted"}},{session});requireApp(count<10,"limit_exceeded","At most ten active applications.",409);
