@@ -46,7 +46,8 @@ export async function activateLegacyApps(d:Db){
    const row=await legacy.findOne({_id:id,status:{$in:["draft","pending"]}},{session});
    if(!row)return;
    const scopes=Array.isArray(row.approvedScopes)&&row.approvedScopes.length?row.approvedScopes:[...DEFAULT_SCOPES];
-   const mintOk=row.creditMode==="mint"&&scopes.includes("balance:credit")&&!!row.mintLimits&&Object.values(row.mintLimits).every(n=>n>0);
+   // -1 is a well-formed stored unlimited marker and is preserved; 0 or other values stay invalid (refunds-only).
+   const mintOk=row.creditMode==="mint"&&scopes.includes("balance:credit")&&!!row.mintLimits&&Object.values(row.mintLimits).every(n=>Number.isInteger(n)&&(n>0||n===-1));
    const set={status:"approved" as const,approvedScopes:scopes,creditMode:mintOk?"mint" as const:"refunds" as const,limits:row.limits??{...DEFAULT_LIMITS},mintLimits:mintOk?row.mintLimits:{...ZERO_LIMITS},appDailyCents:row.appDailyCents??5_000_000,updatedAt:new Date()};
    const r=await legacy.updateOne({_id:id,status:row.status,policyVersion:row.policyVersion,fence:row.fence},{$set:set,$inc:{policyVersion:1,fence:1}},{session});
    if(!r.modifiedCount)throw new RetryAppTransaction();

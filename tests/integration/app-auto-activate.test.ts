@@ -70,10 +70,20 @@ test("migration does not overwrite a concurrent admin edit",async()=>{
  for(let i=0;i<10;i++){
   await col.updateOne({_id:"c" as never},{$set:{status:"pending",approvedScopes:[],policyVersion:1,fence:0}});
   const mig=activateLegacyApps(d);
-  await col.updateOne({_id:"c" as never,status:"pending"},{$set:{approvedScopes:["profile"],limits:L},$inc:{policyVersion:1,fence:1}});
+  // No status filter: edit lands whether it runs before (pending) or after (approved) activation; both orderings must keep it.
+  assert.equal((await col.updateOne({_id:"c" as never},{$set:{approvedScopes:["profile"],limits:L},$inc:{policyVersion:1,fence:1}})).matchedCount,1);
   await mig;await activateLegacyApps(d);
   const r=await col.findOne({_id:"c" as never}) as any;assert.equal(r.status,"approved");
   // either the edit landed first (kept) or after activation (also kept); never reverted to stale scopes/limits
   assert.deepEqual(r.approvedScopes,["profile"]);assert.deepEqual(r.limits,L);
  }
+});
+test("legacy -1 mint policy is preserved exactly; finite 0 stays invalid",async()=>{
+ const d=await db(),col=d.collection("app_applications"),U={per_operation_cents:-1,daily_cents:-1,lifetime_cents:-1},Z={per_operation_cents:-1,daily_cents:0,lifetime_cents:-1};
+ const base={ownerUserId:"admin",description:"",website:"https://x.test",approvedScopes:["balance:debit","balance:credit"],creditMode:"mint",limits:{...DEFAULT_LIMITS},appDailyCents:5,policyVersion:1,fence:0,createdAt:new Date(),updatedAt:new Date()};
+ await col.insertMany([{...base,_id:"u" as never,clientId:"app_u",name:"u",status:"pending",mintLimits:U},{...base,_id:"z" as never,clientId:"app_z",name:"z",status:"draft",mintLimits:Z}]);
+ await activateLegacyApps(d);
+ const u=await col.findOne({_id:"u" as never}) as any,z=await col.findOne({_id:"z" as never}) as any;
+ assert.equal(u.status,"approved");assert.equal(u.creditMode,"mint");assert.deepEqual(u.mintLimits,U);assert.deepEqual(u.approvedScopes,["balance:debit","balance:credit"]);
+ assert.equal(z.status,"approved");assert.equal(z.creditMode,"refunds");assert.deepEqual(z.mintLimits,{per_operation_cents:0,daily_cents:0,lifetime_cents:0});
 });
