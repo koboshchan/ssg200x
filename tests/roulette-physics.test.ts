@@ -101,7 +101,7 @@ test('prepared physics settlement preserves escrow and continuous anchor across 
  const resultAt=start+solved.durationMs;
  rouletteTick(r,56000,()=>{throw Error('No second draw');},{round:1,number:7,startedAt:start,resultAt,nextAt:resultAt+5000,physics});
  b.anchor=solved.endAnchor;
- assert.equal(r.members[0].wallet,103500);assertRoom(r);
+ assert.equal(r.members[0].wallet,103600);assertRoom(r);
  assert.equal(roulettePublic(r,who,56000)!.phase,'locked');
  assert.equal(roulettePublic(r,who,56000)!.history.length,0);
  assert.equal(roulettePublic(r,who,start)!.phase,'spinning');

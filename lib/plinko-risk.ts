@@ -14,18 +14,22 @@ const SHAPES:Record<PlinkoRisk,readonly number[]>={
  high:[32,8,4,2,1,2,4,8,32],
 };
 function gcd(a:number,b:number):number{return b===0?a:gcd(b,a%b);}
-function table(weights:readonly number[]):readonly PlinkoBucket[]{
+function table(weights:readonly number[],bps=0):readonly PlinkoBucket[]{
+ // This module is also imported by the browser; keep server crypto out.
+ if(!Number.isSafeInteger(bps)||bps < -1000||bps > 1000)throw new RangeError("Invalid house edge basis points.");
+ const ratio={num:10000-bps,den:10000};
  const sum=weights.reduce((n,w,k)=>n+w*PLINKO_BINOMIAL[k],0);
  return Object.freeze(weights.map(w=>{
-  const n=w*98*256,d=100*sum,g=gcd(n,d);
+  const n=w*ratio.num*256,d=ratio.den*sum,g=gcd(n,d);
   return Object.freeze({numerator:n/g,denominator:d/g,multiplier:n/d});
  }));
 }
 export const PLINKO_RISK_TABLES:Readonly<Record<PlinkoRisk,readonly PlinkoBucket[]>>=Object.freeze({
  low:table(SHAPES.low),medium:table(SHAPES.medium),high:table(SHAPES.high),
 });
-// Historical rounds used these weights, independently of any future defaults.
-export const LEGACY_PLINKO_TABLE=table([32,8,4,2,1,2,4,8,32]);
-/** Exact theoretical RTP is 98%. Settlement floors once in integer cents.
- * Each realized payout loses less than one cent to rounding; cent-floor RTP
- * is therefore slightly below (not exactly) 98% for most wager sizes. */
+/** Fair normalized shape, scaled once by the room edge snapshotted at start. */
+export function plinkoRiskTable(risk:PlinkoRisk,bps=0):readonly PlinkoBucket[]{return bps===0?PLINKO_RISK_TABLES[risk]:table(SHAPES[risk],bps);}
+// Historical rounds retain the old shape and 98% floor-rounded semantics.
+export const LEGACY_PLINKO_TABLE=table([32,8,4,2,1,2,4,8,32],200);
+/** New tables have exact theoretical RTP (10000-bps)/10000. New settlements
+ * stochastically round fractional cents, preserving that same expected RTP. */

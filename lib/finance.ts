@@ -11,6 +11,7 @@ import {casinoLimits,CASINO_LIMIT_MAX_CENTS} from "./casino-limits";
 import {marketSymbols,activeSymbol,delistedSymbol,stockSymbol} from "./symbol-registry";
 import {isWholeCasinoAmount} from "./casino-amount";
 import {stockExecutionPolicy,type StockExecutionState} from "./stock-policy";
+import {houseEdgeBps,edgeRatio,rationalPayout} from "./house-edge";
 import {randomInt,randomUUID} from "node:crypto";
 import {ensure} from "./errors";
 import {validateTriggers,type PositionTriggers} from "./position-triggers";
@@ -125,7 +126,8 @@ export function openPosition(r:Room,who:Identity,symbol:Symbol,side:"long"|"shor
 export function closePosition(r:Room,who:Identity,id:string,now=Date.now(),reason:ClosedPosition["reason"]="Manual"){
  const m=r.members.find(m=>m.id===who.id);const p=m?.positions?.find(x=>x.id===id);ensure(m&&p,"Position not found.",404);settle(r,m,p,delistedSymbol(p.symbol,r)?requireLegacyQuote(r,p.symbol,now).micro:requireQuote(r,p.symbol,now),reason,now);
 }
-export function payout(b:Bet,n:number,maxAmount=100_000){
+/** Undefined edge identifies a pre-fairness persisted wager, never a new wager. */
+export function payout(b:Bet,n:number,maxAmount=100_000,edgeBps?:number,rng:(max:number)=>number=randomInt){
  ensure(Number.isInteger(n)&&n>=0&&n<=36,"Invalid wheel result.");
  ensure(Number.isSafeInteger(b.amount)&&b.amount>=100&&b.amount<=maxAmount,"Bet exceeds the allowed limit.");
  let win=false,mult=2;
@@ -138,16 +140,23 @@ export function payout(b:Bet,n:number,maxAmount=100_000){
  else if(b.kind==="low")win=n>=1&&n<=18;
  else if(b.kind==="high")win=n>=19;
  else ensure(false,"Invalid bet.");
- return win?b.amount*mult:0;
+ if(edgeBps===undefined){const returned=win?b.amount*mult:0;ensure(Number.isSafeInteger(returned),"Roulette exceeds safe ledger precision.");return returned;}
+ const ratio=edgeRatio(edgeBps);
+ return win?rationalPayout(b.amount,37n*BigInt(ratio.num),BigInt(36/mult)*BigInt(ratio.den),rng):0;
 }
 export function spin(r:Room,who:Identity,bets:Bet[],n=randomInt(37),id:string=randomUUID(),now=Date.now()){
  const m=portfolio(register(r,who));
+ ensure(!m.spins!.some(s=>s.id===id),"Spin request already executed.",409);
  ensure(bets.length>=1&&bets.length<=20,"Choose 1–20 bets.");
  ensure(bets.every(b=>isWholeCasinoAmount(b.amount)),"Bets must be whole dollars.");
- const returned=bets.reduce((sum,b)=>sum+payout(b,n,CASINO_LIMIT_MAX_CENTS),0),stake=bets.reduce((sum,b)=>sum+b.amount,0);
+ const edgeBps=houseEdgeBps(r);
+ const returned=bets.reduce((sum,b)=>sum+payout(b,n,CASINO_LIMIT_MAX_CENTS,edgeBps),0),stake=bets.reduce((sum,b)=>sum+b.amount,0);
  ensure(stake<=casinoLimits(r).rouletteMaxTotal&&m.wallet>=stake,"Not enough cash or total bet exceeds the roulette limit.");
  ensure(!m.spins![0]||now-m.spins![0].at>=1500,"Wait a moment before spinning again.",429);
- m.wallet+=returned-stake;r.house=(r.house||0)+stake-returned;
+ ensure([stake,returned,m.wallet,r.house??0].every(Number.isSafeInteger),"Roulette exceeds safe ledger precision.");
+ const wallet=BigInt(m.wallet)-BigInt(stake)+BigInt(returned),house=BigInt(r.house??0)+BigInt(stake)-BigInt(returned),max=BigInt(Number.MAX_SAFE_INTEGER);
+ ensure(wallet>=0n&&wallet<=max&&house>=-max&&house<=max,"Roulette exceeds safe ledger precision.");
+ m.wallet=Number(wallet);r.house=Number(house);
  m.spins=[{id,number:n,stake,returned,at:now},...m.spins!].slice(0,30);
 }
 export function assetsBook(m:Member){return (m.holdings||[]).reduce((n,h)=>n+h.cost,0)+(m.positions||[]).reduce((n,p)=>n+(p.collateral??p.margin),0);}

@@ -8,13 +8,13 @@ import {getTabHeaders} from "@/lib/tab-identity";
 import CasinoAmountInput from "./casino-amount-input";
 import {casinoInputCents} from "@/lib/casino-amount";
 import styles from "./games.module.css";
-import {PLINKO_RISKS,PLINKO_RISK_TABLES,LEGACY_PLINKO_TABLE,isPlinkoRisk,type PlinkoRisk,type PlinkoBucket} from "@/lib/plinko-risk";
+import {PLINKO_RISKS,PLINKO_RISK_TABLES,plinkoRiskTable,LEGACY_PLINKO_TABLE,isPlinkoRisk,type PlinkoRisk,type PlinkoBucket} from "@/lib/plinko-risk";
 import {createPlinkoAnimation,samplePlinkoAnimation} from "@/lib/plinko-animation";
 
 type Kind="plinko"|"hilo"|"mines"|"dice"|"chicken";
 type Status="active"|"won"|"lost"|"cashed";
-type GameView={id:string;requestId?:string;kind:Kind;bet:number;status:Status;revision:number;steps:number;multiplier:number;payout:number;createdAt:number;landAt?:number;durationMs?:number;settledAt?:number;risk?:PlinkoRisk;plinkoTable?:readonly (number|PlinkoBucket)[];card?:number;cards?:number[];revealed?:number[];bombs?:number[];mines?:number;result?:{path?:number[];slot?:number;roll?:number;hit?:number;card?:number};target?:number;direction?:"over"|"under"};
-type Snapshot={version:number;wallet:number;maxBet:number;serverNow:number;games:GameView[];houseEdge:number};
+type GameView={id:string;requestId?:string;kind:Kind;bet:number;status:Status;revision:number;steps:number;multiplier:number;payout:number;expectedPayout?:number;payoutRange?:[number,number];payoutRounding?:"floor"|"stochastic";createdAt:number;landAt?:number;durationMs?:number;settledAt?:number;risk?:PlinkoRisk;plinkoTable?:readonly (number|PlinkoBucket)[];card?:number;cards?:number[];revealed?:number[];bombs?:number[];mines?:number;result?:{path?:number[];slot?:number;roll?:number;hit?:number;card?:number};target?:number;direction?:"over"|"under";houseEdgeBps?:number};
+type Snapshot={version:number;wallet:number;maxBet:number;serverNow:number;games:GameView[];houseEdge:number;houseEdgeBps?:number};
 type Pending={body:string;label:string};
 type Drop={rid:string;body:string;label:string;state:"sending"|"unconfirmed"};
 type Ball={id:string;game:GameView};
@@ -24,6 +24,9 @@ const reserved=(l:Drop[],s:Snapshot|null)=>l.reduce((n,d)=>{if(s?.games.some(g=>
 const dkey=(u:string)=>"ssg-games-plinko-v1:"+u;
 const KINDS:{kind:Kind;label:string;blurb:string}[]=[{kind:"plinko",label:"Plinko",blurb:"Drop the ball, land a multiplier."},{kind:"hilo",label:"Hi-Lo",blurb:"Guess higher or lower, cash out any time."},{kind:"mines",label:"Mines",blurb:"Reveal gems, avoid the mines."},{kind:"dice",label:"Dice",blurb:"Roll over or under your target."},{kind:"chicken",label:"Chicken Road",blurb:"Cross lane after lane. Don't get hit."}];
 const money=(n:number)=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:n%100===0?0:2}).format(n/100);
+const edgeBpsOf=(s:{houseEdgeBps?:number;houseEdge?:number}|null|undefined)=>s?.houseEdgeBps??Math.round((s?.houseEdge??0)*10000);
+const edgeText=(bps:number)=>bps<0?"Player bonus "+(-bps/100).toFixed(2)+"%":(bps/100).toFixed(2)+"% house edge";
+const payText=(g:GameView)=>{const r=g.payoutRange;return g.status==="active"&&r&&r[0]!==r[1]?money(r[0])+"–"+money(r[1]):money(g.payout);};
 const mult=(n:number)=>(Math.round(n*100)/100).toFixed(2)+"×";
 const roundTable=(g:GameView)=>(g.plinkoTable||(g.risk?PLINKO_RISK_TABLES[g.risk]:LEGACY_PLINKO_TABLE)).map(b=>typeof b==="number"?b:b.multiplier);
 const rank=(c:number)=>c===11?"J":c===12?"Q":c===13?"K":c===14?"A":String(c);
@@ -181,21 +184,21 @@ export default function GamesClient({initialKind="plinko",singleGame=false}:{ini
  const cents=casinoInputCents(amount),maxBet=snap?.maxBet??0;
  const betOk=cents!==null&&cents>0&&cents<=maxBet&&cents<=(snap?.wallet??0);
  const busy=!snap||connection!=="connected"||working||!!pending||(kind==="plinko"&&(drops.length>0||balls.length>0));
- const betProps={mines,setMines,amount,setAmount,cents,betOk:betOk&&(kind!=="plinko"||cents!<=free),maxBet};
+ const betProps={edgeBps:edgeBpsOf(snap),mines,setMines,amount,setAmount,cents,betOk:betOk&&(kind!=="plinko"||cents!<=free),maxBet};
  return <main className={styles.games}>
   <Link href="/games" className={styles.back}>‹ All games</Link>
-  <header className={styles.head}><div><h1>{singleGame?KINDS.find(k=>k.kind===initialKind)!.label:"Games"}</h1><p>{Math.round((snap?.houseEdge??0.02)*100)}% house edge, payouts round down to the cent.</p></div><div className={styles.wallet}><span>Wallet</span><strong>{snap?money(Math.max(0,free)):"—"}</strong></div></header>
+  <header className={styles.head}><div><h1>{singleGame?KINDS.find(k=>k.kind===initialKind)!.label:"Games"}</h1><p>{edgeText(edgeBpsOf(snap))}, unbiased cent rounding.</p></div><div className={styles.wallet}><span>Wallet</span><strong>{snap?money(Math.max(0,free)):"—"}</strong></div></header>
   {!singleGame?<div className={styles.tabs} role="tablist" aria-label="Games">{shown.map(k=>{const a=byKind.get(k.kind)?.status==="active";return <button key={k.kind} role="tab" aria-selected={kind===k.kind} className={styles.tab} onClick={()=>setKind(k.kind)}>{k.label}{a?<i className={styles.dot} aria-label="In progress"/>:null}</button>;})}</div>:null}
   <p className={styles.blurb}>{KINDS.find(k=>k.kind===kind)!.blurb}</p>
   {kind!=="plinko"&&pending&&!working?<div className={styles.note+" "+styles.warn} role="alert"><span>{error||"Your last action is unconfirmed."} ({pending.label})</span><button className="primary" disabled={working||connection!=="connected"} onClick={()=>void run(pending,true)}>Retry</button></div>:kind!=="plinko"&&error?<p className={styles.note+" "+styles.warn} role="alert">{error}</p>:null}
   {kind==="plinko"&&plinkoError?<p className={styles.note+" "+styles.warn} role="alert">{plinkoError}</p>:null}
   <section className={styles.stage+(kind==="chicken"?" "+styles.chickenStage:"")} key={kind} aria-label={KINDS.find(k=>k.kind===kind)!.label} aria-busy={busy}>
    {busy?<span className={styles.gameSpinner} role="status" aria-label="Game in progress"/>:null}
-   {kind==="plinko"?<Plinko serverOffset={offset.current} risk={risk} setRisk={setRisk} balls={balls} drops={drops} trail={trail} onDone={ballDone} onRetry={runDrop} blocked={connection!=="connected"}/>:null}
+   {kind==="plinko"?<Plinko edgeBps={edgeBpsOf(snap)} serverOffset={offset.current} risk={risk} setRisk={setRisk} balls={balls} drops={drops} trail={trail} onDone={ballDone} onRetry={runDrop} blocked={connection!=="connected"}/>:null}
    {kind==="hilo"?<HiLo game={game} blocked={blocked} send={send}/>:null}
    {kind==="mines"?<Mines game={game} nextMines={mines} blocked={blocked} send={send}/>:null}
    {kind==="dice"?<DiceView game={game} animKey={animId}/>:null}
-   {kind==="chicken"?<Chicken game={game} blocked={blocked} send={send} animKey={animId}/>:null}
+   {kind==="chicken"?<Chicken edgeBps={edgeBpsOf(snap)} game={game} blocked={blocked} send={send} animKey={animId}/>:null}
    <p className={styles.outcome+" "+(game?.status==="lost"?styles.lose:styles.win)} role="status" aria-label="Round result">{game&&done(game)&&kind!=="plinko"?(game.status==="lost"?"Lost "+money(game.bet):(game.status==="cashed"?"Cashed out ":"Won ")+money(game.payout)+" at "+mult(game.multiplier)):kind==="plinko"&&trail[0]?(trail[0].status==="lost"?"Lost ":"Payout ")+money(trail[0].payout):" "}</p>
   </section>
   {kind==="chicken"?<StartPanel kind={kind} game={game} blocked={blocked} send={send} {...betProps}/>:kind==="plinko"?<StartPanel kind={kind} blocked={dropBlocked} send={send} drop={drop} {...betProps}/>:active?<ActiveBar game={active} blocked={blocked} send={send}/>:<StartPanel kind={kind} blocked={blocked} send={send} {...betProps}/>}
@@ -204,17 +207,17 @@ export default function GamesClient({initialKind="plinko",singleGame=false}:{ini
 type Send=(label:string,payload:object)=>void;
 function ActiveBar({game,blocked,send}:{game:GameView;blocked:boolean;send:Send}){
  const can=game.steps>=1;
- return <div className={styles.panel}><div className={styles.stat}><span>Bet</span><strong>{money(game.bet)}</strong></div><div className={styles.stat}><span>Multiplier</span><strong>{mult(game.multiplier)}</strong></div><div className={styles.stat}><span>Cash out</span><strong>{money(game.payout)}</strong></div>
+ return <div className={styles.panel}><div className={styles.stat}><span>Bet</span><strong>{money(game.bet)}</strong></div><div className={styles.stat}><span>Multiplier</span><strong>{mult(game.multiplier)}</strong></div><div className={styles.stat}><span>Cash out</span><strong title={game.payoutRange&&game.payoutRange[0]!==game.payoutRange[1]?"Cent rounding is random; final amount is not guaranteed.":undefined}>{payText(game)}</strong></div>
   <button className={"primary "+styles.go} disabled={blocked||!can} onClick={()=>send("Cash out",{type:"cashout",id:game.id,revision:game.revision})}>{can?"Cash out":"Take a step first"}</button></div>;
 }
-function StartPanel({kind,game,blocked,send,drop,mines,setMines,amount,setAmount,cents,betOk,maxBet}:{game?:GameView;mines:number;setMines:(n:number)=>void;drop?:(amount:number)=>void;kind:Kind;blocked:boolean;send:Send;amount:string;setAmount:(v:string)=>void;cents:number|null;betOk:boolean;maxBet:number}){
+function StartPanel({edgeBps,kind,game,blocked,send,drop,mines,setMines,amount,setAmount,cents,betOk,maxBet}:{edgeBps:number;game?:GameView;mines:number;setMines:(n:number)=>void;drop?:(amount:number)=>void;kind:Kind;blocked:boolean;send:Send;amount:string;setAmount:(v:string)=>void;cents:number|null;betOk:boolean;maxBet:number}){
  const [target,setTarget]=useState(50),[dir,setDir]=useState<"over"|"under">("over");
  const ftl=useFeatures().features,off=ftl.games===false||ftl[kind]===false;
  const extra:object=kind==="mines"?{mines}:kind==="dice"?{target,direction:dir}:{};
  const chance=dir==="over"?100-target:target-1;
  return <div className={styles.panel}>
   {kind==="dice"?<div className={styles.diceControls}><div className={styles.seg} role="group" aria-label="Direction">{(["over","under"] as const).map(d=><button key={d} aria-pressed={dir===d} onClick={()=>setDir(d)}>Roll {d}</button>)}</div>
-   <label className={styles.field+" "+styles.diceTarget}><span>Target {target} · about {chance}% to win · ≈{(98/chance).toFixed(2)}×</span><input type="range" min={2} max={98} value={target} onChange={e=>setTarget(Number(e.target.value))} aria-label="Target number"/></label></div>:null}
+   <label className={styles.field+" "+styles.diceTarget}><span>Target {target} · about {chance}% to win · ≈{((100-edgeBps/100)/chance).toFixed(2)}×</span><input type="range" min={2} max={98} value={target} onChange={e=>setTarget(Number(e.target.value))} aria-label="Target number"/></label></div>:null}
   <label className={styles.field}><span>Bet</span><div className="input-wrap"><span>$</span><CasinoAmountInput aria-label="Bet in dollars" min="1" value={amount} onChange={setAmount}/></div></label>
   <div className={styles.quick} role="group" aria-label="Quick bets">{[1,5,25,100].map(n=><button key={n} disabled={blocked} onClick={()=>setAmount(String(n))}>{n}</button>)}</div>
   {kind==="mines"?<label className={styles.field}><span>Next bet · {mines} mines</span><input type="range" min={1} max={10} value={mines} onChange={e=>setMines(Number(e.target.value))} aria-label="Number of mines"/></label>:null}
@@ -252,8 +255,8 @@ function PlinkoBall({game,onDone,serverOffset}:{game:GameView;serverOffset:numbe
  },[]);
  return <span ref={el} className={styles.ball} style={{left:0,top:0,willChange:"transform"}}/>;
 }
-function Plinko({risk,setRisk,balls,drops,trail,onDone,onRetry,blocked,serverOffset}:{serverOffset:number;risk:PlinkoRisk;setRisk:(risk:PlinkoRisk)=>void;balls:Ball[];drops:Drop[];trail:GameView[];onDone:(g:GameView)=>void;onRetry:(rid:string)=>void;blocked:boolean}){
- const rows=8,last=trail[0],slot=last?.result?.slot,table=PLINKO_RISK_TABLES[risk];
+function Plinko({edgeBps,risk,setRisk,balls,drops,trail,onDone,onRetry,blocked,serverOffset}:{edgeBps:number;serverOffset:number;risk:PlinkoRisk;setRisk:(risk:PlinkoRisk)=>void;balls:Ball[];drops:Drop[];trail:GameView[];onDone:(g:GameView)=>void;onRetry:(rid:string)=>void;blocked:boolean}){
+ const rows=8,last=trail[0],slot=last?.result?.slot,table=useMemo(()=>plinkoRiskTable(risk,edgeBps),[risk,edgeBps]);
  const [flash,setFlash]=useState<number|null>(null);
  useEffect(()=>{if(slot===undefined||!last||roundTable(last).some((b,i)=>b!==table[i].multiplier)){setFlash(null);return;}setFlash(slot);const t=setTimeout(()=>setFlash(null),900);return()=>clearTimeout(t);},[last?.id,slot,table]);
  const idle=!balls.length&&!drops.length&&!trail.length;
@@ -297,15 +300,15 @@ function DiceView({game,animKey}:{game?:GameView;animKey:string|null}){
   {target?<div className={styles.bar} aria-hidden="true"><i className={styles.zone+" "+(over?styles.over:styles.under)} style={over?{left:target+"%",right:0}:{left:0,width:target+"%"}}/>{shown!==null?<b className={styles.marker} style={{left:shown+"%"}}/>:null}</div>:null}
   <p className={styles.empty}>{target?"Roll "+game?.direction+" "+target:"Choose a target and roll."}</p></div>;
 }
-const CHICKEN_LANES=15,chickenMult=(n:number)=>0.98*Math.pow(1.25,n);
+const CHICKEN_LANES=15,chickenMult=(n:number,edgeBps:number)=>(1-edgeBps/10000)*Math.pow(1.25,n);
 function ChickenSvg({dead}:{dead:boolean}){return <svg viewBox="0 0 32 32" width="1em" height="1em" aria-hidden="true"><ellipse cx="14" cy="19" rx="10" ry="8" fill={dead?"currentColor":"#f5f5f7"} stroke="currentColor" strokeWidth="2"/><circle cx="22" cy="10" r="5" fill={dead?"currentColor":"#f5f5f7"} stroke="currentColor" strokeWidth="2"/><path d="M27 10l4 2-4 2z" fill="#f5a623"/><path d="M21 4c1-2 3-2 3 0" stroke="#ff3b30" strokeWidth="2" fill="none"/><circle cx="23" cy="9" r="1" fill="#000"/></svg>;}
-function Chicken({game,blocked,send,animKey}:{game?:GameView;blocked:boolean;send:Send;animKey:string|null}){
+function Chicken({edgeBps,game,blocked,send,animKey}:{edgeBps:number;game?:GameView;blocked:boolean;send:Send;animKey:string|null}){
  const lanes=CHICKEN_LANES,act=game?.status==="active",lost=game?.status==="lost",won=game?.status==="won"||game?.status==="cashed";
  const crashLane=lost?(game?.result?.hit??game?.steps??1):0;
  const steps=Math.max(0,(game?.steps??0)-(lost?1:0));
  const play=!!game&&animKey===game.id+":"+game.revision;
  const pos=lost?crashLane:steps;
- const next=chickenMult(steps+1);
+ const eb=game?.houseEdgeBps??edgeBps,next=chickenMult(steps+1,eb);
  const full=steps>=lanes;
  const viewport=useRef<HTMLDivElement>(null);
  useEffect(()=>{
@@ -319,16 +322,16 @@ function Chicken({game,blocked,send,animKey}:{game?:GameView;blocked:boolean;sen
   <p className={styles.rule}>Each lane is a 1 in 5 risk. Auto cash-out after crossing all 15.</p>
   <div className={styles.roadStats} aria-live="polite">
    <div><span>Lane</span><strong>{game?Math.min(steps,lanes)+" / "+lanes:"0 / "+lanes}</strong></div>
-   <div><span>{act&&!full?"Next lane":"Multiplier"}</span><strong>{mult(act&&!full?next:game?game.multiplier:chickenMult(1))}</strong></div>
-   <div><span>{lost?"Lost":"Safe payout"}</span><strong className={lost?styles.lose:""}>{game?money(lost?game.bet:game.payout):"—"}</strong></div>
+   <div><span>{act&&!full?"Next lane":"Multiplier"}</span><strong>{mult(act&&!full?next:game?game.multiplier:chickenMult(1,eb))}</strong></div>
+   <div><span>{lost?"Lost":"Safe payout"}</span><strong className={lost?styles.lose:""}>{game?(lost?money(game.bet):payText(game)):"—"}</strong></div>
   </div>
   <div className={styles.roadViewport} ref={viewport} role="region" aria-label="Chicken road lanes" tabIndex={0}><div className={styles.lanes}>
    <span className={styles.curb} aria-hidden="true">Start</span>
    {Array.from({length:lanes},(_,i)=>{const n=i+1,crash=lost&&n===crashLane,passed=n<=steps,cur=act&&n===steps+1;
-    return <span key={i} data-lane={n} className={styles.lane+(passed?" "+styles.passed:"")+(crash?" "+styles.crash:"")+(cur?" "+styles.cur:"")} aria-label={"Lane "+n+(passed?", crossed":crash?", hit by a car":cur?", next":"")+", "+mult(chickenMult(n))}>
+    return <span key={i} data-lane={n} className={styles.lane+(passed?" "+styles.passed:"")+(crash?" "+styles.crash:"")+(cur?" "+styles.cur:"")} aria-label={"Lane "+n+(passed?", crossed":crash?", hit by a car":cur?", next":"")+", "+mult(chickenMult(n,eb))}>
      <i className={styles.dash} aria-hidden="true"/>
      {crash?<svg className={styles.car} viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="8" width="22" height="18" rx="5" fill="currentColor"/><rect x="9" y="11" width="14" height="6" rx="2" fill="#fff" opacity=".7"/></svg>:null}
-     <small>{passed?"✓":mult(chickenMult(n))}</small>
+     <small>{passed?"✓":mult(chickenMult(n,eb))}</small>
     </span>;})}
    <span className={styles.chick+(lost?" "+styles.dead:"")+(won?" "+styles.safeEnd:"")+(play?" "+styles.hop:"")} style={{left:"calc("+pos/(lanes+1)*100+"% + 4px)"}} aria-label="Chicken"><ChickenSvg dead={lost}/></span>
   </div></div>

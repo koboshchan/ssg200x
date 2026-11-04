@@ -6,10 +6,10 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import Blackjack from '../app/blackjack-client';
 import type {PublicRoom} from '../lib/public';
 type H={cards:string[];bet:number;handName?:string|null;result?:string};
-function html(hands:H[],dealer:string[]=['Kh','7d'],dealerHandName:string|null|undefined=undefined){
+function html(hands:H[],dealer:string[]=['Kh','7d'],dealerHandName:string|null|undefined=undefined,houseEdgeBps?:number){
  const t:Record<string,unknown>={id:'lounge',seats:[{name:'Ann',publicId:'a',isYou:true,bet:100,hands}],dealer:{cards:dealer},phase:'settled',round:1,deadline:null,turn:null,minBet:100,maxBet:100000};
  if(dealerHandName!==undefined)t.dealerHandName=dealerHandName;
- const room={serverNow:0,blackjack:{tables:[t]}} as unknown as PublicRoom;
+ const room={serverNow:0,...(houseEdgeBps!==undefined?{casinoLimits:{houseEdgeBps}}:{}),blackjack:{tables:[t]}} as unknown as PublicRoom;
  return renderToStaticMarkup(createElement(Blackjack,{room,busy:false,post:async()=>{}}));
 }
 test('rules explain Black 78 as the only special, plus blackjack and Charlie',()=>{
@@ -47,4 +47,13 @@ test('hidden dealer hand name absent; revealed shown',()=>{
  assert.ok(!/Dealer[^<]*· (Blackjack|Black 78|91|78|Charlie)/.test(hid));
  assert.ok(!html([{cards:['7s','8c'],bet:100}],['Ah','?']).includes('Blackjack</small>'));
  assert.ok(html([{cards:['7s','8c'],bet:100}],['Ah','Kd'],'Blackjack').includes('Dealer · 21 · Blackjack'));
+});
+
+test('rules disclose signed gross payout scale without a calibrated blackjack RTP claim',()=>{
+ for(const [bps,scale,label] of [[-1000,'110.00%','player bonus 10.00%'],[0,'100.00%','0.00% house edge'],[200,'98.00%','2.00% house edge']] as const){
+  const h=html([],undefined,undefined,bps);
+  assert.ok(h.includes('gross returns are multiplied by '+scale));
+  assert.ok(h.includes(label));assert.ok(h.includes('does not guarantee a particular RTP'));
+  assert.ok(h.includes('base payout of 3:2'));assert.ok(h.includes('base payout of 1:1'));
+ }
 });

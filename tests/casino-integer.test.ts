@@ -63,7 +63,7 @@ test("roulette new/change/rebet reject fractional dollars but settle legacy wage
   const before=structuredClone(r);
   assert.throws(()=>rouletteAction(r,a,{type,betId:"one",bet:{kind:"red",amount:amount as number}},1,"bad",0));assert.deepEqual(r,before);
  }
- const legacy=rouletteState(r,0);legacy.bets[0].bet.amount=150;r.members[0].wallet-=50;
+ const legacy=rouletteState(r,0);legacy.bets[0].bet.amount=150;delete legacy.bets[0].houseEdgeBps;r.members[0].wallet-=50;
  assert.equal(payout({kind:"red",amount:150},1),300);
  rouletteTick(r,60000,()=>1);assert.equal(r.members[0].wallet,100150);
  rouletteTick(r,77000,()=>1);const before=structuredClone(r);

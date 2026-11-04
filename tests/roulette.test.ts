@@ -10,7 +10,7 @@ test('shared result settles once, holds the round through spin and result pause'
  const r=setup();rouletteAction(r,who,{type:'bet',bet:{kind:'straight',pick:7,amount:100}},1,'a',1000);rouletteAction(r,other,{type:'bet',bet:{kind:'black',amount:200}},1,'b',1000);
  let calls=0;const rng=(max:number)=>{assert.equal(max,37);calls++;return 7;};
  assert.equal(rouletteTick(r,60999,rng),false);assert.equal(rouletteTick(r,61000,rng),true);assert.equal(calls,1);
- assert.equal(r.members[0].wallet,103500);assert.equal(r.members[1].wallet,99800);assert.equal(rouletteAssets(r),0);assertRoom(r);
+ assert.equal(r.members[0].wallet,103600);assert.equal(r.members[1].wallet,99800);assert.equal(rouletteAssets(r),0);assertRoom(r);
  const saved=structuredClone(r);
  for(const time of [61000,72999,73000,77999]){assert.equal(rouletteTick(r,time,rng),false);assert.equal(roulettePublic(r,who,time)!.round,1);assert.throws(()=>rouletteAction(r,who,{type:'bet',bet:{kind:'red',amount:100}},1,'early',time));assert.deepEqual(r,saved);}
  assert.equal(roulettePublic(r,who,72999)!.history.length,0);assert.equal(roulettePublic(r,who,73000)!.history[0].number,7);

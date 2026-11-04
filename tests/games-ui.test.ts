@@ -247,7 +247,7 @@ test('Mines preferences are account scoped; lost boards reveal bombs and all res
 });
 
 test('Plinko risk persists per account and each receipt/history retains its original risk',async()=>{
- const {PLINKO_RISK_TABLES,LEGACY_PLINKO_TABLE}=await import('../lib/plinko-risk');
+ const {plinkoRiskTable,LEGACY_PLINKO_TABLE}=await import('../lib/plinko-risk');const PLINKO_RISK_TABLES={low:plinkoRiskTable('low',200),medium:plinkoRiskTable('medium',200),high:plinkoRiskTable('high',200)};
  const js=await bundle(),browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--no-sandbox']});
  try{for(const width of [1280,390]){
   const page=await browser.newPage({viewport:{width,height:1000},reducedMotion:'reduce'});

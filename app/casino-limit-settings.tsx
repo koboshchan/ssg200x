@@ -4,15 +4,18 @@ import {pokerStakes} from "@/lib/poker-stakes";
 import {pokerBuyInRange} from "@/lib/poker-buyin-ui";
 import {POKER_TABLE_IDS} from "@/lib/poker-table-selection";
 import {useCallback,useEffect,useState} from "react";
-type Limits={rouletteMaxTotal:number;blackjackMaxHand:number;pokerMaxBuyIn:number;pokerEggPrice:number;pokerTomatoPrice:number;gamesMaxBet:number;revision:number};
+type Limits={rouletteMaxTotal:number;blackjackMaxHand:number;pokerMaxBuyIn:number;pokerEggPrice:number;pokerTomatoPrice:number;gamesMaxBet:number;revision:number;houseEdgeBps?:number};
 const dollars=(cents:number)=>String(cents/100);
+const percent=(bps:number)=>(bps/100).toFixed(2);
+const EDGE_TEXT=/^-?\d{1,2}(\.\d{1,2})?$/;
+const edgeBps=(text:string)=>{const t=text.trim();if(!EDGE_TEXT.test(t))return null;const v=Math.round(Number(t)*100);return Number.isInteger(v)&&v>=-1000&&v<=1000?v:null;};
 export default function CasinoLimitSettings(){
- const [limits,setLimits]=useState<Limits|null>(null),[hidden,setHidden]=useState(false),[error,setError]=useState(""),[busy,setBusy]=useState(false),[roulette,setRoulette]=useState(""),[blackjack,setBlackjack]=useState(""),[egg,setEgg]=useState(""),[tomato,setTomato]=useState(""),[games,setGames]=useState("");
+ const [limits,setLimits]=useState<Limits|null>(null),[hidden,setHidden]=useState(false),[error,setError]=useState(""),[busy,setBusy]=useState(false),[roulette,setRoulette]=useState(""),[blackjack,setBlackjack]=useState(""),[egg,setEgg]=useState(""),[tomato,setTomato]=useState(""),[games,setGames]=useState(""),[edge,setEdge]=useState("0.00");
  const load=useCallback(async()=>{
   try{const r=await fetch("/api/admin/casino-limits",{cache:"no-store"});
    if(r.status===403){setHidden(true);return;}
    const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||"Could not load limits.");
-   setLimits(j.casinoLimits);setRoulette(dollars(j.casinoLimits.rouletteMaxTotal));setBlackjack(dollars(j.casinoLimits.blackjackMaxHand));setEgg(dollars(j.casinoLimits.pokerEggPrice??5000));setTomato(dollars(j.casinoLimits.pokerTomatoPrice??5000));setGames(dollars(j.casinoLimits.gamesMaxBet??100000));
+   setLimits(j.casinoLimits);setRoulette(dollars(j.casinoLimits.rouletteMaxTotal));setBlackjack(dollars(j.casinoLimits.blackjackMaxHand));setEgg(dollars(j.casinoLimits.pokerEggPrice??5000));setTomato(dollars(j.casinoLimits.pokerTomatoPrice??5000));setGames(dollars(j.casinoLimits.gamesMaxBet??100000));setEdge(percent(j.casinoLimits.houseEdgeBps??0));
   }catch(e){setError(e instanceof Error?e.message:"Could not load limits.");}
  },[]);
  useEffect(()=>{void load();},[load]);
@@ -20,10 +23,11 @@ export default function CasinoLimitSettings(){
   e.preventDefault();if(!limits||busy)return;setError("");
   const r$=Number(roulette),b$=Number(blackjack),e$=Number(egg),t$=Number(tomato),g$=Number(games);
   if(![r$,b$,e$,t$,g$].every(v=>Number.isInteger(v)&&v>=1&&v<=1_000_000)){setError("Limits must be whole dollars between $1 and $1,000,000.");return;}
+  const h$=edgeBps(edge);if(h$===null){setError("House edge must be between -10.00% and 10.00% in 0.01% steps.");return;}
   setBusy(true);
-  try{const r=await fetch("/api/admin/casino-limits",{method:"POST",headers:{"content-type":"application/json",...getTabHeaders()},body:JSON.stringify({rouletteMaxTotal:r$*100,blackjackMaxHand:b$*100,pokerEggPrice:e$*100,pokerTomatoPrice:t$*100,gamesMaxBet:g$*100,expectedVersion:limits.revision})});
+  try{const r=await fetch("/api/admin/casino-limits",{method:"POST",headers:{"content-type":"application/json",...getTabHeaders()},body:JSON.stringify({rouletteMaxTotal:r$*100,blackjackMaxHand:b$*100,pokerEggPrice:e$*100,pokerTomatoPrice:t$*100,gamesMaxBet:g$*100,houseEdgeBps:h$,expectedVersion:limits.revision})});
    const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||"Could not save.");
-   setLimits(j.casinoLimits);setRoulette(dollars(j.casinoLimits.rouletteMaxTotal));setBlackjack(dollars(j.casinoLimits.blackjackMaxHand));setEgg(dollars(j.casinoLimits.pokerEggPrice??5000));setTomato(dollars(j.casinoLimits.pokerTomatoPrice??5000));setGames(dollars(j.casinoLimits.gamesMaxBet??100000));
+   setLimits(j.casinoLimits);setRoulette(dollars(j.casinoLimits.rouletteMaxTotal));setBlackjack(dollars(j.casinoLimits.blackjackMaxHand));setEgg(dollars(j.casinoLimits.pokerEggPrice??5000));setTomato(dollars(j.casinoLimits.pokerTomatoPrice??5000));setGames(dollars(j.casinoLimits.gamesMaxBet??100000));setEdge(percent(j.casinoLimits.houseEdgeBps??0));
   }catch(err){setError(err instanceof Error?err.message:"Could not save.");await load();}
   finally{setBusy(false);}
  }
@@ -36,6 +40,8 @@ export default function CasinoLimitSettings(){
    <label><span>Games max bet per game ($)</span><input type="number" inputMode="numeric" min={1} max={1000000} step={1} value={games} onChange={e=>setGames(e.target.value)}/></label>
    <label><span>Poker egg throw price ($)</span><input type="number" inputMode="numeric" min={1} max={1000000} step={1} value={egg} onChange={e=>setEgg(e.target.value)}/></label>
    <label><span>Poker tomato throw price ($)</span><input type="number" inputMode="numeric" min={1} max={1000000} step={1} value={tomato} onChange={e=>setTomato(e.target.value)}/></label>
+   <label><span>House edge, all house-banked games (%)</span><input type="number" inputMode="decimal" min={-10} max={10} step={0.01} value={edge} onChange={e=>setEdge(e.target.value)} aria-describedby="house-edge-help"/></label>
+   <p id="house-edge-help">Default 0.00%. Negative values are a player bonus. Minigames and roulette theoretical RTP is 100% minus the edge. Blackjack only adjusts payouts relative to its existing rules, so it is not guaranteed fair. Poker and prediction markets are unchanged.</p>
    <p>Throws charge the thrower’s wallet and go to the house. Emotes are free.</p>
    <div role="group" aria-label="Poker buy-in limits"><p>Poker buy-ins are set per table (20–100 big blinds) and are not editable here.</p><ul>{POKER_TABLE_IDS.map(id=>{const r=pokerBuyInRange(id);return <li key={id}>Table {id} · {pokerStakes(id).label}: ${(r.min/100).toLocaleString("en-US")} – ${(r.max/100).toLocaleString("en-US")}</li>;})}</ul></div>
    <button type="submit" className="primary">Save limits</button>

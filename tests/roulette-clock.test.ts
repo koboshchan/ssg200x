@@ -23,7 +23,7 @@ test('late joins, reconnect and duplicate state frames seek identical eased abso
 });
 test('delayed worker preserves full spin and pause, never skips or re-rolls completed rounds',()=>{
  const r=freshRoom();register(r,who);rouletteState(r,0);rouletteAction(r,who,{type:'bet',bet:{kind:'red',amount:100}},1,'bet',54999);
- let calls=0;const rng=()=>{calls++;return 1;};rouletteTick(r,120000,rng);
+ let calls=0;const rng=(max:number)=>{if(max===37){calls++;return 1;}return 0;};rouletteTick(r,120000,rng);
  const b=roulettePublic(r,who,120000)!;assert.equal(b.spin!.startedAt,120000);assert.equal(b.spin!.resultAt,132000);assert.equal(b.spin!.nextAt,137000);
  assert.equal(rouletteTick(r,136999,rng),false);assert.equal(rouletteTick(r,500000,rng),true);assert.equal(roulettePublic(r,who,500000)!.started,500000);assert.equal(calls,1);assertRoom(r);
  assert.equal(rouletteTick(r,500001,rng),false);assert.equal(calls,1);

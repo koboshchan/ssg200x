@@ -6,7 +6,7 @@ import {spin,payout,spot,openPosition,closePosition,liquidate,pnl,liqPrice,equit
 import type {Identity} from "../lib/types";
 const who:Identity={id:"a",name:"A",email:"a@a.test",admin:true};
 function setup(){const r=Object.assign(freshRoom(),{perpFeePpm:0});register(r,who);r.quotes={BTC:{cryptoGeneration:"fixture",micro:100_000_000_000,at:1000},XRP:{cryptoGeneration:"fixture",micro:123456,at:1000}};return r;}
-test("European wheel straight and outside returns include stake",()=>{
+test("explicit legacy European wheel straight and outside returns include stake",()=>{
  assert.equal(payout({kind:"straight",pick:0,amount:100},0),3600);
  for(const kind of ["red","black","odd","even","low","high","dozen","column"] as const)assert.equal(payout({kind,pick:1,amount:100},0),0);
  assert.equal(payout({kind:"red",amount:100},1),200);assert.equal(payout({kind:"black",amount:100},2),200);
@@ -16,12 +16,12 @@ test("European wheel straight and outside returns include stake",()=>{
  assert.equal(payout({kind:"dozen",pick:p,amount:100},n),(Math.ceil(n/12)===p)?300:0);
  }
 });
-test("all valid roulette bets have 36/37 expected gross return",()=>{
+test("untagged legacy roulette bets retain 36/37 expected gross return",()=>{
  for(const kind of ["red","black","odd","even","low","high","dozen","column","straight"] as const){
  const sum=Array.from({length:37},(_,n)=>payout({kind,pick:kind==="straight"?0:1,amount:100},n)).reduce((a,b)=>a+b,0);assert.equal(sum,3600);
  }
 });
-test("roulette updates wallet and house atomically in ledger",()=>{const r=setup();spin(r,who,[{kind:"red",amount:500}],1,"x",1000);assert.equal(r.members[0].wallet,100500);assert.equal(r.house,-500);assertRoom(r);assert.throws(()=>spin(r,who,[{kind:"red",amount:500}],2,"y",2000));spin(r,who,[{kind:"red",amount:500}],0,"z",3000);assertRoom(r);});
+test("roulette updates wallet and house atomically in ledger",()=>{const r=setup();spin(r,who,[{kind:"red",amount:1800}],1,"x",1000);assert.equal(r.members[0].wallet,101900);assert.equal(r.house,-1900);assertRoom(r);assert.throws(()=>spin(r,who,[{kind:"red",amount:500}],2,"y",2000));spin(r,who,[{kind:"red",amount:500}],0,"z",3000);assertRoom(r);});
 test("invalid roulette picks, negative stakes and overdraft fail",()=>{
  const r=setup();assert.throws(()=>payout({kind:"straight",pick:37,amount:100},1));assert.throws(()=>payout({kind:"column",pick:0,amount:100},1));assert.throws(()=>spin(r,who,[{kind:"red",amount:-100}],1));
  r.members[0].wallet=10;assert.throws(()=>spin(r,who,[{kind:"red",amount:100}],1));
