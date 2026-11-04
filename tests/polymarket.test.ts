@@ -149,3 +149,41 @@ test("discovery aggregates two small pages to preserve 20 cards and continuation
   assert.equal((await polyDiscover()).nextCursor,null);
  }finally{globalThis.fetch=original;}
 });
+
+test("prediction limit caps buys, not appreciated full or partial sell proceeds",()=>{
+ for(const partial of [false,true]){
+  const r=freshRoom();polyState(r).maxTrade=4000;
+  applyPolymarketTrade(r,who,input({amount:4000}),market(),book());
+  const s=polyState(r),original=structuredClone(s.positions[0]),b=book();
+  b.bids=[{price:.9,size:1000000,priceMicros:900000,shareMicros:1000000000000}];
+  const shares=partial?Math.floor(original.shareMicros*3/4):original.shareMicros;
+  const expected=fillPolymarket(b,"sell",shares,.89);
+  assert(expected.amount>s.maxTrade);
+  const before=r.members[0].wallet;
+  applyPolymarketTrade(r,who,input({action:"sell",amount:shares,limitPrice:.89}),market(),b);
+  assert.equal(r.members[0].wallet,before+expected.amount);
+  assert.equal(s.history[who.id][0].amount,expected.amount);
+  assert.equal(s.history[who.id][0].action,"sell");
+  assert.equal(s.positions.length,partial?1:0);
+  if(partial)assert.equal(s.positions[0].shareMicros,original.shareMicros-shares);
+  assertRoom(r);
+ }
+});
+test("sell remains possible after admin lowers buy limit, but unowned/excess shares reject",()=>{
+ const r=freshRoom();applyPolymarketTrade(r,who,input({amount:4000}),market(),book());
+ const shares=polyState(r).positions[0].shareMicros;
+ changePolymarketSettings(r,{...who,admin:true},{enabled:true,maxTrade:1});
+ register(r,other);
+ const before=structuredClone(r);
+ assert.throws(()=>applyPolymarketTrade(r,who,input({action:"sell",amount:shares+1,limitPrice:.58}),market(),book()),/Not enough outcome shares/);
+ assert.throws(()=>applyPolymarketTrade(r,other,input({action:"sell",amount:shares,limitPrice:.58}),market(),book()),/Not enough outcome shares/);
+ assert.deepEqual(r,before);
+ applyPolymarketTrade(r,who,input({action:"sell",amount:shares,limitPrice:.58}),market(),book());
+ assert.equal(polyState(r).positions.length,0);assertRoom(r);
+});
+test("buy above prediction limit still rejects without wallet or position changes",()=>{
+ const r=freshRoom();register(r,who);polyState(r).maxTrade=4000;
+ const before=structuredClone(r);
+ assert.throws(()=>applyPolymarketTrade(r,who,input({amount:4001}),market(),book()),/Trade exceeds the prediction trade limit/);
+ assert.deepEqual(r,before);
+});

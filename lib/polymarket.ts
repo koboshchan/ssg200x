@@ -59,7 +59,8 @@ export function applyPolymarketTrade(r:Room,who:Identity,input:PolyTrade,market:
  ensure(book.asOf<=now+1000&&now-book.asOf<=QUOTE_TTL&&book.fetchedAt<=now+1000&&now-book.fetchedAt<=QUOTE_TTL,"Live quote is stale. Refresh and try again.",409);
  ensure(!s.settlements[market.id],"Market already settled.",409);
  const fill=fillPolymarket(book,input.action,input.amount,input.limitPrice);
- ensure(fill.amount<=s.maxTrade,"Trade exceeds the prediction trade limit.",409);
+ // The limit caps money going in; closing an owned position (proceeds may have grown) is never capped.
+ ensure(input.action==="sell"||fill.amount<=s.maxTrade,"Trade exceeds the prediction trade limit.",409);
  const id=createHash("sha256").update(who.id+"\0"+market.id+"\0"+input.tokenId).digest("hex");
  let p=s.positions.find(p=>p.id===id),cost=fill.amount;
  if(input.action==="buy"){
