@@ -34,6 +34,11 @@ export function withinLimits(a:Limits,b:Limits){return Object.keys(a).every(k=>a
 export function minLimits(...values:Limits[]):Limits{return Object.fromEntries(Object.keys(DEFAULT_LIMITS).map(k=>[k,Math.min(...values.map(v=>v[k as keyof Limits]))])) as Limits;}
 export const plain=z.string().trim().max(160).refine(v=>!/[\u0000-\u001f\u007f<>]/.test(v),"Use plain text");
 export const registrationSchema=z.object({name:plain.min(2).max(64),description:plain.max(160),website:z.url().max(300).refine(v=>{const u=new URL(v);return u.protocol==="https:"&&!u.username&&!u.password},"Use an HTTPS website")}).strict();
+export const DEFAULT_SCOPES:Scope[]=["profile","balance:read","balance:debit"];
+export const DEFAULT_APP_DAILY_CENTS=5_000_000;
+/** Policy an admin may request when registering. Omitted fields take the safe defaults above; mint needs credit scope and positive caps. */
+export const registrationPolicySchema=z.object({approved_scopes:scopesSchema.optional(),credit_mode:z.enum(["refunds","mint"]).optional(),limits:limitsSchema.optional(),mint_limits:limitsSchema.optional(),app_daily_cents:z.number().int().min(0).max(MAX_CENTS).optional()}).strict();
+export const createSchema=registrationSchema.extend(registrationPolicySchema.shape).strict();
 export const moneySchema=z.object({amount_cents:z.number().int().positive().max(MAX_CENTS),description:plain,external_reference:plain.min(1),credit_reason:z.enum(["refund","mint"]).optional(),original_transaction_id:z.string().uuid().optional()}).strict();
 export type MoneyInput=z.infer<typeof moneySchema>;
 export function idempotencyDigest(key:string){requireApp(/^[A-Za-z0-9._:-]{8,128}$/.test(key),"invalid_request","Use an 8-128 character Idempotency-Key.");return digest("idempotency",key);}

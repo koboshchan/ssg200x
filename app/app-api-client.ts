@@ -29,5 +29,5 @@ export function toCents(text:string):number|null{
 export const toDollars=(c:number)=>(c/100).toFixed(c%100===0?0:2);
 export type Tx={transaction_id:string;direction:"debit"|"credit";credit_reason?:string;amount_cents:number;description:string;created_at:string};
 export type Grant={grant_id:string;app_id:string;app_name:string;external_subject:string;scopes:Scope[];limits:Limits;created_at:string;expires_at:string;revoked_at:string|null;todays_debit_cents:number;transactions:Tx[]};
-export type AppView={app_id:string;client_id:string;name:string;description:string;website:string;status:"draft"|"pending"|"approved"|"suspended"|"deleted";approved_scopes:Scope[];credit_mode:"refunds"|"mint";limits:Limits;mint_limits:Limits;app_daily_cents:number;created_at:string;updated_at:string;owner_name?:string;credentials?:Cred[]};
+export type AppView={app_id:string;client_id:string;name:string;description:string;website:string;status:"approved"|"suspended"|"deleted";approved_scopes:Scope[];credit_mode:"refunds"|"mint";limits:Limits;mint_limits:Limits;app_daily_cents:number;created_at:string;updated_at:string;owner_name?:string;credentials?:Cred[]};
 export type Cred={credential_id:string;prefix:string;created_at:string;expires_at:string;revoked_at:string|null};

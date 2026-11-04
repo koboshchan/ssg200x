@@ -12,7 +12,7 @@ export async function authenticateApp(request:Request,d:Db):Promise<AppClient>{
  const credential=await credentials(d).findOne({_id:match[1]});
  requireApp(credential&&!credential.revokedAt&&credential.expiresAt>new Date()&&equalHash(credential.secretHash,digest("credential",match[2])),"invalid_client","Invalid application credentials.",401);
  const app=await applications(d).findOne({_id:credential.appId,clientId});
- requireApp(app&&app.status!=="draft"&&app.status!=="pending"&&app.status!=="deleted","invalid_client","Invalid application credentials.",401);
+ requireApp(app&&app.status!=="deleted","invalid_client","Invalid application credentials.",401);
  return {app,credential};
 }
 export async function currentClient(d:Db,client:AppClient,session?:ClientSession,allowSuspended=false){

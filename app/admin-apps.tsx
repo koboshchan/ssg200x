@@ -6,7 +6,7 @@ import "./app-api.css";
 import AppDeleteConfirmation from "./app-delete-confirmation";
 import ErrorNote from "./error-note";
 const MAX:Limits={per_operation_cents:100_000_000,daily_cents:100_000_000,lifetime_cents:100_000_000};
-function Review({a,onDone,onError}:{a:AppView;onDone:(a:AppView)=>void;onError:(m:string)=>void}){
+function Manage({a,onDone,onError}:{a:AppView;onDone:(a:AppView)=>void;onError:(m:string)=>void}){
  const [scopes,setScopes]=useState<Scope[]>(a.approved_scopes.length?a.approved_scopes:["profile","balance:read","balance:debit"]),[mode,setMode]=useState(a.credit_mode),[lim,setLim]=useState<LimitText>(limitText(a.limits)),[mint,setMint]=useState<LimitText>(limitText(a.mint_limits)),[daily,setDaily]=useState(toDollars(a.app_daily_cents)),[busy,setBusy]=useState(false),[askDelete,setAskDelete]=useState(false);
  async function send(status:"approved"|"suspended"|"deleted"){
   if(busy)return;
@@ -30,7 +30,7 @@ function Review({a,onDone,onError}:{a:AppView;onDone:(a:AppView)=>void;onError:(
    <label className="settings-row"><input type="radio" name={"m"+a.app_id} checked={mode==="mint"} onChange={()=>setMode("mint")}/><span><strong>Can mint money</strong><small>Creates new money. Set positive caps below.</small></span></label>
   </fieldset>
   {mode==="mint"?<LimitFields value={mint} max={MAX} onChange={setMint} disabled={busy} legend="Mint caps"/>:null}
-  <div className="app-actions"><button className="primary" disabled={busy||scopes.length===0} onClick={()=>send("approved")}>{a.status==="approved"?"Update approval":"Approve"}</button>{a.status!=="suspended"?<button disabled={busy} onClick={()=>send("suspended")}>Suspend</button>:null}<button className="admin-remove" disabled={busy||askDelete} onClick={()=>setAskDelete(true)}>Reject / delete</button></div>
+  <div className="app-actions"><button className="primary" disabled={busy||scopes.length===0} onClick={()=>send("approved")}>{a.status==="approved"?"Save policy":"Reactivate"}</button>{a.status!=="suspended"?<button disabled={busy} onClick={()=>send("suspended")}>Suspend</button>:null}<button className="admin-remove" disabled={busy||askDelete} onClick={()=>setAskDelete(true)}>Delete app</button></div>
   {askDelete?<AppDeleteConfirmation name={a.name} busy={busy} onCancel={()=>setAskDelete(false)} onDelete={()=>void send("deleted")}/>:null}
  </details>;
 }
@@ -39,9 +39,9 @@ export default function AdminApps(){
  const load=useCallback(async()=>{try{setItems((await api<{items:AppView[]}>("/api/admin/apps")).items.filter(a=>a.status!=="deleted"));}catch(e){const s=(e as {status?:number}).status;if(s===403||s===404){setHidden(true);return;}setError(errMsg(e,"Could not load apps."));setItems([]);}},[]);
  useEffect(()=>{void load();},[load]);
  if(hidden)return null;
- const order={pending:0,approved:1,suspended:2,draft:3,deleted:4} as const;
+ const order={approved:0,suspended:1,deleted:2} as const;
  return <section className="admin-block" aria-labelledby="admin-apps-h"><h2 id="admin-apps-h">Third-party apps</h2>
-  {items===null?<p role="status">Loading…</p>:items.length===0?<p className="empty">No apps registered.</p>:<div className="app-list">{[...items].sort((x,y)=>order[x.status]-order[y.status]).map(a=><Review key={a.app_id+a.updated_at} a={a} onError={setError} onDone={n=>setItems(c=>(c??[]).map(x=>x.app_id===n.app_id?n:x))}/>)}</div>}
+  {items===null?<p role="status">Loading…</p>:items.length===0?<p className="empty">No apps registered.</p>:<div className="app-list">{[...items].sort((x,y)=>order[x.status]-order[y.status]).map(a=><Manage key={a.app_id+a.updated_at} a={a} onError={setError} onDone={n=>setItems(c=>(c??[]).map(x=>x.app_id===n.app_id?n:x))}/>)}</div>}
   <ErrorNote message={error} onDismiss={()=>setError("")}/>
  </section>;
 }

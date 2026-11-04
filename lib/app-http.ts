@@ -6,7 +6,7 @@ import {AppError} from "./errors";
 import {AppApiError,requireApp,scopesSchema} from "./app-policy";
 import {authenticateApp,currentClient,effectiveScopes,activeGrant} from "./app-auth";
 import {applications,credentials,grants,transactions,appIndexes} from "./app-model";
-import {registerApp,editApp,reviewApp,createCredential,revokeCredential,appView,credentialView,transactionView,connectedGrantView,reduceGrant,ownedApp} from "./app-management";
+import {registerApp,editApp,manageApp,createCredential,revokeCredential,appView,credentialView,transactionView,connectedGrantView,reduceGrant,ownedApp} from "./app-management";
 import {createLink,previewLink,authorizeLink,pollLink,appThrottle} from "./app-linking";
 import {moveAppMoney,readTransaction} from "./app-money";
 import {transferSource} from "./transfer-rate-limit";
@@ -76,7 +76,7 @@ export function browserAppRoute(request:Request,kind:"developer"|"links"|"admin"
  if(method==="GET"){const rows=await applications(d).find(kind==="admin"?{}:{ownerUserId:who.id}).sort({createdAt:-1}).limit(100).toArray();return {items:rows.map(appView),...(kind==="developer"?{can_create:who.admin===true}:{})};}
  if(method==="POST"&&kind==="developer")return await registerApp(d,who,await body(request));
  }
- if(parts.length===1&&method==="PATCH")return kind==="admin"?reviewApp(d,who,parts[0],await body(request)):editApp(d,who,parts[0],await body(request));
+ if(parts.length===1&&method==="PATCH")return kind==="admin"?manageApp(d,who,parts[0],await body(request)):editApp(d,who,parts[0],await body(request));
  if(parts.length===1&&method==="GET"){
  const app=kind==="admin"?await applications(d).findOne({_id:parts[0]}):await ownedApp(d,who,parts[0]);requireApp(app,"unavailable","Application unavailable.",404);
  const cs=kind==="developer"?await credentials(d).find({appId:app._id}).sort({createdAt:-1}).limit(50).toArray():[];

@@ -1,7 +1,8 @@
 import type {Db,ClientSession,Document} from "mongodb";
 import {randomUUID} from "node:crypto";
 import type {Scope,Limits} from "./app-policy";
-export type Application={_id:string;clientId:string;ownerUserId:string;name:string;description:string;website:string;status:"draft"|"pending"|"approved"|"suspended"|"deleted";approvedScopes:Scope[];creditMode:"refunds"|"mint";limits:Limits;mintLimits:Limits;appDailyCents:number;policyVersion:number;fence:number;createdAt:Date;updatedAt:Date};
+import {DEFAULT_SCOPES,DEFAULT_LIMITS,ZERO_LIMITS} from "./app-policy";
+export type Application={_id:string;clientId:string;ownerUserId:string;name:string;description:string;website:string;status:"approved"|"suspended"|"deleted";approvedScopes:Scope[];creditMode:"refunds"|"mint";limits:Limits;mintLimits:Limits;appDailyCents:number;policyVersion:number;fence:number;createdAt:Date;updatedAt:Date};
 export type Credential={_id:string;appId:string;secretHash:string;prefix:string;scopes:Scope[];createdAt:Date;expiresAt:Date;revokedAt:Date|null;lastUsedAt?:Date;fence:number};
 export type Grant={_id:string;appId:string;userId:string;appUserId:string;externalSubject:string;scopes:Scope[];limits:Limits;consentTextVersion?:string;policyVersion:number;authorizationVersion:string;fence:number;createdAt:Date;expiresAt:Date;revokedAt:Date|null};
 export type Link={_id:string;appId:string;credentialId:string;codeHash:string;deviceTokenHash:string;requestedScopes:Scope[];externalSubject:string;policyVersion:number;state:"pending"|"approved"|"denied";grantId?:string;authorizationVersion?:string;createdAt:Date;expiresAt:Date;nextPollAt:Date;fence:number};
@@ -26,7 +27,32 @@ export async function appIndexes(d:Db){
  previews(d).createIndex({expiresAt:1},{expireAfterSeconds:0}),
  transactions(d).createIndex({appId:1,keyDigest:1},{unique:true}),transactions(d).createIndex({appId:1,appUserId:1,createdAt:-1}),transactions(d).createIndex({userId:1,createdAt:-1}),transactions(d).createIndex({originalTransactionId:1}),
  d.collection("app_throttles").createIndex({expiresAt:1},{expireAfterSeconds:0}),d.collection("app_audit").createIndex({at:-1}),
- ]);indexed.add(d);
+ ]);await activateLegacyApps(d);indexed.add(d);
+}
+/**
+ * One-time idempotent migration for the removed admin-review workflow. Legacy "draft"/"pending" rows never stored what the owner asked for
+ * (the old form only collected name/description/website), so the requested policy is unknown. They become "approved" keeping whatever policy is
+ * already stored (scopes, limits, credit mode, mint caps); a legacy row with no stored scopes gets DEFAULT_SCOPES (profile, balance:read,
+ * balance:debit), refunds-only credits and the default caps. Mint is never invented: a row keeps mint only if it already stored a valid mint
+ * policy. Admins can raise scopes/limits/mint later. "suspended" and "deleted" rows are never touched. Existing consent is invalidated by a
+ * policyVersion bump. Every call is a no-op once no draft/pending rows remain.
+ */
+export async function activateLegacyApps(d:Db){
+ const legacy=d.collection<Omit<Application,"status">&{status:string}>("app_applications");
+ const ids=(await legacy.find({status:{$in:["draft","pending"]}},{projection:{_id:1}}).toArray()).map(r=>r._id);
+ for(const id of ids){
+  // Read and derive policy inside the transaction so a concurrent admin edit is never overwritten by stale data.
+  await appTransaction(d,async session=>{
+   const row=await legacy.findOne({_id:id,status:{$in:["draft","pending"]}},{session});
+   if(!row)return;
+   const scopes=Array.isArray(row.approvedScopes)&&row.approvedScopes.length?row.approvedScopes:[...DEFAULT_SCOPES];
+   const mintOk=row.creditMode==="mint"&&scopes.includes("balance:credit")&&!!row.mintLimits&&Object.values(row.mintLimits).every(n=>n>0);
+   const set={status:"approved" as const,approvedScopes:scopes,creditMode:mintOk?"mint" as const:"refunds" as const,limits:row.limits??{...DEFAULT_LIMITS},mintLimits:mintOk?row.mintLimits:{...ZERO_LIMITS},appDailyCents:row.appDailyCents??5_000_000,updatedAt:new Date()};
+   const r=await legacy.updateOne({_id:id,status:row.status,policyVersion:row.policyVersion,fence:row.fence},{$set:set,$inc:{policyVersion:1,fence:1}},{session});
+   if(!r.modifiedCount)throw new RetryAppTransaction();
+   await audit(d,"system","app_auto_activated",id,{fromStatus:row.status,scopes:set.approvedScopes,creditMode:set.creditMode,limits:set.limits,mintLimits:set.mintLimits,migration:"remove-review-v1"},session);
+  });
+ }
 }
 export class RetryAppTransaction extends Error{}
 export async function appTransaction<T>(d:Db,work:(session:ClientSession)=>Promise<T>):Promise<T>{

@@ -2,7 +2,7 @@ import {randomUUID} from "node:crypto";
 import type {Db} from "mongodb";
 import type {Identity} from "./types";
 import {applications,credentials,grants,transactions,appIndexes,appTransaction,audit,type Application,type Credential,type Grant,type Transaction} from "./app-model";
-import {DEFAULT_LIMITS,ZERO_LIMITS,SCOPES,GRANT_TTL,registrationSchema,limitsSchema,scopesSchema,secret,digest,requireApp,withinLimits,type Limits} from "./app-policy";
+import {DEFAULT_LIMITS,ZERO_LIMITS,SCOPES,GRANT_TTL,registrationSchema,createSchema,DEFAULT_SCOPES,DEFAULT_APP_DAILY_CENTS,limitsSchema,scopesSchema,secret,digest,requireApp,withinLimits,type Limits} from "./app-policy";
 import {z} from "zod";
 export function appView(a:Application){return {app_id:a._id,client_id:a.clientId,name:a.name,description:a.description,website:a.website,status:a.status,approved_scopes:a.approvedScopes,credit_mode:a.creditMode,limits:a.limits,mint_limits:a.mintLimits,app_daily_cents:a.appDailyCents,policy_version:a.policyVersion,created_at:a.createdAt,updated_at:a.updatedAt};}
 export function credentialView(c:Credential){return {credential_id:c._id,prefix:c.prefix,created_at:c.createdAt,expires_at:c.expiresAt,revoked_at:c.revokedAt};}
@@ -10,32 +10,35 @@ export function transactionView(t:Transaction){return {transaction_id:t._id,app_
 export async function ownedApp(d:Db,who:Identity,id:string){const a=await applications(d).findOne({_id:id,ownerUserId:who.id});requireApp(a,"unavailable","Application unavailable.",404);return a;}
 export async function registerApp(d:Db,who:Identity,input:unknown){
  requireApp(who.admin,"forbidden","Only admins can create applications.",403);
- const v=registrationSchema.parse(input);await appIndexes(d);
+ const v=createSchema.parse(input);await appIndexes(d);
+ const {approved_scopes,credit_mode,limits,mint_limits,app_daily_cents,...meta}=v,scopes=approved_scopes??[...DEFAULT_SCOPES],mode=credit_mode??"refunds";
+ if(mode==="mint")requireApp(mint_limits&&Object.values(mint_limits).every(n=>n>0)&&scopes.includes("balance:credit"),"invalid_request","Minting requires positive mint caps and the credit scope.");
+ else requireApp(!mint_limits,"invalid_request","Mint caps need credit_mode mint.");
  return appTransaction(d,async session=>{
  const count=await applications(d).countDocuments({ownerUserId:who.id,status:{$ne:"deleted"}},{session});requireApp(count<10,"limit_exceeded","At most ten active applications.",409);
  // Owner fence prevents simultaneous registration from exceeding the cap.
  await d.collection("app_owners").updateOne({_id:who.id as never},{$inc:{fence:1}},{upsert:true,session});
- const now=new Date(),app:Application={_id:randomUUID(),clientId:"app_"+randomUUID(),ownerUserId:who.id,...v,status:"draft",approvedScopes:[],creditMode:"refunds",limits:{...DEFAULT_LIMITS},mintLimits:{...ZERO_LIMITS},appDailyCents:5_000_000,policyVersion:1,fence:0,createdAt:now,updatedAt:now};
- await applications(d).insertOne(app,{session});await audit(d,who.id,"app_registered",app._id,{},session);return {app:appView(app)};
+ const now=new Date(),app:Application={_id:randomUUID(),clientId:"app_"+randomUUID(),ownerUserId:who.id,...meta,status:"approved",approvedScopes:scopes,creditMode:mode,limits:limits?{...limits}:{...DEFAULT_LIMITS},mintLimits:mode==="mint"?{...mint_limits!}:{...ZERO_LIMITS},appDailyCents:app_daily_cents??DEFAULT_APP_DAILY_CENTS,policyVersion:1,fence:0,createdAt:now,updatedAt:now};
+ await applications(d).insertOne(app,{session});await audit(d,who.id,"app_registered",app._id,{scopes:app.approvedScopes,creditMode:app.creditMode,limits:app.limits,mintLimits:app.mintLimits,autoActivated:true},session);return {app:appView(app)};
  });
 }
 export async function editApp(d:Db,who:Identity,id:string,input:unknown){
- const v=registrationSchema.partial().extend({status:z.enum(["pending","deleted"]).optional()}).strict().parse(input);
+ const v=registrationSchema.partial().extend({status:z.literal("deleted").optional()}).strict().parse(input);
  return appTransaction(d,async session=>{
  const app=await applications(d).findOne({_id:id,ownerUserId:who.id},{session});requireApp(app&&app.status!=="deleted","unavailable","Application unavailable.",404);
- Object.assign(app,v);app.status=v.status==="deleted"?"deleted":"pending";app.policyVersion++;app.fence++;app.updatedAt=new Date();
+ const {status:_s,...meta}=v;Object.assign(app,meta);if(v.status==="deleted")app.status="deleted";app.policyVersion++;app.fence++;app.updatedAt=new Date();
  await applications(d).replaceOne({_id:id},app,{session});await audit(d,who.id,"app_edited",id,{status:app.status},session);return {app:appView(app)};
  });
 }
-const reviewSchema=z.object({status:z.enum(["approved","suspended","deleted"]),approved_scopes:scopesSchema.optional(),credit_mode:z.enum(["refunds","mint"]).optional(),limits:limitsSchema.optional(),mint_limits:limitsSchema.optional(),app_daily_cents:z.number().int().min(0).max(100_000_000).optional()}).strict();
-export async function reviewApp(d:Db,who:Identity,id:string,input:unknown){
- requireApp(who.admin,"unavailable","Unavailable.",404);const v=reviewSchema.parse(input);
+const manageSchema=z.object({status:z.enum(["approved","suspended","deleted"]),approved_scopes:scopesSchema.optional(),credit_mode:z.enum(["refunds","mint"]).optional(),limits:limitsSchema.optional(),mint_limits:limitsSchema.optional(),app_daily_cents:z.number().int().min(0).max(100_000_000).optional()}).strict();
+export async function manageApp(d:Db,who:Identity,id:string,input:unknown){
+ requireApp(who.admin,"unavailable","Unavailable.",404);const v=manageSchema.parse(input);
  return appTransaction(d,async session=>{
  const app=await applications(d).findOne({_id:id},{session});requireApp(app&&app.status!=="deleted","unavailable","Application unavailable.",404);
- if(v.status==="approved"){requireApp(v.approved_scopes&&v.limits&&v.app_daily_cents!==undefined,"invalid_request","Approval requires explicit scopes and debit/app limits.");
+ if(v.status==="approved"){requireApp(v.approved_scopes&&v.limits&&v.app_daily_cents!==undefined,"invalid_request","Updating policy requires explicit scopes and debit/app limits.");
  if(v.credit_mode==="mint")requireApp(v.mint_limits&&Object.values(v.mint_limits).every(n=>n>0)&&v.approved_scopes.includes("balance:credit"),"invalid_request","Minting requires explicit positive caps and credit approval.");}
  app.status=v.status;app.approvedScopes=v.approved_scopes??app.approvedScopes;app.limits=v.limits??app.limits;app.appDailyCents=v.app_daily_cents??app.appDailyCents;app.creditMode=v.credit_mode??app.creditMode;app.mintLimits=app.creditMode==="mint"?(v.mint_limits??app.mintLimits):{...ZERO_LIMITS};app.policyVersion++;app.fence++;app.updatedAt=new Date();
- await applications(d).replaceOne({_id:id},app,{session});await audit(d,who.id,"app_reviewed",id,{status:app.status,scopes:app.approvedScopes,limits:app.limits,mintLimits:app.mintLimits},session);return {app:appView(app)};
+ await applications(d).replaceOne({_id:id},app,{session});await audit(d,who.id,"app_managed",id,{status:app.status,scopes:app.approvedScopes,limits:app.limits,mintLimits:app.mintLimits},session);return {app:appView(app)};
  });
 }
 export async function createCredential(d:Db,who:Identity,id:string,input:unknown){
