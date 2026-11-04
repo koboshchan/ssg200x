@@ -32,7 +32,7 @@ export function rouletteState(r:Room,now:number):RouletteState{return (r as RRoo
 export function rouletteAssets(r:Room,userId?:string):number{return ((r as RRoom).roulette?.bets||[]).reduce((n,w)=>n+(!userId||w.userId===userId?w.bet.amount:0),0);}
 /** Settlement shares the room CAS. Production supplies a post-lock solved spin;
  * the synchronous RNG path remains for existing engine fixtures/legacy rounds. */
-export function rouletteTick(r:Room,now:number,rng:(max:number)=>number=randomInt,prepared?:RouletteSpin):boolean{
+export function rouletteTick(r:Room,now:number,rng:(max:number)=>number=randomInt,prepared?:RouletteSpin,payoutRng:(max:number)=>number=prepared?randomInt:rng):boolean{
  const existing=(r as RRoom).roulette;
  if(!existing){rouletteState(r,now);return true;}
  const b=existing;
@@ -47,7 +47,8 @@ export function rouletteTick(r:Room,now:number,rng:(max:number)=>number=randomIn
  const number=prepared?.number??rng(37);ensure(Number.isInteger(number)&&number>=0&&number<=36,'Invalid wheel result.',500);
  // Preflight the complete settlement before mutating wallets, house or wagers.
  // Realize stochastic cents once per wager, reuse for ledger and all history views.
- const realized=b.bets.map(w=>{ensure(r.members.some(m=>m.id===w.userId),'Missing wager owner.',500);return {w,returned:safeLedger(returnedFor(w,number,rng))};});
+ // Prepared spins forbid another wheel draw, not independent payout rounding.
+ const realized=b.bets.map(w=>{ensure(r.members.some(m=>m.id===w.userId),'Missing wager owner.',500);return {w,returned:safeLedger(returnedFor(w,number,payoutRng))};});
  const settlements=r.members.map(m=>{
   const mine=realized.filter(x=>x.w.userId===m.id);
   const stake=mine.reduce((sum,x)=>ledgerSum(sum,x.w.bet.amount),0);

@@ -123,3 +123,42 @@ test('unsafe wallet or house settlement fails before any wager or balance writes
   assert.deepEqual(r,before);
  }
 });
+
+test('prepared outcomes separate payout rounding from forbidden second wheel draws',()=>{
+ for(const edge of [-1000,0,200])for(const number of [18,28])for(const high of [false,true]){
+  const r=setup(edge),bank=totalChips(r),b=rouletteState(r,1000);
+  rouletteAction(r,who,{type:'bet',bet:{kind:'red',amount:500}},1,'prepared-red',1000);
+  b.pending={id:'prepared-lock',lockedAt:56000,target:number,generatedAt:56001};
+  r.casinoLimits!.houseEdgeBps=edge===200?0:200;
+  const bytes=high?[2,191,31]:[0,0,0];let calls=0;
+  const noWheelDraw=()=>{throw Error('Prepared spin must not draw a result');};
+  const rounding=(max:number)=>{assert.equal(max,256);return bytes[calls++%bytes.length];};
+  const prepared={round:1,number,startedAt:62000,resultAt:74000,nextAt:79000};
+  assert.equal(rouletteTick(r,57000,noWheelDraw,prepared,rounding),true);
+  const exact=500*37/18*(10000-edge)/10000;
+  const returned=number===28?0:high?Math.floor(exact):Math.ceil(exact);
+  assert.equal(calls,number===28?0:3);
+  assert.equal(b.spin!.number,number);assert.equal(b.pending,undefined);
+  assert.equal(b.settledBets![0].houseEdgeBps,edge);
+  assert.equal(b.settledBets![0].returned,returned);
+  assert.equal(r.members[0].wallet,99500+returned);
+  assert.equal(r.members[0].spins![0].returned,returned);
+  assert.equal(r.house,500-returned);assert.equal(totalChips(r),bank);assertRoom(r);
+  const saved=structuredClone(r);
+  assert.equal(rouletteTick(r,57001,noWheelDraw,prepared,()=>{throw Error('Rounded twice');}),false);
+  assert.deepEqual(r,saved);
+ }
+});
+
+test('production prepared-spin call permits secure default rounding without a second wheel draw',()=>{
+ for(const number of [18,28]){
+  const r=setup(200),b=rouletteState(r,1000);
+  rouletteAction(r,who,{type:'bet',bet:{kind:'red',amount:500}},1,'production-red',1000);
+  b.pending={id:'production-lock',lockedAt:56000,target:number,generatedAt:56001};
+  rouletteTick(r,57000,()=>{throw Error('Prepared spin must not draw a result');},{round:1,number,startedAt:62000,resultAt:74000,nextAt:79000});
+  assert.equal(b.spin!.number,number);
+  const returned=b.settledBets![0].returned!;
+  assert.ok(number===28?returned===0:returned===1007||returned===1008);
+  assert.equal(r.members[0].spins![0].returned,returned);assertRoom(r);
+ }
+});
